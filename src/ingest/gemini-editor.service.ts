@@ -46,30 +46,58 @@ export class GeminiEditorService {
 
   async edit(source: SourceDto, item: ArticleDto, fingerprint: string): Promise<ArticleDto> {
     try {
-      const generationConfig = this.research
-        ? { maxOutputTokens: 12000 }
-        : { responseMimeType: 'application/json', responseJsonSchema: schema, maxOutputTokens: 12000 };
+      const requestBody = (useTools: boolean) => ({
+        systemInstruction: { parts: [{ text: this.prompt }] },
+        contents: [{ role: 'user', parts: [{ text: JSON.stringify(this.input(source, item)) }] }],
+        tools: useTools ? [{ googleSearch: {} }, { urlContext: {} }] : undefined,
+        generationConfig: useTools
+          ? { maxOutputTokens: 12000 }
+          : { responseMimeType: 'application/json', responseJsonSchema: schema, maxOutputTokens: 12000 },
+      });
 
-      const { data, modelUsed } = await postGeminiGenerateContent({
+      const extractJson = (raw: string): unknown => {
+        const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+        const target = fenced ? fenced[1].trim() : raw;
+        const firstBrace = target.indexOf('{');
+        const lastBrace = target.lastIndexOf('}');
+        const slice = firstBrace >= 0 && lastBrace > firstBrace ? target.slice(firstBrace, lastBrace + 1) : target;
+        return JSON.parse(slice);
+      };
+
+      let result = await postGeminiGenerateContent({
         apiKey: this.key!,
         preferredModel: this.model,
         timeoutMs: 65_000,
-        body: {
-          systemInstruction: { parts: [{ text: this.prompt }] },
-          contents: [{ role: 'user', parts: [{ text: JSON.stringify(this.input(source, item)) }] }],
-          tools: this.research ? [{ googleSearch: {} }, { urlContext: {} }] : undefined,
-          generationConfig,
-        },
+        body: requestBody(this.research),
       });
-      const candidate = (data as GeminiResponse).candidates?.[0];
+      let candidate = (result.data as GeminiResponse).candidates?.[0];
       if (candidate?.finishReason !== 'STOP') {
         throw new Error(`Gemini did not finish the article (${candidate?.finishReason || 'unknown'})`);
       }
 
-      const rawOutput = candidate.content?.parts?.filter(part => !part.thought).map(part => part.text ?? '').join('') || '';
-      const jsonMatch = rawOutput.match(/\{[\s\S]*\}/);
-      const output = jsonMatch ? jsonMatch[0] : rawOutput;
-      const article = validateArticle(JSON.parse(output), item.url);
+      let rawOutput = candidate.content?.parts?.filter(part => !part.thought).map(part => part.text ?? '').join('') || '';
+      let parsedJson: unknown;
+      try {
+        parsedJson = extractJson(rawOutput);
+      } catch {
+        if (!this.research) throw new Error('Expected JSON object');
+        // Fallback to strict JSON schema without tools if tool-assisted text wasn't valid JSON
+        result = await postGeminiGenerateContent({
+          apiKey: this.key!,
+          preferredModel: this.model,
+          timeoutMs: 65_000,
+          body: requestBody(false),
+        });
+        candidate = (result.data as GeminiResponse).candidates?.[0];
+        if (candidate?.finishReason !== 'STOP') {
+          throw new Error(`Gemini did not finish the article (${candidate?.finishReason || 'unknown'})`);
+        }
+        rawOutput = candidate.content?.parts?.filter(part => !part.thought).map(part => part.text ?? '').join('') || '';
+        parsedJson = extractJson(rawOutput);
+      }
+
+      const modelUsed = result.modelUsed;
+      const article = validateArticle(parsedJson, item.url);
       const grounding = (candidate.groundingMetadata?.groundingChunks ?? []).flatMap(chunk => {
         const url = httpsUrl(chunk.web?.uri);
         return url ? [{ url, title: (chunk.web?.title || '').slice(0, 200) }] : [];
