@@ -16,6 +16,8 @@ import { GamesController } from './games/games.controller';
 import { GamesService } from './games/games.service';
 import { KgController } from './kg/kg.controller';
 import { KgService } from './kg/kg.service';
+import { GrantsController } from './grants/grants.controller';
+import { GrantsService } from './grants/grants.service';
 
 @Module({
   controllers: [
@@ -26,6 +28,7 @@ import { KgService } from './kg/kg.service';
     CatalogController,
     GamesController,
     KgController,
+    GrantsController,
   ],
   providers: [
     DatabaseService,
@@ -38,6 +41,7 @@ import { KgService } from './kg/kg.service';
     CatalogService,
     GamesService,
     KgService,
+    GrantsService,
   ],
 })
 export class AppModule {}

@@ -1,6 +1,7 @@
 import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { GamesService } from '../games/games.service';
+import { INITIAL_GRANTS_SEED } from '../grants/grants-seed';
 import { GeminiEditorService } from '../ingest/gemini-editor.service';
 @Controller('health')
 export class HealthController {
@@ -23,8 +24,16 @@ export class HealthController {
 
   @Get('summary')
   async summary() {
+    const activeSeedGrants = INITIAL_GRANTS_SEED.filter((g) => g.status === 'active');
+    const fallbackGrants = {
+      active: activeSeedGrants.length,
+      equityFree: activeSeedGrants.filter((g) => g.equityFree).length,
+      totalFundingUsd: activeSeedGrants.reduce((sum, g) => sum + g.fundingMaxUsd, 0),
+      lastVerifiedAt: activeSeedGrants[0]?.lastVerifiedAt ?? null,
+    };
+
     try {
-      const [newsRes, sourcesRes, catalogRes, gamesRes] = await Promise.all([
+      const [newsRes, sourcesRes, catalogRes, gamesRes, grantsSummary] = await Promise.all([
         this.db.query<{
           total: string;
           important_total: string;
@@ -56,6 +65,31 @@ export class HealthController {
            FROM game_offers
            WHERE status = 'active'`,
         ),
+        this.db
+          .query<{
+            active: string;
+            equity_free: string;
+            total_funding_usd: string;
+            last_verified: string | null;
+          }>(
+            `SELECT COUNT(*) FILTER (WHERE status = 'active')::text AS active,
+                    COUNT(*) FILTER (WHERE status = 'active' AND equity_free)::text AS equity_free,
+                    COALESCE(SUM(funding_max_usd) FILTER (WHERE status = 'active'), 0)::text AS total_funding_usd,
+                    MAX(last_verified_at)::text AS last_verified
+             FROM grants_opportunities`,
+          )
+          .then((res) => {
+            const row = res.rows[0];
+            const active = Number(row?.active ?? 0);
+            if (active === 0) return fallbackGrants;
+            return {
+              active,
+              equityFree: Number(row?.equity_free ?? 0),
+              totalFundingUsd: Number(row?.total_funding_usd ?? 0),
+              lastVerifiedAt: row?.last_verified ?? null,
+            };
+          })
+          .catch(() => fallbackGrants),
       ]);
 
       return {
@@ -81,6 +115,7 @@ export class HealthController {
           freeGiveaways: Number(gamesRes.rows[0]?.free_giveaways ?? 0),
           lastVerifiedAt: gamesRes.rows[0]?.last_verified ?? null,
         },
+        grants: grantsSummary,
         ai: {
           configured: Boolean(
             process.env.GEMINI_API_KEY?.trim() &&

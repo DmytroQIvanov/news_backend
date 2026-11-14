@@ -173,6 +173,28 @@ export const KG_SEED_ENTITIES: KgSeedEntity[] = [
     descriptionUk: 'Середовища та CLI для розробки з ШІ: Claude Code, Cursor, Copilot.',
     keywords: ['claude code', 'cursor', 'copilot', 'windsurf', 'codex', 'ide'],
   },
+  // Grant ecosystems & startup programs
+  {
+    slug: 'brave1-usf',
+    name: 'Brave1 & USF Grants',
+    entityType: 'event',
+    descriptionUk: 'Українська грантова екосистема для DefenseTech, DeepTech та AI-стартапів (Brave1, USF, єРобота).',
+    keywords: ['brave1', 'usf', 'український фонд стартапів', 'seeds of bravery', 'uaseeds', 'єробота', 'defensetech'],
+  },
+  {
+    slug: 'eic-horizon',
+    name: 'EIC & Horizon Europe',
+    entityType: 'event',
+    descriptionUk: 'Європейські програми безповоротного фінансування DeepTech, ШІ та зелених інновацій (EIC Accelerator, Digital Europe, EIT).',
+    keywords: ['eic accelerator', 'horizon europe', 'digital europe', 'eit jumpstarter', 'innovate uk', 'house of europe'],
+  },
+  {
+    slug: 'cloud-gpu-grants',
+    name: 'Cloud & GPU Startup Credits',
+    entityType: 'product',
+    descriptionUk: 'Програми хмарних та GPU-кредитів для AI-стартапів від Google, NVIDIA, Microsoft, AWS та OpenAI.',
+    keywords: ['cloud credits', 'cloud program', 'inception', 'dgx cloud', 'founders hub', 'aws activate', 'gpu credits'],
+  },
 ];
 
 export const KG_SEED_RELATIONS: KgSeedRelation[] = [
@@ -192,6 +214,15 @@ export const KG_SEED_RELATIONS: KgSeedRelation[] = [
   { from: 'deepseek', to: 'local-ai', relationType: 'supports', labelUk: 'доступно локально' },
   { from: 'groq', to: 'llama-models', relationType: 'runs_on', labelUk: 'прискорює на LPU' },
   { from: 'ai-coding-tools', to: 'benchmarks', relationType: 'benchmarks', labelUk: 'перевіряється на SWE-bench' },
+  { from: 'nvidia', to: 'cloud-gpu-grants', relationType: 'funds', labelUk: 'надає DGX GPU-кредити' },
+  { from: 'google', to: 'cloud-gpu-grants', relationType: 'funds', labelUk: 'надає до $350k Cloud/TPU' },
+  { from: 'openai', to: 'cloud-gpu-grants', relationType: 'funds', labelUk: 'гранти та API-кредити' },
+  { from: 'cloud-gpu-grants', to: 'ai-agents', relationType: 'accelerates', labelUk: 'фінансує AI-агентів' },
+  { from: 'cloud-gpu-grants', to: 'ai-coding-tools', relationType: 'accelerates', labelUk: 'підтримує розробників' },
+  { from: 'brave1-usf', to: 'local-ai', relationType: 'funds', labelUk: 'фінансує автономний та локальний ШІ' },
+  { from: 'brave1-usf', to: 'ai-agents', relationType: 'funds', labelUk: 'гранти на автономні системи' },
+  { from: 'eic-horizon', to: 'local-ai', relationType: 'funds', labelUk: 'гранти ЄС на DeepTech і ШІ' },
+  { from: 'eic-horizon', to: 'ai-coding-tools', relationType: 'supports', labelUk: 'прискорює R&D-продукти' },
 ];
 
 export function extractEntitySlugs(text: string): string[] {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { UnauthorizedException } from '@nestjs/common';
+import { NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { canonicalizeUrl, retryWithBackoff } from '../dist/common/url-utils.js';
 import { parseFeedXml } from '../dist/news/company-feeds.service.js';
 import { validateArticle } from '../dist/ingest/gemini-editor.service.js';
@@ -9,7 +9,21 @@ import { diffCatalogItems, isPromotionExpired } from '../dist/catalog/catalog.se
 import { INITIAL_CATALOG } from '../dist/catalog/catalog-seed.js';
 import { slugifySource } from '../dist/news/source-discovery.service.js';
 import { detectStoreName } from '../dist/games/games.service.js';
-import { classifyCredibilityTier, extractEntitySlugs } from '../dist/kg/kg-seed.js';
+import {
+  classifyCredibilityTier,
+  extractEntitySlugs,
+  KG_SEED_ENTITIES,
+  KG_SEED_RELATIONS,
+} from '../dist/kg/kg-seed.js';
+import {
+  computeGrantMatchScore,
+  GRANT_COUNTRY_LABELS_UK,
+  GRANT_SECTOR_LABELS_UK,
+  INITIAL_GRANTS_SEED,
+} from '../dist/grants/grants-seed.js';
+import { GrantsService } from '../dist/grants/grants.service.js';
+import { GrantsController } from '../dist/grants/grants.controller.js';
+import { HealthController } from '../dist/health/health.controller.js';
 
 test('canonicalizeUrl strips tracking params, www, hash, and trailing slash', () => {
   const input = 'https://www.openai.com/news/gpt-5/?utm_source=rss&fbclid=123&ref=x#top';
@@ -199,4 +213,187 @@ test('classifyCredibilityTier separates independent tests, verified facts, and r
   assert.equal(classifyCredibilityTier('Official release notes v2.1 documentation').tier, 'verified_fact');
   assert.equal(classifyCredibilityTier('Rumor: new model might launch next week', true).tier, 'ai_inference');
   assert.equal(classifyCredibilityTier('Correction: earlier latency figures updated').isCorrectionSignal, true);
+});
+
+test('INITIAL_GRANTS_SEED covers all 5 regions, all 6 sectors, valid https URLs, and requirementsUk', () => {
+  assert.ok(INITIAL_GRANTS_SEED.length >= 16);
+
+  const seenIds = new Set();
+  const countries = new Set();
+  const sectors = new Set();
+  const validTypes = new Set(['grant', 'accelerator', 'cloud_credits', 'fellowship', 'competition']);
+  const validStages = new Set(['idea', 'mvp', 'scale']);
+
+  for (const grant of INITIAL_GRANTS_SEED) {
+    assert.ok(grant.externalId.length > 0 && grant.externalId.length <= 160);
+    assert.equal(seenIds.has(grant.externalId), false, `Duplicate externalId: ${grant.externalId}`);
+    seenIds.add(grant.externalId);
+
+    assert.ok(grant.titleUk.length > 5);
+    assert.ok(grant.organization.length > 2);
+    assert.equal(grant.countryLabelUk, GRANT_COUNTRY_LABELS_UK[grant.countryCode]);
+    assert.equal(grant.sectorLabelUk, GRANT_SECTOR_LABELS_UK[grant.sector]);
+    assert.ok(validTypes.has(grant.opportunityType));
+    assert.ok(validStages.has(grant.stage));
+    assert.ok(grant.fundingAmount.length > 0);
+    assert.ok(grant.fundingMaxUsd > 0);
+    assert.ok(grant.worthScore >= 50 && grant.worthScore <= 100);
+    assert.ok(grant.summaryUk.length > 20);
+    assert.ok(grant.eligibilityUk.length > 15);
+    assert.ok(grant.applicationTipsUk && grant.applicationTipsUk.length > 10);
+    assert.ok(grant.officialUrl.startsWith('https://'), `Invalid URL: ${grant.officialUrl}`);
+    assert.ok(Array.isArray(grant.requirementsUk) && grant.requirementsUk.length >= 3 && grant.requirementsUk.length <= 5);
+    for (const req of grant.requirementsUk) {
+      assert.equal(typeof req, 'string');
+      assert.ok(req.trim().length > 5);
+    }
+    if (!grant.isRolling) {
+      assert.ok(grant.deadlineAt && Number.isFinite(Date.parse(grant.deadlineAt)));
+    }
+
+    countries.add(grant.countryCode);
+    sectors.add(grant.sector);
+  }
+
+  for (const code of ['ua', 'eu', 'us', 'uk', 'global']) {
+    assert.ok(countries.has(code), `Missing country coverage: ${code}`);
+  }
+  for (const sector of ['ai_deeptech', 'defensetech', 'greentech', 'edtech_science', 'sme_veterans', 'creative_media']) {
+    assert.ok(sectors.has(sector), `Missing sector coverage: ${sector}`);
+  }
+});
+
+test('computeGrantMatchScore returns clamped [40, 99] integers and ranks aligned grants higher', () => {
+  const brave1 = INITIAL_GRANTS_SEED.find((g) => g.externalId === 'brave1-defense-tech');
+  const eic = INITIAL_GRANTS_SEED.find((g) => g.externalId === 'eic-accelerator-horizon');
+  assert.ok(brave1 && eic);
+
+  const alignedScore = computeGrantMatchScore(brave1, {
+    legalStatus: 'tov',
+    stage: 'mvp',
+    sector: 'defensetech',
+    country: 'ua',
+    preferEquityFree: true,
+  });
+  const mismatchedScore = computeGrantMatchScore(eic, {
+    legalStatus: 'individual',
+    stage: 'idea',
+    sector: 'creative_media',
+    country: 'us',
+    preferEquityFree: true,
+  });
+
+  assert.ok(Number.isInteger(alignedScore) && alignedScore >= 40 && alignedScore <= 99);
+  assert.ok(Number.isInteger(mismatchedScore) && mismatchedScore >= 40 && mismatchedScore <= 99);
+  assert.ok(alignedScore > mismatchedScore);
+
+  for (const grant of INITIAL_GRANTS_SEED) {
+    const score = computeGrantMatchScore(grant, {
+      legalStatus: 'fop',
+      stage: 'mvp',
+      sector: 'ai_deeptech',
+      country: 'ua',
+      preferEquityFree: true,
+    });
+    assert.ok(Number.isInteger(score) && score >= 40 && score <= 99);
+  }
+});
+
+test('KG seed contains grant ecosystem entities and links them to AI entities', () => {
+  const slugs = new Set(KG_SEED_ENTITIES.map((e) => e.slug));
+  const allowedTypes = new Set(['company', 'model', 'technology', 'product', 'event']);
+
+  for (const entity of KG_SEED_ENTITIES) {
+    assert.ok(allowedTypes.has(entity.entityType), `Invalid KG entityType: ${entity.entityType}`);
+  }
+  for (const grantSlug of ['brave1-usf', 'eic-horizon', 'cloud-gpu-grants']) {
+    assert.ok(slugs.has(grantSlug), `Missing KG grant entity: ${grantSlug}`);
+  }
+  for (const rel of KG_SEED_RELATIONS) {
+    assert.ok(slugs.has(rel.from), `Unknown relation from: ${rel.from}`);
+    assert.ok(slugs.has(rel.to), `Unknown relation to: ${rel.to}`);
+  }
+
+  const linkedTargets = new Set(
+    KG_SEED_RELATIONS.flatMap((r) =>
+      ['brave1-usf', 'eic-horizon', 'cloud-gpu-grants'].includes(r.from)
+        ? [r.to]
+        : ['brave1-usf', 'eic-horizon', 'cloud-gpu-grants'].includes(r.to)
+          ? [r.from]
+          : [],
+    ),
+  );
+  for (const expectedTarget of ['nvidia', 'google', 'openai', 'local-ai', 'ai-agents', 'ai-coding-tools']) {
+    assert.ok(linkedTargets.has(expectedTarget), `Missing KG grant link to: ${expectedTarget}`);
+  }
+
+  const matched = extractEntitySlugs('Brave1 and USF launch DefenseTech call with NVIDIA DGX Cloud credits');
+  assert.ok(matched.includes('brave1-usf'));
+  assert.ok(matched.includes('nvidia'));
+  assert.ok(matched.includes('cloud-gpu-grants'));
+});
+
+test('GrantsService and GrantsController fall back cleanly to INITIAL_GRANTS_SEED when DB is unavailable', async () => {
+  const failingDb = {
+    query: async () => {
+      throw new Error('relation "grants_opportunities" does not exist');
+    },
+  };
+  const service = new GrantsService(failingDb);
+  const controller = new GrantsController(service);
+
+  const all = await service.list();
+  assert.equal(all.total, INITIAL_GRANTS_SEED.length);
+  assert.equal(all.items.length, INITIAL_GRANTS_SEED.length);
+  assert.equal(all.hasMore, false);
+
+  const uaGrants = await service.list({ country: 'ua' });
+  assert.equal(uaGrants.total, 4);
+  assert.ok(uaGrants.items.every((g) => g.countryCode === 'ua'));
+
+  const byFunding = await service.list({ sort: 'funding_desc', limit: 3 });
+  assert.equal(byFunding.items.length, 3);
+  assert.equal(byFunding.hasMore, true);
+  assert.equal(byFunding.items[0].externalId, 'eic-accelerator-horizon');
+
+  const byDeadline = await service.list({ sort: 'deadline_asc' });
+  assert.equal(byDeadline.items[0].isRolling, false);
+  assert.equal(byDeadline.items[0].externalId, 'house-of-europe-culture-media');
+
+  const meta = await controller.getMeta();
+  assert.equal(meta.totalActive, INITIAL_GRANTS_SEED.length);
+  assert.equal(meta.uaCount, 4);
+  assert.equal(meta.byCountry.ua, 4);
+  assert.ok(meta.totalFundingUsd > 5_000_000);
+
+  const brave1 = await controller.detail('brave1-defense-tech');
+  assert.equal(brave1.countryCode, 'ua');
+
+  await assert.rejects(() => controller.detail('missing-grant-id'), NotFoundException);
+});
+
+test('HealthController.summary falls back gracefully to INITIAL_GRANTS_SEED when grants table is absent', async () => {
+  const mockDb = {
+    query: async (sql) => {
+      if (sql.includes('grants_opportunities')) {
+        throw new Error('relation "grants_opportunities" does not exist');
+      }
+      if (sql.includes('news_items')) {
+        return { rows: [{ total: '5', important_total: '2', needs_review: '1', rejected: '0', last_at: null }] };
+      }
+      if (sql.includes('sources')) {
+        return { rows: [{ total: '10', healthy: '9' }] };
+      }
+      if (sql.includes('ai_catalogs')) {
+        return { rows: [{ total: '12', last_verified: null }] };
+      }
+      return { rows: [{ total: '3', free_giveaways: '2', last_verified: null }] };
+    },
+  };
+  const health = new HealthController(mockDb);
+  const summary = await health.summary();
+  assert.equal(summary.status, 'ok');
+  assert.equal(summary.grants.active, INITIAL_GRANTS_SEED.length);
+  assert.equal(summary.grants.equityFree, INITIAL_GRANTS_SEED.filter((g) => g.equityFree).length);
+  assert.ok(summary.grants.totalFundingUsd > 5_000_000);
 });
