@@ -76,12 +76,12 @@ export class GeminiEditorService {
       }
 
       let rawOutput = candidate.content?.parts?.filter(part => !part.thought).map(part => part.text ?? '').join('') || '';
-      let parsedJson: unknown;
+      let article: ReturnType<typeof validateArticle>;
       try {
-        parsedJson = extractJson(rawOutput);
+        article = validateArticle(extractJson(rawOutput), item.url);
       } catch {
-        if (!this.research) throw new Error('Expected JSON object');
-        // Fallback to strict JSON schema without tools if tool-assisted text wasn't valid JSON
+        if (!this.research) throw new Error('Invalid editorial payload');
+        // Fallback to strict JSON schema without tools if tool-assisted response failed JSON/schema validation
         result = await postGeminiGenerateContent({
           apiKey: this.key!,
           preferredModel: this.model,
@@ -93,11 +93,10 @@ export class GeminiEditorService {
           throw new Error(`Gemini did not finish the article (${candidate?.finishReason || 'unknown'})`);
         }
         rawOutput = candidate.content?.parts?.filter(part => !part.thought).map(part => part.text ?? '').join('') || '';
-        parsedJson = extractJson(rawOutput);
+        article = validateArticle(extractJson(rawOutput), item.url);
       }
 
       const modelUsed = result.modelUsed;
-      const article = validateArticle(parsedJson, item.url);
       const grounding = (candidate.groundingMetadata?.groundingChunks ?? []).flatMap(chunk => {
         const url = httpsUrl(chunk.web?.uri);
         return url ? [{ url, title: (chunk.web?.title || '').slice(0, 200) }] : [];
