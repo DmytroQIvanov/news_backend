@@ -25,14 +25,14 @@ export class HealthController {
       const [newsRes, sourcesRes, catalogRes, gamesRes] = await Promise.all([
         this.db.query<{ total: string; important_total: string; last_at: string | null }>(
           `SELECT COUNT(*)::text AS total,
-                  COUNT(*) FILTER (WHERE important)::text AS important_total,
+                  COUNT(*) FILTER (WHERE importance IN ('high', 'critical'))::text AS important_total,
                   MAX(published_at)::text AS last_at
            FROM news_items
            WHERE status = 'published'`,
         ),
         this.db.query<{ total: string; healthy: string }>(
           `SELECT COUNT(*)::text AS total,
-                  COUNT(*) FILTER (WHERE is_active AND consecutive_failures < 3)::text AS healthy
+                  COUNT(*) FILTER (WHERE enabled AND last_error IS NULL)::text AS healthy
            FROM sources`,
         ),
         this.db.query<{ total: string; last_verified: string | null }>(
