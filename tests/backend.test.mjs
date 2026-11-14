@@ -6,7 +6,9 @@ import { parseFeedXml } from '../dist/news/company-feeds.service.js';
 import { validateArticle } from '../dist/ingest/gemini-editor.service.js';
 import { IngestKeyGuard } from '../dist/common/ingest-key.guard.js';
 import { diffCatalogItems, isPromotionExpired } from '../dist/catalog/catalog.service.js';
+import { INITIAL_CATALOG } from '../dist/catalog/catalog-seed.js';
 import { slugifySource } from '../dist/news/source-discovery.service.js';
+import { detectStoreName } from '../dist/games/games.service.js';
 
 test('canonicalizeUrl strips tracking params, www, hash, and trailing slash', () => {
   const input = 'https://www.openai.com/news/gpt-5/?utm_source=rss&fbclid=123&ref=x#top';
@@ -166,4 +168,18 @@ test('retryWithBackoff retries transient errors and succeeds', async () => {
 test('slugifySource normalizes source names into valid slugs', () => {
   assert.equal(slugifySource('LangChain Blog!'), 'langchain-blog');
   assert.match(slugifySource('AI'), /^src-[a-f0-9]{12}$/);
+});
+
+test('INITIAL_CATALOG covers top 12 AI providers with pricing metadata', () => {
+  assert.ok(INITIAL_CATALOG.length >= 12);
+  for (const item of INITIAL_CATALOG) {
+    assert.ok(item.pricingSummary.length > 0);
+    assert.ok(item.minInputPricePer1M !== undefined);
+  }
+});
+
+test('detectStoreName identifies game marketplaces', () => {
+  assert.equal(detectStoreName('PC, Epic Games Store', 'https://store.epicgames.com/uk/p/test'), 'Epic Games');
+  assert.equal(detectStoreName('Steam', 'https://store.steampowered.com/app/123'), 'Steam');
+  assert.equal(detectStoreName('GOG', 'https://www.gog.com/game/test'), 'GOG');
 });

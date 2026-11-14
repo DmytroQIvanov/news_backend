@@ -190,37 +190,47 @@ export class CatalogService implements OnModuleInit, OnModuleDestroy {
     if (this.checkTimer) clearTimeout(this.checkTimer);
   }
 
-  async getAll(filters?: { q?: string; category?: string; hasFree?: boolean }): Promise<AiCatalogItem[]> {
+  async getAll(filters?: { q?: string; category?: string; hasFree?: boolean; sort?: string }): Promise<AiCatalogItem[]> {
     let items: AiCatalogItem[] = [];
     try {
       const { rows } = await this.db.query<AiCatalogItem & { pricingDocUrl?: string }>(`
         SELECT id, provider_id AS "providerId", provider_name AS "providerName",
                category, title, tagline, models, free_tier AS "freeTier",
                current_promotions AS "currentPromotions", advantages, limitations,
-               pricing_summary AS "pricingSummary", official_url AS "officialUrl",
+               pricing_summary AS "pricingSummary",
+               subscription_price_usd::float AS "subscriptionPriceUsd",
+               min_input_price_per_1m::float AS "minInputPricePer1M",
+               official_url AS "officialUrl",
                pricing_doc_url AS "pricingDocUrl", last_verified_at AS "lastVerifiedAt"
         FROM ai_catalogs
         ORDER BY CASE
           WHEN provider_id = 'gemini' THEN 1
           WHEN provider_id = 'claude' THEN 2
           WHEN provider_id = 'openai' THEN 3
-          WHEN provider_id = 'mistral' THEN 4
-          WHEN provider_id = 'huggingface' THEN 5
-          WHEN provider_id = 'grok' THEN 6
-          WHEN provider_id = 'perplexity' THEN 7
-          ELSE 8 END, id
+          WHEN provider_id = 'deepseek' THEN 4
+          WHEN provider_id = 'grok' THEN 5
+          WHEN provider_id = 'mistral' THEN 6
+          WHEN provider_id = 'groq' THEN 7
+          WHEN provider_id = 'perplexity' THEN 8
+          WHEN provider_id = 'huggingface' THEN 9
+          WHEN provider_id = 'openrouter' THEN 10
+          WHEN provider_id = 'together' THEN 11
+          WHEN provider_id = 'cohere' THEN 12
+          ELSE 13 END, id
       `);
       if (rows && rows.length > 0) {
         items = rows;
       }
     } catch {
-      // Fallback to seed if DB table is not ready
+      // Fallback to seed if DB table/columns are not ready
     }
     if (!items.length) items = INITIAL_CATALOG;
 
+    const seedById = new Map(INITIAL_CATALOG.map(s => [s.id, s]));
     const now = new Date();
     const staleThresholdMs = 7 * 24 * 60 * 60_000;
     let normalized = items.map(item => {
+      const seed = seedById.get(item.id);
       const verifiedMs = Date.parse(item.lastVerifiedAt);
       const isOutdated = !Number.isFinite(verifiedMs) || (now.getTime() - verifiedMs > staleThresholdMs);
       const activePromos = (item.currentPromotions || [])
@@ -229,6 +239,8 @@ export class CatalogService implements OnModuleInit, OnModuleDestroy {
 
       return {
         ...item,
+        subscriptionPriceUsd: item.subscriptionPriceUsd ?? seed?.subscriptionPriceUsd ?? null,
+        minInputPricePer1M: item.minInputPricePer1M ?? seed?.minInputPricePer1M ?? null,
         currentPromotions: activePromos,
         verificationStatus: (isOutdated ? 'outdated' : 'confirmed') as 'confirmed' | 'outdated',
       };
@@ -251,6 +263,18 @@ export class CatalogService implements OnModuleInit, OnModuleDestroy {
         i.currentPromotions.some(p => p.title.toLowerCase().includes(q)),
       );
     }
+
+    if (filters?.sort === 'price_asc') {
+      normalized.sort((a, b) => (a.minInputPricePer1M ?? 999) - (b.minInputPricePer1M ?? 999));
+    } else if (filters?.sort === 'price_desc') {
+      normalized.sort((a, b) => (b.minInputPricePer1M ?? -1) - (a.minInputPricePer1M ?? -1));
+    } else if (filters?.sort === 'context_desc') {
+      const maxCtx = (item: AiCatalogItem) => Math.max(0, ...item.models.map(m => m.contextTokens || 0));
+      normalized.sort((a, b) => maxCtx(b) - maxCtx(a));
+    } else if (filters?.sort === 'verified_desc') {
+      normalized.sort((a, b) => Date.parse(b.lastVerifiedAt) - Date.parse(a.lastVerifiedAt));
+    }
+
     return normalized;
   }
 

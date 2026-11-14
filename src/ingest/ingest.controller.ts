@@ -1,6 +1,7 @@
 import { Body, Controller, Post, Query, UseGuards } from '@nestjs/common';
 import { CatalogService } from '../catalog/catalog.service';
 import { IngestKeyGuard } from '../common/ingest-key.guard';
+import { GamesService } from '../games/games.service';
 import { CompanyFeedsService } from '../news/company-feeds.service';
 import { FeedEditorialService } from '../news/feed-editorial.service';
 import { SourceDiscoveryService } from '../news/source-discovery.service';
@@ -16,6 +17,7 @@ export class IngestController {
     private readonly editorial: FeedEditorialService,
     private readonly catalog: CatalogService,
     private readonly discovery: SourceDiscoveryService,
+    private readonly games: GamesService,
   ) {}
 
   @Post('news')
@@ -34,11 +36,13 @@ export class IngestController {
     const feedResult = await this.feeds.pollAll(true);
     const editorialResult = await this.editorial.runOnce();
     const catalogResult = await this.catalog.syncAndVerifyAll(false);
+    const gamesResult = await this.games.syncGames();
     return {
       discovery: discoveryResult,
       feeds: feedResult,
       editorial: editorialResult,
       catalog: { updated: catalogResult.updated, skipped: catalogResult.skipped },
+      games: gamesResult,
       syncedAt: new Date().toISOString(),
     };
   }

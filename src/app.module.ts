@@ -12,6 +12,8 @@ import { IngestService } from './ingest/ingest.service';
 import { IngestKeyGuard } from './common/ingest-key.guard';
 import { CatalogController } from './catalog/catalog.controller';
 import { CatalogService } from './catalog/catalog.service';
+import { GamesController } from './games/games.controller';
+import { GamesService } from './games/games.service';
 
 @Module({
   controllers: [
@@ -20,6 +22,7 @@ import { CatalogService } from './catalog/catalog.service';
     NewsController,
     IngestController,
     CatalogController,
+    GamesController,
   ],
   providers: [
     DatabaseService,
@@ -30,6 +33,7 @@ import { CatalogService } from './catalog/catalog.service';
     GeminiEditorService,
     FeedEditorialService,
     CatalogService,
+    GamesService,
   ],
 })
 export class AppModule {}

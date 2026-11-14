@@ -11,11 +11,13 @@ export class CatalogController {
     @Query('q') q?: string,
     @Query('category') category?: string,
     @Query('hasFree') hasFree?: string,
+    @Query('sort') sort?: string,
   ) {
     const items = await this.catalogService.getAll({
       q: q?.trim() || undefined,
       category: category?.trim() || undefined,
       hasFree: hasFree === 'true' ? true : undefined,
+      sort: sort?.trim() || undefined,
     });
     return { items, count: items.length };
   }
