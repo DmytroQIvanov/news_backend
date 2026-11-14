@@ -216,7 +216,7 @@ export class GamesService implements OnModuleInit, OnModuleDestroy {
 
     const enrichMap = new Map<string, { titleUk: string; descriptionUk: string; howToClaimUk: string }>();
     if (this.geminiKey && toEnrich.length > 0) {
-      const batch = toEnrich.slice(0, 10);
+      const batch = toEnrich.slice(0, 5);
       const enriched = await this.enrichWithGemini(batch);
       for (const item of enriched) {
         enrichMap.set(item.externalId, item);
@@ -458,7 +458,7 @@ ${JSON.stringify(batch.map(b => ({
           generationConfig: {
             responseMimeType: 'application/json',
             responseJsonSchema: enrichmentSchema,
-            maxOutputTokens: 3000,
+            maxOutputTokens: 8192,
           },
         },
       });

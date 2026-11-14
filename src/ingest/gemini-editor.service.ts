@@ -46,6 +46,10 @@ export class GeminiEditorService {
 
   async edit(source: SourceDto, item: ArticleDto, fingerprint: string): Promise<ArticleDto> {
     try {
+      const generationConfig = this.research
+        ? { maxOutputTokens: 12000 }
+        : { responseMimeType: 'application/json', responseJsonSchema: schema, maxOutputTokens: 12000 };
+
       const { data, modelUsed } = await postGeminiGenerateContent({
         apiKey: this.key!,
         preferredModel: this.model,
@@ -54,7 +58,7 @@ export class GeminiEditorService {
           systemInstruction: { parts: [{ text: this.prompt }] },
           contents: [{ role: 'user', parts: [{ text: JSON.stringify(this.input(source, item)) }] }],
           tools: this.research ? [{ googleSearch: {} }, { urlContext: {} }] : undefined,
-          generationConfig: { responseMimeType: 'application/json', responseJsonSchema: schema, maxOutputTokens: 12000 },
+          generationConfig,
         },
       });
       const candidate = (data as GeminiResponse).candidates?.[0];
@@ -62,8 +66,10 @@ export class GeminiEditorService {
         throw new Error(`Gemini did not finish the article (${candidate?.finishReason || 'unknown'})`);
       }
 
-      const output = candidate.content?.parts?.filter(part => !part.thought).map(part => part.text ?? '').join('');
-      const article = validateArticle(JSON.parse(output ?? ''), item.url);
+      const rawOutput = candidate.content?.parts?.filter(part => !part.thought).map(part => part.text ?? '').join('') || '';
+      const jsonMatch = rawOutput.match(/\{[\s\S]*\}/);
+      const output = jsonMatch ? jsonMatch[0] : rawOutput;
+      const article = validateArticle(JSON.parse(output), item.url);
       const grounding = (candidate.groundingMetadata?.groundingChunks ?? []).flatMap(chunk => {
         const url = httpsUrl(chunk.web?.uri);
         return url ? [{ url, title: (chunk.web?.title || '').slice(0, 200) }] : [];
