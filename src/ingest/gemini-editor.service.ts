@@ -30,7 +30,7 @@ export class GeminiEditorService {
   private readonly prompt = readFileSync(join(__dirname, 'editorial-prompt.md'), 'utf8');
   private readonly model = process.env.GEMINI_MODEL?.trim() || 'gemini-2.0-flash-lite';
   private readonly key = process.env.GEMINI_API_KEY?.trim();
-  private readonly research = process.env.GEMINI_RESEARCH === 'true';
+  private readonly research = process.env.GEMINI_RESEARCH === 'strict';
 
   get enabled() { return !!this.key; }
 
