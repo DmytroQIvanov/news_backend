@@ -1,9 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { canonicalizeUrl, retryWithBackoff } from '../dist/common/url-utils.js';
 import { parseFeedXml } from '../dist/news/company-feeds.service.js';
-import { validateArticle } from '../dist/ingest/gemini-editor.service.js';
+import {
+  EDITORIAL_ARTICLE_SCHEMA,
+  GeminiEditorService,
+  validateArticle,
+} from '../dist/ingest/gemini-editor.service.js';
 import { IngestKeyGuard } from '../dist/common/ingest-key.guard.js';
 import { CatalogService, diffCatalogItems, isPromotionExpired } from '../dist/catalog/catalog.service.js';
 import { computeModelTokenPracticality, INITIAL_CATALOG } from '../dist/catalog/catalog-seed.js';
@@ -11,9 +15,23 @@ import { slugifySource } from '../dist/news/source-discovery.service.js';
 import { detectStoreName } from '../dist/games/games.service.js';
 import {
   buildGeminiRequestBody,
+  canUseHydrogenQuota,
+  DEFAULT_HYDROGEN_MODEL,
   FALLBACK_GEMINI_MODELS,
+  getHydrogenQuotaStatus,
+  isHydrogenModel,
   normalizeGeminiModel,
+  postGeminiGenerateContent,
+  recordHydrogenUsage,
+  resetGeminiClientStateForTests,
+  supportsSearchTools,
 } from '../dist/common/gemini-client.js';
+import {
+  buildBroadcastScriptUk,
+  NewsTtsService,
+  pcm16ToWavBase64,
+  PREFERRED_TTS_MODELS,
+} from '../dist/news/news-tts.service.js';
 import {
   classifyCredibilityTier,
   extractEntitySlugs,
@@ -562,19 +580,39 @@ test('computeModelTokenPracticality scores INITIAL_CATALOG models deterministica
   assert.equal(catalogSvc.getDailyVerificationStatus().dailyCheckIntervalHours, 24);
 });
 
-test('Gemini client defaults to gemini-2.5-flash and applies GEMINI_THINKING_BUDGET only to gemini-2.5 models', () => {
-  assert.equal(FALLBACK_GEMINI_MODELS[0], 'gemini-2.5-flash');
-  assert.equal(normalizeGeminiModel(undefined), 'gemini-2.5-flash');
-  assert.equal(normalizeGeminiModel('models/gemini-2.5-flash'), 'gemini-2.5-flash');
+test('Gemini client prioritizes Gemini 3.8/3.6/3 Flash + Hydrogen router and strips tools for Hydrogen', () => {
+  assert.deepEqual(FALLBACK_GEMINI_MODELS.slice(0, 5), [
+    'gemini-3.8-flash',
+    'gemini-3.6-flash',
+    'gemini-3-flash',
+    'gemini-4-hydrogen',
+    'gemini-2.5-flash',
+  ]);
+  assert.equal(normalizeGeminiModel(undefined), 'gemini-3.8-flash');
+  assert.equal(normalizeGeminiModel('models/gemini-3.8-flash'), 'gemini-3.8-flash');
+  assert.equal(DEFAULT_HYDROGEN_MODEL, 'gemini-4-hydrogen');
+  assert.equal(isHydrogenModel('gemini-4-hydrogen'), true);
+  assert.equal(isHydrogenModel('gemini-3.8-flash'), false);
+  assert.equal(supportsSearchTools('gemini-4-hydrogen'), false);
+  assert.equal(supportsSearchTools('gemini-3.8-flash'), true);
 
   const baseBody = {
     contents: [{ role: 'user', parts: [{ text: 'hi' }] }],
+    tools: [{ googleSearch: {} }],
     generationConfig: {
       temperature: 0.2,
       responseMimeType: 'application/json',
       responseJsonSchema: { type: 'object', properties: {} },
     },
   };
+
+  const body38 = buildGeminiRequestBody(baseBody, 'gemini-3.8-flash', '1024');
+  assert.deepEqual(body38.generationConfig.thinkingConfig, { thinkingBudget: 1024 });
+  assert.ok(Array.isArray(body38.tools));
+
+  const bodyHydrogen = buildGeminiRequestBody(baseBody, 'gemini-4-hydrogen', '1024');
+  assert.equal(bodyHydrogen.tools, undefined);
+  assert.deepEqual(bodyHydrogen.generationConfig.thinkingConfig, { thinkingBudget: 1024 });
 
   const body25 = buildGeminiRequestBody(baseBody, 'gemini-2.5-flash', '1024');
   assert.deepEqual(body25.generationConfig.thinkingConfig, { thinkingBudget: 1024 });
@@ -588,10 +626,532 @@ test('Gemini client defaults to gemini-2.5-flash and applies GEMINI_THINKING_BUD
     {
       generationConfig: { thinkingConfig: { thinkingBudget: 0 } },
     },
-    'gemini-2.5-flash',
+    'gemini-3.8-flash',
     '2048',
   );
   assert.deepEqual(explicitBody.generationConfig.thinkingConfig, { thinkingBudget: 0 });
+});
+
+test('HydrogenQuotaGuard enforces elevated 10 RPM / 150 RPD limits and fast 404 fallback caches unavailable models', async () => {
+  resetGeminiClientStateForTests();
+  try {
+    const initial = getHydrogenQuotaStatus();
+    assert.equal(initial.maxRpm, 10);
+    assert.equal(initial.maxRpd, 150);
+    assert.equal(initial.remainingToday, 150);
+    assert.equal(canUseHydrogenQuota(), true);
+
+    recordHydrogenUsage(149);
+    assert.equal(canUseHydrogenQuota(), true);
+    assert.equal(getHydrogenQuotaStatus().remainingToday, 1);
+
+    recordHydrogenUsage(1);
+    assert.equal(getHydrogenQuotaStatus().remainingToday, 0);
+    assert.equal(canUseHydrogenQuota(), false);
+
+    resetGeminiClientStateForTests();
+    const calls = [];
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const target = String(url);
+      calls.push(target);
+      if (target.includes('gemini-3.8-flash:generateContent')) {
+        return new Response('Model not found', { status: 404 });
+      }
+      return new Response(
+        JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'ok' }] } }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    };
+
+    try {
+      const startedAt = Date.now();
+      const first = await postGeminiGenerateContent({
+        apiKey: 'test-key',
+        preferredModel: 'gemini-3.8-flash',
+        candidateModels: ['gemini-3.8-flash', 'gemini-3.6-flash'],
+        body: { contents: [{ role: 'user', parts: [{ text: 'ping' }] }] },
+      });
+      const elapsedMs = Date.now() - startedAt;
+      assert.equal(first.modelUsed, 'gemini-3.6-flash');
+      assert.ok(elapsedMs < 2_000, `Expected instant 404 fallback without 15.5s wait, got ${elapsedMs}ms`);
+      assert.equal(calls.length, 2);
+
+      calls.length = 0;
+      const second = await postGeminiGenerateContent({
+        apiKey: 'test-key',
+        preferredModel: 'gemini-3.8-flash',
+        candidateModels: ['gemini-3.8-flash', 'gemini-3.6-flash'],
+        body: { contents: [{ role: 'user', parts: [{ text: 'ping2' }] }] },
+      });
+      assert.equal(second.modelUsed, 'gemini-3.6-flash');
+      // First model was cached from 404 so only gemini-3.6-flash is called
+      assert.equal(calls.length, 1);
+      assert.ok(calls[0].includes('gemini-3.6-flash'));
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  } finally {
+    resetGeminiClientStateForTests();
+  }
+});
+
+test('Chain-of-Verification schema places evidence before prose and Hydrogen mechanisms operate cleanly', async () => {
+  resetGeminiClientStateForTests();
+  GeminiEditorService.resetHydrogenDirectiveCacheForTests();
+  const prevKey = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = 'test-hydrogen-key';
+
+  const propKeys = Object.keys(EDITORIAL_ARTICLE_SCHEMA.properties);
+  assert.ok(propKeys.indexOf('facts') < propKeys.indexOf('title'));
+  assert.ok(propKeys.indexOf('confidence') < propKeys.indexOf('body'));
+  assert.ok(propKeys.indexOf('important') < propKeys.indexOf('summary'));
+
+  const dbUpdates = [];
+  const mockDb = {
+    query: async (sql, params = []) => {
+      if (sql.includes("FROM news_items") && sql.includes("hydrogen_polished")) {
+        return {
+          rows: [
+            {
+              id: '42',
+              external_id: 'rss-42',
+              url: 'https://openai.com/news/test-42',
+              original_title: 'Test Release 42',
+              title_uk: 'Тест заголовка 42',
+              summary_uk: 'Короткий опис 42',
+              why_it_matters: 'Практичний вплив 42',
+              category: 'model',
+              importance: 'high',
+              source_name: 'OpenAI',
+            },
+          ],
+        };
+      }
+      if (sql.includes('UPDATE news_items')) {
+        dbUpdates.push({ sql, params });
+        return { rows: [], rowCount: 1 };
+      }
+      if (sql.includes('FROM news_items')) {
+        return {
+          rows: [
+            {
+              title_uk: 'OpenAI випустила оновлення',
+              original_title: 'OpenAI release',
+              summary_uk: 'Опис попереднього релізу',
+              category: 'model',
+              published_at: '2026-11-14T10:00:00Z',
+            },
+          ],
+        };
+      }
+      if (sql.includes('FROM ai_catalogs')) {
+        return {
+          rows: [
+            {
+              name: 'Gemini 3.8 Flash',
+              provider_id: 'gemini',
+              pricing_summary_uk: '$0.10 / 1M',
+              price_in: '$0.10',
+              price_out: '$0.40',
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    },
+  };
+
+  const origFetch = globalThis.fetch;
+  let directiveFetchCount = 0;
+  globalThis.fetch = async (url, init) => {
+    const target = String(url);
+    if (target.startsWith('https://openai.com/news/')) {
+      return new Response(
+        '<html><head><script>bad()</script></head><body><h1>Launch</h1><p>Latency dropped 35 percent in coding tasks.</p></body></html>',
+        { status: 200, headers: { 'Content-Type': 'text/html' } },
+      );
+    }
+    const body = JSON.parse(String(init?.body || '{}'));
+    const userText = body?.contents?.[0]?.parts?.[0]?.text || '';
+    if (userText.includes('Проаналізуй 5 останніх новин')) {
+      directiveFetchCount += 1;
+      return new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              finishReason: 'STOP',
+              content: { parts: [{ text: 'Орієнтуйся на реальні токени, без кліше про революцію.' }] },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    if (userText.includes('"externalId":"ext-1"')) {
+      return new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              finishReason: 'STOP',
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      items: [
+                        {
+                          externalId: 'ext-1',
+                          angleUk: 'Порівняння вартості інференсу',
+                          skepticQuestionUk: 'Де незалежний бенчмарк на SWE-bench?',
+                          compareWithUk: 'Claude Haiku 4.5 та DeepSeek V3.2',
+                          boostImportant: true,
+                        },
+                      ],
+                    }),
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        candidates: [
+          {
+            finishReason: 'STOP',
+            content: {
+              parts: [
+                {
+                  text: JSON.stringify({
+                    items: [
+                      {
+                        id: '42',
+                        titleUk: 'OpenAI оптимізувала затримку API для кодингу',
+                        summaryUk: 'Оновлення зменшує латентність API на 35% у задачах генерації коду.',
+                        whyItMatters: 'IDE-агенти реагуватимуть помітно швидше без зміни тарифу.',
+                        hydrogenInsightUk: 'Ключова перевага саме у TTFT на довгих контекстах, але потрібні незалежні заміри.',
+                      },
+                    ],
+                  }),
+                },
+              ],
+            },
+          },
+        ],
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  };
+
+  try {
+    const editor = new GeminiEditorService(mockDb);
+
+    const evidencePack = await editor.collectArticleEvidencePack(
+      { slug: 'openai', name: 'OpenAI', homepageUrl: 'https://openai.com' },
+      {
+        externalId: 'ext-1',
+        url: 'https://openai.com/news/test-evidence',
+        originalTitle: 'Test',
+        category: 'model',
+        importance: 'unknown',
+        freeAccess: 'unknown',
+      },
+    );
+    assert.ok(evidencePack.includes('Latency dropped 35 percent'));
+    assert.ok(!evidencePack.includes('bad()'));
+    assert.ok(evidencePack.includes('Gemini 3.8 Flash'));
+
+    const d1 = await editor.refreshDailyHydrogenDirective(false);
+    const d2 = await editor.refreshDailyHydrogenDirective(false);
+    assert.equal(d1.cached, false);
+    assert.equal(d2.cached, true);
+    assert.equal(directiveFetchCount, 1);
+
+    const angles = await editor.planBatchAnglesWithHydrogen([
+      {
+        externalId: 'ext-1',
+        sourceName: 'OpenAI',
+        originalTitle: 'Fast API Launch',
+        originalSummary: '35% faster',
+        url: 'https://openai.com/news/fast-api',
+      },
+    ]);
+    assert.equal(angles['ext-1']?.boostImportant, true);
+    assert.ok(angles['ext-1']?.compareWithUk.includes('DeepSeek'));
+
+    const polishRes = await editor.polishArticlesBatchWithHydrogen(12);
+    assert.equal(polishRes.polishedCount, 1);
+    assert.equal(polishRes.modelUsed, 'gemini-4-hydrogen');
+    assert.equal(dbUpdates.length, 1);
+    assert.equal(dbUpdates[0].params[1], 'OpenAI оптимізувала затримку API для кодингу');
+  } finally {
+    globalThis.fetch = origFetch;
+    if (prevKey === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = prevKey;
+    GeminiEditorService.resetHydrogenDirectiveCacheForTests();
+    resetGeminiClientStateForTests();
+  }
+});
+
+test('GeminiEditorService.edit runs Chain-of-Verification editorial and Hydrogen deep analysis pass for important items', async () => {
+  resetGeminiClientStateForTests();
+  GeminiEditorService.resetHydrogenDirectiveCacheForTests();
+  const prevKey = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = 'test-edit-key';
+
+  const mockDb = {
+    query: async (sql) => {
+      if (sql.includes('FROM news_items')) {
+        return { rows: [{ title_uk: 'Попередній реліз', original_title: 'Prev', summary_uk: 'Коротко', category: 'model', published_at: '2026-11-14T08:00:00Z' }] };
+      }
+      if (sql.includes('FROM ai_catalogs')) {
+        return { rows: [{ name: 'Gemini 3.8 Flash', provider_id: 'gemini', pricing_summary_uk: '$0.10/1M', price_in: '$0.10', price_out: '$0.40' }] };
+      }
+      return { rows: [] };
+    },
+  };
+
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const target = String(url);
+    if (target.startsWith('https://openai.com/news/')) {
+      return new Response('<html><body><p>Benchmark numbers confirmed on public repo.</p></body></html>', {
+        status: 200,
+        headers: { 'Content-Type': 'text/html' },
+      });
+    }
+    const body = JSON.parse(String(init?.body || '{}'));
+    const userText = body?.contents?.[0]?.parts?.[0]?.text || '';
+    if (userText.includes('Проаналізуй 5 останніх новин')) {
+      return new Response(
+        JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'Тримай фокус на вартості інференсу.' }] } }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    if (target.includes('gemini-4-hydrogen:generateContent')) {
+      return new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              finishReason: 'STOP',
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      hydrogen_insight: 'Перевірка показала реальне зниження затримки API без зростання ціни.',
+                      refined_why_it_matters: 'Практичне прискорення продакшн-агентів уже сьогодні.',
+                    }),
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        candidates: [
+          {
+            finishReason: 'STOP',
+            content: {
+              parts: [
+                {
+                  text: JSON.stringify({
+                    sources: [{ title: 'OpenAI', url: 'https://openai.com/news/deep-1' }],
+                    facts: [{ claim: 'Підтверджені бенчмарки', status: 'confirmed', url: 'https://openai.com/news/deep-1' }],
+                    confidence: 'high',
+                    important: true,
+                    importance_reason: 'Суттєве оновлення API.',
+                    category: 'api',
+                    comparisons: ['Швидше за попередній реліз'],
+                    title: 'OpenAI випустила швидкий режим API',
+                    summary: 'Новий режим знижує затримку у продакшені.',
+                    body: 'Повний огляд технологічних змін [1].',
+                    editorial: { angles: ['engineering'], style: 'concise', limitations: '' },
+                  }),
+                },
+              ],
+            },
+          },
+        ],
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  };
+
+  try {
+    const editor = new GeminiEditorService(mockDb);
+    const source = { slug: 'openai', name: 'OpenAI', homepageUrl: 'https://openai.com' };
+    const item = {
+      externalId: 'deep-1',
+      url: 'https://openai.com/news/deep-1',
+      originalTitle: 'Fast API Launch',
+      originalSummary: 'Faster latency',
+      category: 'api',
+      importance: 'unknown',
+      freeAccess: 'unknown',
+    };
+    const edited = await editor.edit(source, item, 'fp-deep-1', {
+      angleHint: {
+        externalId: 'deep-1',
+        angleUk: 'Затримка інференсу',
+        skepticQuestionUk: 'Чи не впала точність?',
+        compareWithUk: 'Claude Haiku 4.5',
+        boostImportant: true,
+      },
+    });
+    assert.equal(edited.importance, 'high');
+    assert.equal(edited.aiMetadata?.model, 'gemini-3.8-flash');
+    assert.equal(edited.aiMetadata?.hydrogen_deep_analysis, true);
+    assert.equal(
+      edited.aiMetadata?.hydrogen_insight,
+      'Перевірка показала реальне зниження затримки API без зростання ціни.',
+    );
+    assert.equal(edited.whyItMatters, 'Практичне прискорення продакшн-агентів уже сьогодні.');
+  } finally {
+    globalThis.fetch = origFetch;
+    if (prevKey === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = prevKey;
+    GeminiEditorService.resetHydrogenDirectiveCacheForTests();
+    resetGeminiClientStateForTests();
+  }
+});
+
+test('NewsTtsService enforces importance gate, builds clean scripts, wraps PCM16 to RIFF WAVE, and caches results', async () => {
+  resetGeminiClientStateForTests();
+  assert.deepEqual(PREFERRED_TTS_MODELS, [
+    'gemini-3.1-flash-tts',
+    'gemini-3.8-flash-lite-tts',
+    'gemini-2.5-flash-preview-tts',
+  ]);
+
+  const script = buildBroadcastScriptUk({
+    titleUk: '## **OpenAI** випустила агентський API [1]',
+    summaryUk: 'Деталі на [сайті](https://openai.com/news) та https://example.com з підтримкою інструментів.',
+    whyItMatters: 'Розробники отримують нижчу затримку.',
+    sourceName: 'OpenAI',
+  });
+  assert.ok(!/https?:\/\/|[*#`\[\]]/.test(script));
+  assert.ok(script.split(/\s+/).length <= 110);
+
+  const samplePcm = Buffer.from([1, 2, 3, 4, 5, 6, 7, 8]);
+  const wavB64 = pcm16ToWavBase64(samplePcm, 24000, 1, 16);
+  const wavBuf = Buffer.from(wavB64, 'base64');
+  assert.equal(wavBuf.subarray(0, 4).toString('ascii'), 'RIFF');
+  assert.equal(wavBuf.subarray(8, 12).toString('ascii'), 'WAVE');
+  assert.equal(wavBuf.subarray(12, 16).toString('ascii'), 'fmt ');
+  assert.equal(wavBuf.subarray(36, 40).toString('ascii'), 'data');
+  assert.equal(wavBuf.length, 44 + samplePcm.length);
+
+  const mockDb = {
+    query: async (_sql, params = []) => {
+      const targetId = params[0];
+      if (targetId === 'minor-1') {
+        return {
+          rows: [
+            {
+              id: '10',
+              external_id: 'minor-1',
+              title_uk: 'Дрібне оновлення',
+              original_title: 'Minor patch',
+              summary_uk: 'Виправлено баги.',
+              original_summary: null,
+              why_it_matters: 'Незначно.',
+              importance: 'low',
+              important_flag: false,
+              source_name: 'OpenAI',
+            },
+          ],
+        };
+      }
+      if (targetId === 'major-1') {
+        return {
+          rows: [
+            {
+              id: '99',
+              external_id: 'major-1',
+              title_uk: 'Проривна мультимодальна модель',
+              original_title: 'Major multimodal launch',
+              summary_uk: 'Підтримка живого аудіо та відео у реальному часі.',
+              original_summary: null,
+              why_it_matters: 'Змінює голосові інтерфейси у мобільних застосунках.',
+              importance: 'high',
+              important_flag: true,
+              source_name: 'Google DeepMind',
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    },
+  };
+
+  const prevKey = process.env.GEMINI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+  const ttsNoKey = new NewsTtsService(mockDb);
+
+  await assert.rejects(() => ttsNoKey.generateImportantNewsBriefing('minor-1'), BadRequestException);
+  await assert.rejects(() => ttsNoKey.generateImportantNewsBriefing('missing-999'), NotFoundException);
+
+  const fallbackRes = await ttsNoKey.generateImportantNewsBriefing('major-1');
+  assert.equal(fallbackRes.status, 'script_only');
+  assert.equal(fallbackRes.audioBase64, null);
+  assert.equal(fallbackRes.important, true);
+  assert.ok(fallbackRes.scriptUk.includes('Проривна мультимодальна модель'));
+
+  process.env.GEMINI_API_KEY = 'test-tts-key';
+  const ttsWithKey = new NewsTtsService(mockDb);
+  let ttsFetchCalls = 0;
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    ttsFetchCalls += 1;
+    assert.ok(String(url).includes('gemini-3.1-flash-tts:generateContent'));
+    return new Response(
+      JSON.stringify({
+        candidates: [
+          {
+            finishReason: 'STOP',
+            content: {
+              parts: [
+                {
+                  inlineData: {
+                    mimeType: 'audio/L16;codec=pcm;rate=24000',
+                    data: samplePcm.toString('base64'),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  };
+
+  try {
+    const firstAudio = await ttsWithKey.generateImportantNewsBriefing('major-1');
+    assert.equal(firstAudio.status, 'gemini_audio');
+    assert.equal(firstAudio.modelUsed, 'gemini-3.1-flash-tts');
+    assert.equal(firstAudio.mimeType, 'audio/wav');
+    assert.equal(firstAudio.cached, false);
+    const decoded = Buffer.from(firstAudio.audioBase64, 'base64');
+    assert.equal(decoded.subarray(0, 4).toString('ascii'), 'RIFF');
+    assert.equal(ttsFetchCalls, 1);
+
+    const secondAudio = await ttsWithKey.generateImportantNewsBriefing('major-1');
+    assert.equal(secondAudio.cached, true);
+    assert.equal(ttsFetchCalls, 1);
+  } finally {
+    globalThis.fetch = origFetch;
+    if (prevKey === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = prevKey;
+    resetGeminiClientStateForTests();
+  }
 });
 
 test('keep-alive helpers build health URLs and parse CLI args cleanly', () => {

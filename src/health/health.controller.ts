@@ -165,7 +165,7 @@ export class HealthController {
             process.env.GEMINI_API_KEY?.trim() &&
               !process.env.GEMINI_API_KEY.trim().startsWith('replace_'),
           ),
-          model: process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash',
+          model: process.env.GEMINI_MODEL?.trim() || 'gemini-3.8-flash',
           lastGamesAiError: GamesService.lastAiError,
           lastNewsAiError: GeminiEditorService.lastAiError,
         },

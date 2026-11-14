@@ -46,4 +46,11 @@ export class IngestController {
       syncedAt: new Date().toISOString(),
     };
   }
+
+  @Post('hydrogen-polish')
+  hydrogenPolish(@Query('limit') limitRaw?: string) {
+    const parsed = limitRaw === undefined ? 12 : Number(limitRaw);
+    const limit = Number.isInteger(parsed) && parsed > 0 ? Math.min(12, parsed) : 12;
+    return this.editorial.polishPendingWithHydrogen(limit);
+  }
 }

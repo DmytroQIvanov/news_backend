@@ -3,17 +3,17 @@ import { createHash } from 'node:crypto';
 import { canonicalizeUrl } from '../common/url-utils';
 import { DatabaseService } from '../database/database.service';
 import { ArticleDto, IngestRequestDto } from './ingest.dto';
-import { GeminiEditorService } from './gemini-editor.service';
+import { EditArticleOptions, GeminiEditorService } from './gemini-editor.service';
 @Injectable()
 export class IngestService {
   constructor(private readonly db: DatabaseService, private readonly editor: GeminiEditorService) {}
-  async ingest(payload: IngestRequestDto, fromFeed = false) {
+  async ingest(payload: IngestRequestDto, fromFeed = false, editOptions?: EditArticleOptions) {
     if (fromFeed && !this.editor.enabled) throw new Error('Gemini is disabled');
     if (this.editor.enabled && payload.items.length > 1) {
       let written = 0;
       let unchanged = 0;
       for (const item of payload.items) {
-        const result = await this.ingest({ source: payload.source, items: [item] }, fromFeed);
+        const result = await this.ingest({ source: payload.source, items: [item] }, fromFeed, editOptions);
         written += result.written;
         unchanged += result.unchanged;
       }
@@ -41,7 +41,7 @@ export class IngestService {
           await client.query('COMMIT');
           return { source: s.slug, submitted: 1, written: 0, unchanged: 1 };
         }
-        payload = { source: s, items: [await this.editor.edit(s, item, fingerprint)] };
+        payload = { source: s, items: [await this.editor.edit(s, item, fingerprint, editOptions)] };
       }
       const source = await client.query<{ id: string }>(`
         INSERT INTO sources(slug,name,homepage_url,feed_url,unofficial)

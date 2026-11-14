@@ -1,10 +1,15 @@
-import { Controller, Get, Param, ParseIntPipe, Patch, Query, UseGuards, BadRequestException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get, Optional, Param, ParseIntPipe, Patch, Query, UseGuards, BadRequestException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { IngestKeyGuard } from '../common/ingest-key.guard';
 import { CompanyFeedsService, maxFeedArticles } from './company-feeds.service';
+import { NewsTtsService } from './news-tts.service';
 @Controller('news')
 export class NewsController {
-  constructor(private readonly db: DatabaseService, private readonly companyFeeds: CompanyFeedsService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly companyFeeds: CompanyFeedsService,
+    @Optional() private readonly newsTts?: NewsTtsService,
+  ) {}
 
   @Get('test-notification')
   testNotification() {
@@ -43,7 +48,11 @@ export class NewsController {
       SELECT n.id,n.url,n.title_uk,n.summary_uk,n.original_title,n.category,n.importance,
              COALESCE(n.ai_metadata->'article'->'important' = 'true'::jsonb, false) AS important,
              n.free_access,n.credibility_tier,n.is_retracted,n.correction_note,n.corrected_at,
-             n.published_at,n.updated_at,s.name AS source_name,s.slug AS source_slug
+             n.published_at,n.updated_at,s.name AS source_name,s.slug AS source_slug,
+             n.ai_metadata->>'model' AS ai_model,
+             COALESCE((n.ai_metadata->>'hydrogen_polished')::boolean, false) AS hydrogen_polished,
+             COALESCE((n.ai_metadata->>'hydrogen_deep_analysis')::boolean, false) AS hydrogen_deep_analysis,
+             n.ai_metadata->>'hydrogen_insight' AS hydrogen_insight
       FROM news_items n JOIN sources s ON s.id=n.source_id
       WHERE n.status='published' AND ($1::text IS NULL OR n.category=$1)
         AND ($4::text[] IS NULL OR s.slug = ANY($4::text[]))
@@ -63,7 +72,15 @@ export class NewsController {
 
     const publishedUrls = new Set(result.rows.map(item => articleKey(item.url)));
     const fresh = feeds.items.filter(item => !publishedUrls.has(articleKey(item.url)))
-      .map(item => ({ ...item, title_uk: null, summary_uk: null }));
+      .map(item => ({
+        ...item,
+        title_uk: null,
+        summary_uk: null,
+        ai_model: null,
+        hydrogen_polished: false,
+        hydrogen_deep_analysis: false,
+        hydrogen_insight: null,
+      }));
     const items = [...result.rows, ...fresh].sort((a, b) => publishedTime(b.published_at) - publishedTime(a.published_at));
     const page = items.slice(offset, offset + limit);
     return { items: page, limit, offset, hasMore: offset + page.length < items.length };
@@ -78,6 +95,15 @@ export class NewsController {
       WHERE n.status='needs_review' ORDER BY n.updated_at DESC LIMIT $1`, [limit]);
     return { items: result.rows };
   }
+
+  @Get(':id/tts')
+  async tts(@Param('id') id: string, @Query('source') source?: string) {
+    if (!this.newsTts) {
+      throw new ServiceUnavailableException('TTS service is unavailable');
+    }
+    return this.newsTts.generateImportantNewsBriefing(id, source);
+  }
+
   @Get(':id')
   async detail(@Param('id') id: string, @Query('source') source?: string) {
     if (/^rss-[a-f0-9]{24}$/.test(id)) {

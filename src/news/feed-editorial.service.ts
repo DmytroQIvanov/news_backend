@@ -1,7 +1,8 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { CatalogService } from '../catalog/catalog.service';
+import { canUseHydrogenQuota } from '../common/gemini-client';
 import { DatabaseService } from '../database/database.service';
-import { GeminiEditorService } from '../ingest/gemini-editor.service';
+import { BatchAngleHint, GeminiEditorService, PolishBatchResult } from '../ingest/gemini-editor.service';
 import { CATEGORIES } from '../ingest/ingest.dto';
 import { IngestService } from '../ingest/ingest.service';
 import { CompanyFeedsService } from './company-feeds.service';
@@ -74,8 +75,8 @@ export class FeedEditorialService implements OnModuleInit, OnModuleDestroy {
 
       const activeFeeds = this.feeds.getActiveFeeds();
       const maxPerCycle = 3;
+      const pendingCandidates: Array<{ feed: (typeof activeFeeds)[number]; item: (typeof items)[number] }> = [];
       for (const feed of activeFeeds) {
-        if (this.stopped || processed >= maxPerCycle) break;
         const item = items.find(
           entry =>
             entry.source_slug === feed.slug &&
@@ -87,29 +88,58 @@ export class FeedEditorialService implements OnModuleInit, OnModuleDestroy {
           skipped += 1;
           continue;
         }
+        pendingCandidates.push({ feed, item });
+      }
+
+      const plannerBatch = pendingCandidates.slice(0, 10);
+      let angleHints: Record<string, BatchAngleHint> = {};
+      if (plannerBatch.length > 0 && canUseHydrogenQuota()) {
+        angleHints = await this.editor.planBatchAnglesWithHydrogen(
+          plannerBatch.map(({ feed, item }) => ({
+            externalId: item.id,
+            sourceName: feed.name,
+            originalTitle: item.original_title,
+            originalSummary: item.original_summary,
+            url: item.url,
+          })),
+        );
+      }
+
+      const prioritizedCandidates = [...pendingCandidates].sort((a, b) => {
+        const aBoost = angleHints[a.item.id]?.boostImportant ? 1 : 0;
+        const bBoost = angleHints[b.item.id]?.boostImportant ? 1 : 0;
+        return bBoost - aBoost;
+      });
+
+      for (const { feed, item } of prioritizedCandidates) {
+        if (this.stopped || processed >= maxPerCycle) break;
         const safeCategory = CATEGORIES.includes(feed.category as typeof CATEGORIES[number])
           ? (feed.category as typeof CATEGORIES[number])
           : 'other';
         try {
-          const result = await this.ingest.ingest({
-            source: {
-              slug: feed.slug,
-              name: feed.name,
-              homepageUrl: `https://${feed.domain}`,
-              feedUrl: feed.url,
-              unofficial: Boolean(feed.unofficial || feed.alias),
+          const result = await this.ingest.ingest(
+            {
+              source: {
+                slug: feed.slug,
+                name: feed.name,
+                homepageUrl: `https://${feed.domain}`,
+                feedUrl: feed.url,
+                unofficial: Boolean(feed.unofficial || feed.alias),
+              },
+              items: [{
+                externalId: item.id,
+                url: item.url,
+                originalTitle: item.original_title,
+                originalSummary: item.original_summary,
+                publishedAt: item.published_at,
+                category: safeCategory,
+                importance: 'unknown',
+                freeAccess: 'unknown',
+              }],
             },
-            items: [{
-              externalId: item.id,
-              url: item.url,
-              originalTitle: item.original_title,
-              originalSummary: item.original_summary,
-              publishedAt: item.published_at,
-              category: safeCategory,
-              importance: 'unknown',
-              freeAccess: 'unknown',
-            }],
-          }, true);
+            true,
+            { angleHint: angleHints[item.id] },
+          );
 
           if (result.written > 0) {
             processed += 1;
@@ -129,11 +159,21 @@ export class FeedEditorialService implements OnModuleInit, OnModuleDestroy {
           if (error instanceof Error && /^Gemini HTTP (401|403|429)$/.test(error.message)) break;
         }
       }
+
+      if (!this.stopped && canUseHydrogenQuota()) {
+        await this.polishPendingWithHydrogen(12).catch((err) =>
+          this.logger.warn(`Hydrogen batch polish failed: ${err instanceof Error ? err.message : err}`),
+        );
+      }
     } catch (error) {
       errors += 1;
       this.logger.warn(error instanceof Error ? error.message : 'Editorial processing failed');
     }
 
     return { checked, processed, skipped, errors };
+  }
+
+  async polishPendingWithHydrogen(limit = 12): Promise<PolishBatchResult> {
+    return this.editor.polishArticlesBatchWithHydrogen(limit);
   }
 }
