@@ -20,6 +20,7 @@ export class KeepAliveService implements OnModuleInit, OnModuleDestroy {
   private readonly intervalMs: number;
   private readonly enabled: boolean;
   private timer?: NodeJS.Timeout;
+  private warmupTimer?: NodeJS.Timeout;
   private isDestroyed = false;
   private tickCount = 0;
   private totalPings = 0;
@@ -33,7 +34,7 @@ export class KeepAliveService implements OnModuleInit, OnModuleDestroy {
   constructor(@Optional() private readonly db?: DatabaseService) {
     const rawInterval = Number(process.env.KEEP_ALIVE_INTERVAL_MS);
     this.intervalMs =
-      Number.isFinite(rawInterval) && rawInterval > 0 ? Math.max(10_000, Math.round(rawInterval)) : 240_000;
+      Number.isFinite(rawInterval) && rawInterval > 0 ? Math.max(10_000, Math.round(rawInterval)) : 180_000;
     this.enabled = process.env.NODE_ENV !== 'test' && process.env.KEEP_ALIVE_ENABLED !== 'false';
   }
 
@@ -42,7 +43,7 @@ export class KeepAliveService implements OnModuleInit, OnModuleDestroy {
       (process.env.RENDER_EXTERNAL_URL || process.env.KEEP_ALIVE_URL || 'https://news-backend-v0jj.onrender.com')
         .trim()
         .replace(/\/+$/, '') || 'https://news-backend-v0jj.onrender.com';
-    return `${base}/api/v1/health`;
+    return `${base}/api/v1/health?t=${Date.now()}`;
   }
 
   onModuleInit(): void {
@@ -50,6 +51,12 @@ export class KeepAliveService implements OnModuleInit, OnModuleDestroy {
       this.logger.debug('Self keep-alive timer disabled for test/configured environment.');
       return;
     }
+
+    this.warmupTimer = setTimeout(() => {
+      if (this.isDestroyed) return;
+      void this.runTick();
+    }, 10_000);
+    this.warmupTimer.unref?.();
 
     this.timer = setInterval(() => {
       if (this.isDestroyed) return;
@@ -61,6 +68,10 @@ export class KeepAliveService implements OnModuleInit, OnModuleDestroy {
 
   onModuleDestroy(): void {
     this.isDestroyed = true;
+    if (this.warmupTimer) {
+      clearTimeout(this.warmupTimer);
+      this.warmupTimer = undefined;
+    }
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = undefined;
@@ -81,6 +92,8 @@ export class KeepAliveService implements OnModuleInit, OnModuleDestroy {
           'x-keep-alive': 'self',
           'User-Agent': 'OpportunityRadar-SelfKeepAlive/1.0',
           Accept: 'application/json',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          Pragma: 'no-cache',
         },
         signal: AbortSignal.timeout(10_000),
       });

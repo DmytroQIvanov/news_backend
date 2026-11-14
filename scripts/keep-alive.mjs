@@ -114,6 +114,8 @@ async function fetchWithColdStartRetry(url, { maxRetryMs, retryDelayMs, method =
         headers: {
           'User-Agent': 'OpportunityRadar-KeepAlive/2.0',
           Accept: 'application/json',
+          'Cache-Control': 'no-store, no-cache',
+          Pragma: 'no-cache',
           ...headers,
         },
         signal: AbortSignal.timeout(20_000),
@@ -150,20 +152,22 @@ async function fetchWithColdStartRetry(url, { maxRetryMs, retryDelayMs, method =
 
 async function pingTarget(config) {
   const [apiHealthUrl, dbHealthUrl] = buildHealthUrls(config.apiUrl);
+  const stampedApiHealthUrl = `${apiHealthUrl}?t=${Date.now()}`;
 
-  let healthRes = await fetchWithColdStartRetry(apiHealthUrl, config);
+  let healthRes = await fetchWithColdStartRetry(stampedApiHealthUrl, config);
   if (!healthRes.ok && healthRes.status === 404) {
-    const fallbackUrl = `${config.apiUrl}/health`;
-    console.log(`[keep-alive] ${apiHealthUrl} returned 404, falling back to ${fallbackUrl}`);
+    const fallbackUrl = `${config.apiUrl}/health?t=${Date.now()}`;
+    console.log(`[keep-alive] ${stampedApiHealthUrl} returned 404, falling back to ${fallbackUrl}`);
     healthRes = await fetchWithColdStartRetry(fallbackUrl, config);
   }
   console.log(
-    `[keep-alive] [${new Date().toISOString()}] ${apiHealthUrl} -> ${healthRes.ok ? 'OK' : 'FAIL'} (HTTP ${healthRes.status}, ${healthRes.elapsedMs}ms, attempts=${healthRes.attempt})`,
+    `[keep-alive] [${new Date().toISOString()}] ${stampedApiHealthUrl} -> ${healthRes.ok ? 'OK' : 'FAIL'} (HTTP ${healthRes.status}, ${healthRes.elapsedMs}ms, attempts=${healthRes.attempt})`,
   );
 
-  const dbRes = await fetchWithColdStartRetry(dbHealthUrl, config);
+  const stampedDbHealthUrl = `${dbHealthUrl}?t=${Date.now()}`;
+  const dbRes = await fetchWithColdStartRetry(stampedDbHealthUrl, config);
   console.log(
-    `[keep-alive] [${new Date().toISOString()}] ${dbHealthUrl} -> ${dbRes.ok ? 'OK' : 'FAIL'} (HTTP ${dbRes.status}, ${dbRes.elapsedMs}ms, attempts=${dbRes.attempt})`,
+    `[keep-alive] [${new Date().toISOString()}] ${stampedDbHealthUrl} -> ${dbRes.ok ? 'OK' : 'FAIL'} (HTTP ${dbRes.status}, ${dbRes.elapsedMs}ms, attempts=${dbRes.attempt})`,
   );
 
   return healthRes.ok && dbRes.ok;

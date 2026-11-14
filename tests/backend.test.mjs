@@ -55,6 +55,13 @@ import {
 import { GrantsService } from '../dist/grants/grants.service.js';
 import { GrantsController } from '../dist/grants/grants.controller.js';
 import { HealthController } from '../dist/health/health.controller.js';
+import { EXPERT_DIRECTORY, scoreExpertCompetenceForTopic } from '../dist/news/expert-directory.js';
+import {
+  buildOfficialEmbedInfo,
+  evaluateShouldDisplayExpertBlock,
+  ExpertOpinionsService,
+  validateExpertOpinionItem,
+} from '../dist/news/expert-opinions.service.js';
 import { buildHealthUrls, parseKeepAliveArgs } from '../scripts/keep-alive.mjs';
 
 test('canonicalizeUrl strips tracking params, www, hash, and trailing slash', () => {
@@ -1422,12 +1429,17 @@ test('KeepAliveService pings health endpoint, runs PostgreSQL SELECT 1 every 3rd
   };
 
   const prevUrl = process.env.RENDER_EXTERNAL_URL;
+  const prevNodeEnv = process.env.NODE_ENV;
+  const prevKeepAliveEnabled = process.env.KEEP_ALIVE_ENABLED;
   process.env.RENDER_EXTERNAL_URL = 'https://radar-test.onrender.com';
 
   try {
     const svc = new KeepAliveService(mockDb);
-    assert.equal(svc.getKeepAliveStats().intervalMs, 240_000);
+    assert.equal(svc.getKeepAliveStats().intervalMs, 180_000);
     assert.equal(svc.getKeepAliveStats().totalPings, 0);
+    assert.ok(
+      svc.getKeepAliveStats().targetUrl.startsWith('https://radar-test.onrender.com/api/v1/health?t='),
+    );
 
     await svc.runTick();
     await svc.runTick();
@@ -1442,17 +1454,314 @@ test('KeepAliveService pings health endpoint, runs PostgreSQL SELECT 1 every 3rd
     assert.ok(afterThird.lastDbPingAt);
     assert.equal(dbQueryCount, 1);
     assert.equal(pingCalls.length, 3);
-    assert.equal(pingCalls[0].url, 'https://radar-test.onrender.com/api/v1/health');
+    assert.match(
+      pingCalls[0].url,
+      /^https:\/\/radar-test\.onrender\.com\/api\/v1\/health\?t=\d+$/,
+    );
     assert.equal(pingCalls[0].headers?.['x-keep-alive'], 'self');
+    assert.equal(pingCalls[0].headers?.['Cache-Control'], 'no-store, no-cache, must-revalidate');
+    assert.equal(pingCalls[0].headers?.Pragma, 'no-cache');
 
     const healthController = new HealthController(mockDb, svc);
     const healthPayload = await healthController.health();
     assert.equal(healthPayload.status, 'ok');
     assert.equal(healthPayload.keepAlive.totalPings, 3);
     assert.equal(healthPayload.keepAlive.lastDbOk, true);
+
+    // Verify lifecycle init/destroy registers & cleanly tears down warmup and interval timers
+    process.env.NODE_ENV = 'production';
+    process.env.KEEP_ALIVE_ENABLED = 'true';
+    const liveSvc = new KeepAliveService(mockDb);
+    liveSvc.onModuleInit();
+    liveSvc.onModuleDestroy();
   } finally {
     globalThis.fetch = origFetch;
     if (prevUrl === undefined) delete process.env.RENDER_EXTERNAL_URL;
     else process.env.RENDER_EXTERNAL_URL = prevUrl;
+    if (prevNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = prevNodeEnv;
+    if (prevKeepAliveEnabled === undefined) delete process.env.KEEP_ALIVE_ENABLED;
+    else process.env.KEEP_ALIVE_ENABLED = prevKeepAliveEnabled;
+  }
+});
+
+test('EXPERT_DIRECTORY covers 32+ real domain experts and scoreExpertCompetenceForTopic scores competence accurately', () => {
+  assert.ok(EXPERT_DIRECTORY.length >= 32, `Expected >= 32 experts, got ${EXPERT_DIRECTORY.length}`);
+
+  const slugs = new Set();
+  for (const expert of EXPERT_DIRECTORY) {
+    assert.ok(!slugs.has(expert.slug), `Duplicate expert slug: ${expert.slug}`);
+    slugs.add(expert.slug);
+    assert.ok(expert.profileUrl.startsWith('https://'), `Expected https profileUrl for ${expert.slug}`);
+    assert.ok(expert.knownAffiliationsUk.length >= 10);
+    assert.ok(expert.documentedPositions.length >= 1);
+    for (const pos of expert.documentedPositions) {
+      assert.ok(pos.url.startsWith('https://'), `Expected https position URL for ${expert.slug}`);
+    }
+  }
+
+  const nonOtherCategories = CATEGORIES.filter((cat) => cat !== 'other');
+  for (const cat of nonOtherCategories) {
+    const matching = EXPERT_DIRECTORY.filter((expert) => expert.primaryDomains.includes(cat));
+    assert.ok(
+      matching.length >= 2,
+      `Expected >= 2 experts for domain ${cat}, found ${matching.length}`,
+    );
+  }
+
+  const troyHunt = EXPERT_DIRECTORY.find((e) => e.slug === 'troy-hunt');
+  assert.ok(troyHunt);
+  const directMatch = scoreExpertCompetenceForTopic(
+    troyHunt,
+    'cybersecurity',
+    'Critical cloud credential breach exposes millions of passwords in CVE analysis',
+    'Security disclosure covering phishing and API authentication risks.',
+  );
+  assert.equal(directMatch.isDirectDomainMatch, true);
+  assert.ok(
+    directMatch.score >= 90 && directMatch.score <= 99,
+    `Expected direct competence in 90-99, got ${directMatch.score}`,
+  );
+  assert.ok(directMatch.potentialBiasUk.length > 5);
+  assert.ok(directMatch.conflictOfInterestUk.length > 5);
+
+  const outOfDomain = scoreExpertCompetenceForTopic(
+    troyHunt,
+    'science_space',
+    'NASA Webb telescope captures distant exoplanet atmospheric spectra in deep orbit',
+    'Astrophysics discovery regarding methane spectral lines.',
+  );
+  assert.equal(outOfDomain.isDirectDomainMatch, false);
+  assert.ok(outOfDomain.score < 55, `Expected out-of-domain score < 55, got ${outOfDomain.score}`);
+});
+
+test('evaluateShouldDisplayExpertBlock, buildOfficialEmbedInfo, and validateExpertOpinionItem enforce quality and anti-hallucination rules', () => {
+  const minor = evaluateShouldDisplayExpertBlock({
+    title: 'Minor patch v1.4.2 bugfix and dependency bump changelog',
+    summary: 'Fixed typo in config.',
+    category: 'coding',
+    importance: 'low',
+  });
+  assert.equal(minor.shouldDisplayBlock, false);
+  assert.ok(minor.skipReasonUk && minor.skipReasonUk.length > 10);
+
+  const major = evaluateShouldDisplayExpertBlock({
+    title: 'Anthropic & Brave1 unveil autonomous defense drone benchmark and zero-day CVE response framework',
+    summary: 'Comprehensive architectural release affecting enterprise API security and Ukrainian defense robotics.',
+    category: 'defense',
+    importance: 'high',
+  });
+  assert.equal(major.shouldDisplayBlock, true);
+  assert.ok(major.valueAddScore >= 75);
+
+  const xEmbed = buildOfficialEmbedInfo('https://x.com/karpathy/status/123456', '@karpathy', 'Important context');
+  assert.equal(xEmbed.type, 'x_oembed');
+  assert.ok(xEmbed.embedUrl.startsWith('https://publish.twitter.com/oembed?url='));
+  assert.equal(xEmbed.interactiveSupported, true);
+
+  const fbEmbed = buildOfficialEmbedInfo('https://www.facebook.com/fedorenko.ukraine/posts/98765');
+  assert.equal(fbEmbed.type, 'facebook_plugin');
+  assert.ok(fbEmbed.embedUrl.startsWith('https://www.facebook.com/plugins/post.php?href='));
+
+  const bskyEmbed = buildOfficialEmbedInfo('https://bsky.app/profile/simonwillison.net/post/3abcd', '@simonw', 'SQLite insight');
+  assert.equal(bskyEmbed.type, 'bsky_oembed');
+  assert.ok(bskyEmbed.embedUrl.startsWith('https://embed.bsky.app/oembed?url='));
+
+  const hnEmbed = buildOfficialEmbedInfo('https://news.ycombinator.com/item?id=420000');
+  assert.equal(hnEmbed.type, 'hn_card');
+  assert.equal(hnEmbed.embedUrl, 'https://news.ycombinator.com/item?id=420000');
+
+  assert.throws(() =>
+    validateExpertOpinionItem({
+      expertName: 'Fake Test',
+      handle: '@fake',
+      platform: 'x',
+      roleUk: 'Analyst',
+      directQuote: 'http insecure link should fail',
+      stanceSummaryUk: 'Summary text long enough',
+      keyArgumentsUk: ['Arg 1'],
+      contextUk: 'Context long enough',
+      publishedAt: '2026-11-14T10:00:00Z',
+      sourceUrl: 'http://x.com/fake/status/1',
+      domainCompetenceScore: 80,
+      potentialBiasUk: 'None disclosed',
+      conflictOfInterestUk: 'None disclosed',
+      embed: xEmbed,
+    }),
+  );
+
+  const valid = validateExpertOpinionItem({
+    expertSlug: 'andrej-karpathy',
+    expertName: 'Andrej Karpathy',
+    handle: '@karpathy',
+    platform: 'x',
+    roleUk: 'Дослідник ШІ',
+    directQuote: 'Verification loops and tool-use clarity matter far more than raw parameter scale.',
+    stanceSummaryUk: 'Акцент на якості циклів верифікації та інструментів.',
+    keyArgumentsUk: ['Цикли верифікації визначають практичну користь моделі'],
+    contextUk: 'Публічний коментар у відповідь на реліз моделі.',
+    publishedAt: '2026-11-14T10:00:00Z',
+    sourceUrl: 'https://x.com/karpathy/status/123456',
+    domainCompetenceScore: 95,
+    credibilityWeight: 97,
+    potentialBiasUk: 'Колишній співзасновник OpenAI.',
+    conflictOfInterestUk: 'Освітні проєкти Eureka Labs.',
+    verificationStatus: 'verified_expert_registry',
+    embed: xEmbed,
+  });
+  assert.equal(valid.expertSlug, 'andrej-karpathy');
+  assert.equal(valid.domainCompetenceScore, 95);
+});
+
+test('ExpertOpinionsService handles live fetch, 24h caching, DB missing-table fallback, refresh, and NewsController endpoints', async () => {
+  const dbCacheByKey = new Map();
+  let simulateMissingTable = true;
+  const mockDb = {
+    query: async (sql, params) => {
+      if (sql.includes('FROM news_items n')) {
+        const id = params?.[0];
+        if (id === 'article-cve-1') {
+          return {
+            rows: [
+              {
+                id: '101',
+                external_id: 'article-cve-1',
+                url: 'https://cloudflare.com/security-cve-analysis',
+                title_uk: 'Критична вразливість CVE-2026-8812 у TLS та хмарній інфраструктурі',
+                original_title: 'Critical CVE-2026-8812 vulnerability in cloud TLS zero-day analysis',
+                summary_uk: 'Терміновий розбір ризиків автентифікації та захисту API.',
+                original_summary: 'Zero-day vulnerability impacting cloud security.',
+                category: 'cybersecurity',
+                importance: 'high',
+                source_name: 'Cloudflare Security',
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }
+      if (sql.includes('news_expert_opinions_cache')) {
+        if (simulateMissingTable) {
+          throw new Error('relation "news_expert_opinions_cache" does not exist');
+        }
+        if (sql.trim().startsWith('SELECT payload')) {
+          const hit = dbCacheByKey.get(String(params?.[0] || ''));
+          return hit ? { rows: [{ payload: hit }] } : { rows: [] };
+        }
+        if (sql.includes('INSERT INTO news_expert_opinions_cache')) {
+          dbCacheByKey.set(String(params?.[0] || ''), JSON.parse(params[6]));
+          return { rows: [] };
+        }
+      }
+      return { rows: [] };
+    },
+  };
+
+  let fetchCalls = 0;
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    fetchCalls += 1;
+    const href = String(url);
+    if (href.includes('hn.algolia.com')) {
+      return new Response(
+        JSON.stringify({
+          hits: [
+            {
+              objectID: '49001122',
+              author: 'troyhunt',
+              comment_text: 'Zero-day TLS issues reinforce why short-lived credentials and automated patching are non-negotiable.',
+              created_at: '2026-11-14T11:00:00Z',
+              points: 145,
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    if (href.includes('public.api.bsky.app')) {
+      return new Response(
+        JSON.stringify({
+          posts: [
+            {
+              uri: 'at://did:plc:abc/app.bsky.feed.post/3ktestpost',
+              indexedAt: '2026-11-14T11:30:00Z',
+              author: { handle: 'simonwillison.net', displayName: 'Simon Willison' },
+              record: {
+                text: 'Defensive TLS inspection and reproducible dependency locks reduce zero-day blast radius substantially.',
+                createdAt: '2026-11-14T11:30:00Z',
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    if (href.includes('embed.bsky.app/oembed')) {
+      return new Response(
+        JSON.stringify({
+          html: '<blockquote class="bluesky-embed" data-testid="bsky-oembed">Verified Bluesky oEmbed</blockquote>',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    return new Response(JSON.stringify({}), { status: 404 });
+  };
+
+  try {
+    const opinionsService = new ExpertOpinionsService(mockDb);
+    opinionsService.clearCacheForTests();
+    const controller = new NewsController(mockDb, undefined, undefined, opinionsService);
+
+    // 1. Directory endpoint filters by domain and alias
+    const secDir = controller.expertsDirectory('cybersecurity');
+    assert.equal(secDir.domain, 'cybersecurity');
+    assert.ok(secDir.total >= 3);
+    assert.ok(secDir.items.some((e) => e.slug === 'troy-hunt'));
+
+    const aiDir = controller.expertsDirectory('ai');
+    assert.ok(aiDir.total >= 4);
+    assert.ok(aiDir.items.some((e) => e.slug === 'andrej-karpathy'));
+
+    // 2. Live fetch + missing DB table graceful fallback
+    const first = await controller.expertsForArticle('article-cve-1');
+    assert.equal(first.shouldDisplayBlock, true);
+    assert.equal(first.cached, false);
+    assert.equal(first.sourceMode, 'live_hybrid');
+    assert.ok(first.opinions.length >= 2);
+    assert.ok(first.consensusSummary?.dominantConsensusUk);
+    const bskyItem = first.opinions.find((o) => o.platform === 'bluesky');
+    assert.ok(bskyItem?.embed.htmlSnippet?.includes('data-testid="bsky-oembed"'));
+    assert.equal(fetchCalls, 3);
+
+    // 3. Second call hits 24h in-memory cache with 0 extra network requests
+    const second = await controller.expertsForArticle('article-cve-1');
+    assert.equal(second.cached, true);
+    assert.equal(fetchCalls, 3);
+
+    // 4. Refresh forces fresh evaluation & bypasses cache
+    simulateMissingTable = false;
+    const refreshed = await controller.expertsForArticle('article-cve-1', 'true');
+    assert.equal(refreshed.cached, false);
+    assert.equal(fetchCalls, 6);
+    assert.ok(dbCacheByKey.has('article-cve-1'));
+
+    // 5. DB cache hit after memory cache cleared
+    opinionsService.clearCacheForTests();
+    const fromDb = await controller.expertsForArticle('article-cve-1');
+    assert.equal(fromDb.cached, true);
+    assert.equal(fetchCalls, 6);
+
+    // 6. Routine patch skips expert block cleanly
+    const skipped = await controller.expertsForArticle(
+      'patch-99',
+      undefined,
+      'Minor bugfix patch v2.0.1',
+      'coding',
+    );
+    assert.equal(skipped.shouldDisplayBlock, false);
+    assert.equal(skipped.sourceMode, 'skipped');
+    assert.deepEqual(skipped.opinions, []);
+  } finally {
+    globalThis.fetch = origFetch;
   }
 });

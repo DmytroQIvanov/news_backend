@@ -7,6 +7,7 @@ import { NewsController } from './news/news.controller';
 import { CompanyFeedsService } from './news/company-feeds.service';
 import { FeedEditorialService } from './news/feed-editorial.service';
 import { NewsTtsService } from './news/news-tts.service';
+import { ExpertOpinionsService } from './news/expert-opinions.service';
 import { SourceDiscoveryService } from './news/source-discovery.service';
 import { GeminiEditorService } from './ingest/gemini-editor.service';
 import { IngestController } from './ingest/ingest.controller';
@@ -42,6 +43,7 @@ import { GrantsService } from './grants/grants.service';
     GeminiEditorService,
     FeedEditorialService,
     NewsTtsService,
+    ExpertOpinionsService,
     CatalogService,
     GamesService,
     KgService,

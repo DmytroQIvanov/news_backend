@@ -3,6 +3,8 @@ import { DatabaseService } from '../database/database.service';
 import { IngestKeyGuard } from '../common/ingest-key.guard';
 import { CATEGORIES } from '../ingest/ingest.dto';
 import { CompanyFeedsService, maxFeedArticles } from './company-feeds.service';
+import { EXPERT_DIRECTORY } from './expert-directory';
+import { ExpertOpinionsService } from './expert-opinions.service';
 import { NEWS_AUDIO_STYLES, NEWS_DEPTHS, NewsTtsService } from './news-tts.service';
 @Controller('news')
 export class NewsController {
@@ -10,6 +12,7 @@ export class NewsController {
     private readonly db: DatabaseService,
     private readonly companyFeeds: CompanyFeedsService,
     @Optional() private readonly newsTts?: NewsTtsService,
+    @Optional() private readonly expertOpinions?: ExpertOpinionsService,
   ) {}
 
   @Get('test-notification')
@@ -194,6 +197,65 @@ export class NewsController {
       throw new BadRequestException('Invalid style');
     }
     return this.newsTts.generateImportantNewsBriefing(id, source, { depth, style });
+  }
+
+  @Get('experts/directory')
+  expertsDirectory(@Query('domain') domain?: string) {
+    const cleanDomain = domain?.trim().toLowerCase() || '';
+    const alias = cleanDomain ? TOPIC_ALIAS_MAP[cleanDomain] : undefined;
+    const targetCategories = alias ? alias.categories : cleanDomain ? [cleanDomain] : [];
+
+    const filtered = cleanDomain
+      ? EXPERT_DIRECTORY.filter(
+          (expert) =>
+            expert.primaryDomains.some((d) => targetCategories.includes(d)) ||
+            expert.specializations.some((spec) => spec.toLowerCase().includes(cleanDomain)),
+        )
+      : EXPERT_DIRECTORY;
+
+    const sorted = [...filtered].sort((a, b) => b.credibilityWeight - a.credibilityWeight);
+    const items = sorted.map((expert) => ({
+      slug: expert.slug,
+      fullName: expert.fullName,
+      handle: expert.handle,
+      platform: expert.platform,
+      roleUk: expert.roleUk,
+      organization: expert.organization,
+      primaryDomains: expert.primaryDomains,
+      specializations: expert.specializations,
+      profileUrl: expert.profileUrl,
+      publicFeedUrl: expert.publicFeedUrl ?? null,
+      knownAffiliationsUk: expert.knownAffiliationsUk,
+      conflictDisclosureUk: expert.conflictDisclosureUk ?? null,
+      credibilityWeight: expert.credibilityWeight,
+      documentedPositionsCount: expert.documentedPositions.length,
+    }));
+
+    return {
+      domain: cleanDomain || 'all',
+      total: items.length,
+      items,
+    };
+  }
+
+  @Get(':id/experts')
+  async expertsForArticle(
+    @Param('id') id: string,
+    @Query('refresh') refreshRaw?: string,
+    @Query('title') title?: string,
+    @Query('category') category?: string,
+    @Query('source') source?: string,
+  ) {
+    if (!this.expertOpinions) {
+      throw new ServiceUnavailableException('Expert opinions service is unavailable');
+    }
+    const refresh = refreshRaw === 'true' || refreshRaw === '1';
+    return this.expertOpinions.getOpinionsForNews(id, {
+      refresh,
+      title,
+      category,
+      source,
+    });
   }
 
   @Get(':id')

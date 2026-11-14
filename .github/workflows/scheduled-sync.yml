@@ -8,13 +8,26 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    if: ${{ secrets.INGEST_API_KEY != '' }}
     steps:
+      - name: Warm up Render backend health endpoint
+        env:
+          RENDER_API_URL: ${{ secrets.RENDER_API_URL || 'https://news-backend-v0jj.onrender.com' }}
+        run: |
+          curl --fail --show-error --silent --max-time 60 \
+            -H "Cache-Control: no-store, no-cache" \
+            -H "Pragma: no-cache" \
+            -H "User-Agent: OpportunityRadar-ScheduledSync/1.0" \
+            "${RENDER_API_URL%/}/api/v1/health?t=$(date +%s)" >/dev/null || true
+
       - name: Trigger backend news & encyclopedia sync
         env:
           RENDER_API_URL: ${{ secrets.RENDER_API_URL || 'https://news-backend-v0jj.onrender.com' }}
           INGEST_API_KEY: ${{ secrets.INGEST_API_KEY }}
         run: |
+          if [ -z "${INGEST_API_KEY}" ]; then
+            echo "INGEST_API_KEY is not configured; skipping /api/v1/ingest/sync."
+            exit 0
+          fi
           curl --fail --show-error --silent --max-time 120 \
             -X POST "${RENDER_API_URL%/}/api/v1/ingest/sync" \
             -H "x-ingest-key: ${INGEST_API_KEY}" \
@@ -25,6 +38,10 @@ jobs:
           RENDER_API_URL: ${{ secrets.RENDER_API_URL || 'https://news-backend-v0jj.onrender.com' }}
           INGEST_API_KEY: ${{ secrets.INGEST_API_KEY }}
         run: |
+          if [ -z "${INGEST_API_KEY}" ]; then
+            echo "INGEST_API_KEY is not configured; skipping /api/v1/grants/refresh."
+            exit 0
+          fi
           curl --fail --show-error --silent --max-time 120 \
             -X POST "${RENDER_API_URL%/}/api/v1/grants/refresh" \
             -H "x-ingest-key: ${INGEST_API_KEY}" \
