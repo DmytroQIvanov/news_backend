@@ -70,6 +70,13 @@ export class HealthController {
           freeGiveaways: Number(gamesRes.rows[0]?.free_giveaways ?? 0),
           lastVerifiedAt: gamesRes.rows[0]?.last_verified ?? null,
         },
+        ai: {
+          configured: Boolean(
+            process.env.GEMINI_API_KEY?.trim() &&
+              !process.env.GEMINI_API_KEY.trim().startsWith('replace_'),
+          ),
+          model: process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash',
+        },
       };
     } catch {
       throw new ServiceUnavailableException({ status: 'degraded', database: 'unavailable' });
