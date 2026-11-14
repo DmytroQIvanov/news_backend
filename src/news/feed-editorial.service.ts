@@ -23,7 +23,7 @@ export class FeedEditorialService implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit() {
     if (this.editor.enabled) {
-      this.timer = setTimeout(() => void this.scheduleLoop(), 4_000);
+      this.timer = setTimeout(() => void this.scheduleLoop(), 25_000);
     }
   }
 
@@ -37,7 +37,7 @@ export class FeedEditorialService implements OnModuleInit, OnModuleDestroy {
       await this.runOnce();
     } finally {
       if (!this.stopped) {
-        this.timer = setTimeout(() => void this.scheduleLoop(), 10 * 60_000);
+        this.timer = setTimeout(() => void this.scheduleLoop(), 5 * 60_000);
       }
     }
   }
@@ -73,7 +73,7 @@ export class FeedEditorialService implements OnModuleInit, OnModuleDestroy {
       const known = new Set(rows.flatMap(row => [row.external_id, row.url, row.canonical_url].filter((v): v is string => !!v)));
 
       const activeFeeds = this.feeds.getActiveFeeds();
-      const maxPerCycle = 4;
+      const maxPerCycle = 3;
       for (const feed of activeFeeds) {
         if (this.stopped || processed >= maxPerCycle) break;
         const item = items.find(

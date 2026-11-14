@@ -89,7 +89,7 @@ export class GamesService implements OnModuleInit, OnModuleDestroy {
       }, intervalMs);
     };
 
-    // Initial sync 20 seconds after server start
+    // Initial sync 8 seconds after server start (takes 1 RPM slot before news queue)
     this.timer = setTimeout(async () => {
       if (this.isDestroyed) return;
       try {
@@ -99,7 +99,7 @@ export class GamesService implements OnModuleInit, OnModuleDestroy {
       } finally {
         if (!this.isDestroyed) scheduleNext();
       }
-    }, 20_000);
+    }, 8_000);
   }
 
   onModuleDestroy() {
