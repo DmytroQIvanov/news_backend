@@ -50,7 +50,10 @@ export class NewsController {
       ORDER BY n.published_at DESC NULLS LAST,n.id DESC LIMIT $2 OFFSET $3`,
     [category || null, onlyDatabase ? limit : offset + limit + maxFeedArticles, onlyDatabase ? offset : 0,
       sources.length ? sources : null, important === 'true']);
-    if (onlyDatabase) return { items: (await published).rows, limit, offset };
+    if (onlyDatabase) {
+      const rows = (await published).rows;
+      return { items: rows, limit, offset, hasMore: rows.length === limit };
+    }
 
     const [result, feeds] = await Promise.all([published, this.companyFeeds.list(sources)]);
     if (feeds.unavailable && !result.rows.length) {
@@ -61,7 +64,8 @@ export class NewsController {
     const fresh = feeds.items.filter(item => !publishedUrls.has(articleKey(item.url)))
       .map(item => ({ ...item, title_uk: null, summary_uk: null }));
     const items = [...result.rows, ...fresh].sort((a, b) => publishedTime(b.published_at) - publishedTime(a.published_at));
-    return { items: items.slice(offset, offset + limit), limit, offset };
+    const page = items.slice(offset, offset + limit);
+    return { items: page, limit, offset, hasMore: offset + page.length < items.length };
   }
   @Get('review')
   @UseGuards(IngestKeyGuard)
@@ -111,6 +115,46 @@ export class NewsController {
     }
     throw new NotFoundException('Article not found');
   }
+
+  @Get(':id/related')
+  async related(@Param('id') id: string, @Query('source') source?: string) {
+    const { rows: targetRows } = await this.db.query<{
+      id: string;
+      category: string;
+      source_slug: string;
+    }>(`
+      SELECT n.id::text, n.category, s.slug AS source_slug
+      FROM news_items n JOIN sources s ON s.id = n.source_id
+      WHERE (n.external_id = $1 OR n.id::text = $1) AND n.status = 'published'
+      LIMIT 1
+    `, [id]);
+
+    const target = targetRows[0];
+    const targetCategory = target?.category || null;
+    const targetSource = target?.source_slug || source || null;
+
+    const { rows } = await this.db.query(`
+      SELECT n.id, n.url, n.title_uk, n.summary_uk, n.original_title, n.category, n.importance,
+             COALESCE(n.ai_metadata->'article'->'important' = 'true'::jsonb, false) AS important,
+             n.published_at, s.name AS source_name, s.slug AS source_slug
+      FROM news_items n JOIN sources s ON s.id = n.source_id
+      WHERE n.status = 'published'
+        AND n.id::text <> COALESCE($1, '')
+        AND n.external_id <> $2
+        AND (
+          ($3::text IS NOT NULL AND n.category = $3)
+          OR ($4::text IS NOT NULL AND s.slug = $4)
+        )
+      ORDER BY
+        (CASE WHEN s.slug = $4 THEN 0 ELSE 1 END),
+        n.published_at DESC NULLS LAST,
+        n.id DESC
+      LIMIT 5
+    `, [target?.id || null, id, targetCategory, targetSource]);
+
+    return { items: rows };
+  }
+
   @Patch(':id/publish')
   @UseGuards(IngestKeyGuard)
   async publish(@Param('id', ParseIntPipe) id: number) {

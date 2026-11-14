@@ -2,7 +2,9 @@ import 'reflect-metadata';
 import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { json } from 'express';
 import { AppModule } from './app.module';
+import { createRateLimiter } from './common/rate-limit.middleware';
 
 async function bootstrap(): Promise<void> {
   if (!process.env.DATABASE_URL?.trim()) {
@@ -13,6 +15,9 @@ async function bootstrap(): Promise<void> {
   }
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.enableShutdownHooks();
+  app.use(json({ limit: '2mb' }));
+  app.use(createRateLimiter({ windowMs: 60_000, maxRequests: 30, paths: [/^\/api\/v1\/(ingest|catalog\/refresh|news\/[^/]+\/publish)/] }));
+  app.use(createRateLimiter({ windowMs: 60_000, maxRequests: 180 }));
   app.setGlobalPrefix('api/v1', { exclude: ['health', 'health/db'] });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true, transformOptions: { enableImplicitConversion: false } }));
   const origins = (process.env.CORS_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);

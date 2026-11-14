@@ -17,5 +17,13 @@ services:
         sync: false
       - key: INGEST_API_KEY
         sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: "gemini-2.0-flash-lite"
+      - key: GEMINI_RESEARCH
+        value: "false"
       - key: CORS_ORIGINS
-        value: http://localhost:3001
+        value: ""
+      - key: DB_KEEPALIVE_INTERVAL_MS
+        value: "240000"

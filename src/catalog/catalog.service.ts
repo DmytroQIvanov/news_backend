@@ -1,337 +1,169 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { isTransientHttpStatus, retryWithBackoff } from '../common/url-utils';
 import { DatabaseService } from '../database/database.service';
+import {
+  type AiCatalogItem,
+  type CatalogChangeItem,
+  INITIAL_CATALOG,
+  type ModelDetail,
+  type Promotion,
+  type ProviderConfig,
+  PROVIDERS_CONFIG,
+} from './catalog-seed';
 
-export interface ModelDetail {
-  name: string;
-  contextWindow: string;
-  bestFor: string;
-  strengths: string[];
+export type {
+  AiCatalogItem,
+  CatalogChangeItem,
+  FreeTierInfo,
+  ModelDetail,
+  Promotion,
+} from './catalog-seed';
+
+const catalogItemSchema = {
+  type: 'object',
+  properties: {
+    title: { type: 'string' },
+    tagline: { type: 'string' },
+    models: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          contextWindow: { type: 'string' },
+          contextTokens: { type: 'integer' },
+          inputPrice: { type: 'string' },
+          outputPrice: { type: 'string' },
+          capabilities: { type: 'array', items: { type: 'string' } },
+          bestFor: { type: 'string' },
+          strengths: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['name', 'contextWindow', 'bestFor', 'strengths'],
+      },
+    },
+    freeTier: {
+      type: 'object',
+      properties: {
+        hasFree: { type: 'boolean' },
+        limits: { type: 'string' },
+        description: { type: 'string' },
+        renewPeriod: { type: 'string' },
+      },
+      required: ['hasFree', 'limits', 'description', 'renewPeriod'],
+    },
+    currentPromotions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          badge: { type: 'string' },
+          description: { type: 'string' },
+          expires: { type: 'string' },
+          eligible: { type: 'string' },
+        },
+        required: ['title', 'badge', 'description', 'eligible'],
+      },
+    },
+    advantages: { type: 'array', items: { type: 'string' } },
+    limitations: { type: 'array', items: { type: 'string' } },
+    pricingSummary: { type: 'string' },
+  },
+  required: [
+    'title',
+    'tagline',
+    'models',
+    'freeTier',
+    'currentPromotions',
+    'advantages',
+    'limitations',
+    'pricingSummary',
+  ],
+};
+
+export function isPromotionExpired(promo: Promotion, now = new Date()): boolean {
+  if (!promo.expires) return false;
+  const parsed = Date.parse(promo.expires);
+  if (!Number.isFinite(parsed)) return false;
+  return parsed < now.getTime();
 }
 
-export interface Promotion {
-  title: string;
-  badge: string;
-  description: string;
-  expires?: string;
-  eligible: string;
-}
+export function diffCatalogItems(
+  prev: AiCatalogItem | undefined,
+  next: AiCatalogItem,
+  sourceUrl: string,
+): Array<{ changeType: string; fieldName: string; summary: string; sourceUrl: string; confidence: 'confirmed' | 'company_claim' | 'unverified' }> {
+  if (!prev) return [];
+  const changes: Array<{ changeType: string; fieldName: string; summary: string; sourceUrl: string; confidence: 'confirmed' | 'company_claim' | 'unverified' }> = [];
 
-export interface FreeTierInfo {
-  hasFree: boolean;
-  limits: string;
-  description: string;
-  renewPeriod: string;
-}
+  const prevModels = new Set(prev.models.map(m => m.name.toLowerCase()));
+  const addedModels = next.models.filter(m => !prevModels.has(m.name.toLowerCase()));
+  if (addedModels.length > 0) {
+    changes.push({
+      changeType: 'model_added',
+      fieldName: 'models',
+      summary: `Додано моделі: ${addedModels.map(m => m.name).join(', ')}`,
+      sourceUrl,
+      confidence: 'confirmed',
+    });
+  }
 
-export interface AiCatalogItem {
-  id: string;
-  providerId: string;
-  providerName: string;
-  category: string;
-  title: string;
-  tagline: string;
-  models: ModelDetail[];
-  freeTier: FreeTierInfo;
-  currentPromotions: Promotion[];
-  advantages: string[];
-  limitations: string[];
-  pricingSummary: string;
-  officialUrl: string;
-  lastVerifiedAt: string;
-}
+  if (prev.freeTier.limits !== next.freeTier.limits || prev.freeTier.hasFree !== next.freeTier.hasFree) {
+    changes.push({
+      changeType: 'free_tier_updated',
+      fieldName: 'freeTier',
+      summary: `Оновлено умови Free Tier: ${next.freeTier.limits.slice(0, 180)}`,
+      sourceUrl,
+      confidence: 'confirmed',
+    });
+  }
 
-export const INITIAL_CATALOG: AiCatalogItem[] = [
-  {
-    id: 'google-gemini',
-    providerId: 'gemini',
-    providerName: 'Google Gemini & AI Studio',
-    category: 'Моделі та Мультимодальність',
-    title: 'Google Gemini 2.5 / 3.0 Ecosystem',
-    tagline: 'Найбільше контекстне вікно в індустрії та безкоштовні ліміти в Google AI Studio',
-    models: [
-      {
-        name: 'Gemini 2.5 Pro / Ultra',
-        contextWindow: '2 000 000 токенів',
-        bestFor: 'Глибокий аналіз коду, великі відео, книги та складний reasoning',
-        strengths: ['Нативна мультимодальність (відео, аудіо, PDF)', '2M токенів контексту', 'Підтримка Google Search Grounding'],
-      },
-      {
-        name: 'Gemini 2.5 Flash / Flash-Lite',
-        contextWindow: '1 000 000 токенів',
-        bestFor: 'Швидкі агенти, чати, високонавантажені API з мінімальною затримкою',
-        strengths: ['Супер-швидкість', 'Наднизька вартість токенів', 'Високий безкоштовний ліміт'],
-      },
-    ],
-    freeTier: {
-      hasFree: true,
-      limits: '15 RPM (запитів/хв) та до 1,500 RPD у Google AI Studio без прив’язки кредитки',
-      description: 'Безкоштовний доступ через веб-інтерфейс Google AI Studio з повним доступом до Pro і Flash моделей.',
-      renewPeriod: 'Щоденне та щохвилинне оновлення квот',
-    },
-    currentPromotions: [
-      {
-        title: '300$ вітальних кредитів Google Cloud',
-        badge: 'Знижка / Грант',
-        description: 'Нові користувачі Google Cloud отримують 300$ на 90 днів для будь-яких сервісів, включно з Gemini на Vertex AI.',
-        eligible: 'Усі нові акаунти Google Cloud',
-      },
-      {
-        title: 'Безкоштовний tier у Google AI Studio',
-        badge: '100% Free',
-        description: 'Розробники можуть безкоштовно створювати API-ключ і використовувати Gemini без оплати у межах базових рейт-лімітів.',
-        eligible: 'Усі зареєстровані розробники',
-      },
-      {
-        title: '1 місяць Google One AI Premium',
-        badge: 'Промо 0$',
-        description: 'Пробний безкоштовний період на план Gemini Advanced (2TB Google Drive + доступ до флагманських моделей у Google Workspace).',
-        eligible: 'Нові передплатники Google One',
-      },
-    ],
-    advantages: [
-      'Величезне контекстне вікно (до 2 мільйонів токенів)',
-      'Нативний аналіз 1 години відео та багатогодинних аудіозаписів',
-      'Глибока інтеграція з сервісами Google (Docs, Gmail, Drive, Cloud)',
-      'Один із найщедріших безкоштовних API-рівнів для розробників',
-    ],
-    limitations: [
-      'Безкоштовні API-запити у Google AI Studio можуть використовуватися для навчання моделей Google',
-      'Суворі фільтри безпеки на чутливі теми',
-    ],
-    pricingSummary: 'AI Studio Free: 0$/міс. Paid tier: від 0.075$ за 1M вхідних токенів (Flash) до 1.25$ за 1M (Pro).',
-    officialUrl: 'https://aistudio.google.com',
-    lastVerifiedAt: new Date().toISOString(),
-  },
-  {
-    id: 'anthropic-claude',
-    providerId: 'claude',
-    providerName: 'Anthropic Claude',
-    category: 'Кодинг та Розсудливість',
-    title: 'Claude 3.5 Sonnet / Haiku / Opus',
-    tagline: 'Золотий стандарт у кодогенерації, аналітиці та CLI-інструментах розробника',
-    models: [
-      {
-        name: 'Claude 3.5 Sonnet',
-        contextWindow: '200 000 токенів',
-        bestFor: 'Архітектура ПЗ, рефакторинг, складний кодинг, логіка',
-        strengths: ['Найвищий бенчмарк у програмуванні SWE-bench', 'Computer Use API', 'Виняткова точність слідування інструкціям'],
-      },
-      {
-        name: 'Claude 3.5 Haiku',
-        contextWindow: '200 000 токенів',
-        bestFor: 'Швидкі агенти, сумаризація, миттєві підказки',
-        strengths: ['Перевершує попередній Opus за швидкістю в 3 рази', 'Доступна ціна API'],
-      },
-    ],
-    freeTier: {
-      hasFree: true,
-      limits: 'Обмежена кількість повідомлень на добу на claude.ai (оновлюється кожні 5 годин)',
-      description: 'Безкоштовний доступ до веб-інтерфейсу Claude.ai з можливістю завантажувати файли та писати код.',
-      renewPeriod: 'Динамічний ліміт, відновлюється кожні 5 годин',
-    },
-    currentPromotions: [
-      {
-        title: '5$ початкових API кредитів',
-        badge: 'Тестовий баланс',
-        description: 'При реєстрації в Anthropic Console та верифікації номера телефону нараховуються тестові кошти для тестування API.',
-        eligible: 'Нові верифіковані розробники',
-      },
-      {
-        title: 'Prompt Caching знижка до 90%',
-        badge: 'Економія 90%',
-        description: 'Автоматичне кешування повторюваних системних промптів та великих файлів коду знижує ціну вхідних токенів на 90%.',
-        eligible: 'Усі користувачі Anthropic API',
-      },
-    ],
-    advantages: [
-      'Визнаний лідер у написанні чистого коду без зайвої води',
-      'Мінімальний відсоток галюцинацій завдяки конституційному ШІ',
-      'Computer Use (можливість агента керувати робочим столом через скріншоти)',
-      'Знижка 90% на кешовані вхідні токени',
-    ],
-    limitations: [
-      'Веб-ліміти на безкоштовному тарифі вичерпуються досить швидко при великих файлах',
-      'Немає офіційної безкоштовної генерації зображень у чаті',
-    ],
-    pricingSummary: 'Free tier на Claude.ai. Claude Pro: 20$/міс. API: Sonnet 3.5 $3 / $15 за мільйон токенів.',
-    officialUrl: 'https://claude.ai',
-    lastVerifiedAt: new Date().toISOString(),
-  },
-  {
-    id: 'openai-chatgpt',
-    providerId: 'openai',
-    providerName: 'OpenAI (ChatGPT & Codex)',
-    category: 'Екосистема та Розмір Спільноти',
-    title: 'OpenAI GPT-4o & o1 / o3 Reasoning Models',
-    tagline: 'Найширша бібліотека GPTs, Advanced Voice та поглиблені reasoning-моделі серії o',
-    models: [
-      {
-        name: 'GPT-4o / GPT-4o mini',
-        contextWindow: '128 000 токенів',
-        bestFor: 'Універсальні завдання, генерація зображень, робота з голосом у реальному часі',
-        strengths: ['Низька затримка', 'Інтегрована генерація зображень', 'Широка екосистема бібліотек'],
-      },
-      {
-        name: 'OpenAI o1 & o3-mini',
-        contextWindow: '200 000 токенів',
-        bestFor: 'Математика, алгоритмічний кодинг, олімпіадні наукові завдання',
-        strengths: ['Ланцюг думок (Chain-of-thought) перед відповіддю', 'Рекордні результати в алгоритмах'],
-      },
-    ],
-    freeTier: {
-      hasFree: true,
-      limits: 'Необмежений базовий доступ до GPT-4o mini, динамічний доступ до GPT-4o та аналізу файлів',
-      description: 'Безкоштовні користувачі chatgpt.com мають доступ до перегляду веб-сторінок, аналізу документів та створення зображень (обмежено).',
-      renewPeriod: 'Ліміт на GPT-4o скидається кожні кілька годин',
-    },
-    currentPromotions: [
-      {
-        title: '5$ Free API Credits для нових акаунтів',
-        badge: 'Промо API',
-        description: 'При створенні нової платформи в OpenAI Platform надаються стартові грантові кошти на 3 місяці.',
-        eligible: 'Нові верифіковані платформи',
-      },
-      {
-        title: 'OpenAI for Startups Grant (до $25,000)',
-        badge: 'Грант для стартапів',
-        description: 'Програма підтримки технологічних компаній та стартапів з наданням до 25k$ кредитів на API.',
-        eligible: 'Стартапи ранніх стадій за заявкою',
-      },
-    ],
-    advantages: [
-      'Найбільша база знань та підтримуваних плагінів/інтеграцій у світі',
-      'Режим реального часу Advanced Voice Mode',
-      'Reasoning моделі o1, які дійсно «думають» перед відповіддю',
-      'Генерація ілюстрацій безпосередньо у діалозі',
-    ],
-    limitations: [
-      'Жорсткі обмеження швидкості та запитів у години пікового навантаження',
-      'Відносно висока ціна на моделі класу o1',
-    ],
-    pricingSummary: 'Free tier на ChatGPT. ChatGPT Plus: 20$/міс. GPT-4o mini: $0.15/$0.60 за 1M токенів.',
-    officialUrl: 'https://openai.com',
-    lastVerifiedAt: new Date().toISOString(),
-  },
-  {
-    id: 'mistral-ai',
-    providerId: 'mistral',
-    providerName: 'Mistral AI & Le Chat',
-    category: 'Європейський ШІ та Open Weights',
-    title: 'Mistral Large 2 & Codestral',
-    tagline: 'Автономні та відкриті моделі найвищого класу з безкоштовним доступом у Le Chat',
-    models: [
-      {
-        name: 'Mistral Large 2',
-        contextWindow: '128 000 токенів',
-        bestFor: 'Багатомовні завдання (включно з європейськими мовами), складні міркування',
-        strengths: ['Відмінне володіння кодом та мовами', 'Суверенітет даних ЄС'],
-      },
-      {
-        name: 'Codestral',
-        contextWindow: '256 000 токенів',
-        bestFor: 'Спеціалізований автокомпліт та генерація коду у 80+ мовах',
-        strengths: ['Fill-in-the-middle підтримка', '256k контекст для кодових баз'],
-      },
-    ],
-    freeTier: {
-      hasFree: true,
-      limits: 'Повністю безкоштовний необмежений чат у Le Chat (chat.mistral.ai)',
-      description: 'Доступ до Mistral Large, генерації зображень Flux, веб-пошуку та аналізу файлів без платної підписки.',
-      renewPeriod: 'Щедрі денні ліміти',
-    },
-    currentPromotions: [
-      {
-        title: 'Безкоштовний Le Chat з топовими моделями',
-        badge: '100% Free UI',
-        description: 'Усі користувачі отримують флагманський Mistral Large 2 та генератор Flux безкоштовно.',
-        eligible: 'Усі акаунти Le Chat',
-      },
-      {
-        title: 'Безкоштовний API tier для Codestral',
-        badge: 'Dev Free API',
-        description: 'Окремий ендпоінт для плагінів IDE (VS Code, JetBrains) з безкоштовним ключем.',
-        eligible: 'Розробники ПЗ',
-      },
-    ],
-    advantages: [
-      'Le Chat повністю безкоштовний без потреби щомісячної підписки 20$',
-      'Відкриті ваги багатьох моделей (можна запускати на власному залізі)',
-      'Повна відповідність регламентам конфіденційності GDPR',
-    ],
-    limitations: [
-      'Менша популярність екосистеми сторонніх плагінів порівняно з OpenAI',
-    ],
-    pricingSummary: 'Le Chat: 0$/міс. API: Codestral від 0.2$ / 0.6$ за 1M токенів.',
-    officialUrl: 'https://mistral.ai',
-    lastVerifiedAt: new Date().toISOString(),
-  },
-  {
-    id: 'huggingface-open',
-    providerId: 'huggingface',
-    providerName: 'Hugging Face & Open Source Hub',
-    category: 'Відкриті Ваги та Локальний запуск',
-    title: 'HuggingChat & Open Source Model Hub',
-    tagline: 'Десятки тисяч відкритих моделей (Llama 3, DeepSeek, Qwen) з безкоштовним доступом',
-    models: [
-      {
-        name: 'DeepSeek R1 / V3',
-        contextWindow: '64 000 - 128 000 токенів',
-        bestFor: 'Відкритий reasoning, конкурент моделям o1 за копійки',
-        strengths: ['Революційна архітектура Mixture-of-Experts', 'Повний відкритий доступ до ваг'],
-      },
-      {
-        name: 'Meta Llama 3.3 70B',
-        contextWindow: '128 000 токенів',
-        bestFor: 'Універсальний оффлайн ШІ для власного сервера або ПК',
-        strengths: ['Працює локально через Ollama/vLLM', 'Без цензури та витоку даних'],
-      },
-    ],
-    freeTier: {
-      hasFree: true,
-      limits: 'Необмежений чат у HuggingChat з перемиканням між 10+ відкритими моделями',
-      description: 'HuggingChat дозволяє вибирати моделі від Meta, Qwen, DeepSeek, Mistral абсолютно безкоштовно.',
-      renewPeriod: 'Безперервний доступ',
-    },
-    currentPromotions: [
-      {
-        title: 'Безкоштовний хостинг невеликих Spaces',
-        badge: 'Free Hosting',
-        description: 'Розробники можуть безкоштовно розгортати власні Gradio/Streamlit ШІ-демонстрації на CPU.',
-        eligible: 'Усі користувачі Hugging Face',
-      },
-    ],
-    advantages: [
-      'Повна свобода від підписок і вендор-локу',
-      'Можливість завантажити та запустити локально на комп’ютері (Ollama / llama.cpp)',
-      '100% приватність даних при локальному запуску',
-    ],
-    limitations: [
-      'Для локального запуску важких моделей 70B потрібні потужні відеокарти',
-    ],
-    pricingSummary: 'HuggingChat: 0$/міс. Spaces: безкоштовно CPU, від 0.40$/год за GPU.',
-    officialUrl: 'https://huggingface.co',
-    lastVerifiedAt: new Date().toISOString(),
-  },
-];
+  if (prev.pricingSummary !== next.pricingSummary) {
+    changes.push({
+      changeType: 'pricing_updated',
+      fieldName: 'pricingSummary',
+      summary: `Оновлено тарифи: ${next.pricingSummary.slice(0, 180)}`,
+      sourceUrl,
+      confidence: 'confirmed',
+    });
+  }
+
+  const prevPromos = new Set(prev.currentPromotions.map(p => p.title.toLowerCase()));
+  const addedPromos = next.currentPromotions.filter(p => !prevPromos.has(p.title.toLowerCase()));
+  if (addedPromos.length > 0) {
+    changes.push({
+      changeType: 'promotion_added',
+      fieldName: 'currentPromotions',
+      summary: `Нові пропозиції: ${addedPromos.map(p => p.title).join(', ')}`,
+      sourceUrl,
+      confidence: 'company_claim',
+    });
+  }
+
+  return changes;
+}
 
 @Injectable()
 export class CatalogService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(CatalogService.name);
   private checkTimer?: NodeJS.Timeout;
   private isDestroyed = false;
+  private activeSync?: Promise<{ success: boolean; updated: string[]; skipped: string[] }>;
+  private readonly geminiKey = process.env.GEMINI_API_KEY?.trim();
+  private readonly geminiModel = process.env.GEMINI_MODEL?.trim() || 'gemini-2.0-flash-lite';
 
   constructor(private readonly db: DatabaseService) {}
 
   async onModuleInit() {
     await this.ensureInitialSeed();
 
-    // Check & verify opportunities automatically every 30 minutes
-    const intervalMs = 30 * 60_000;
+    const intervalMs = 60 * 60_000;
     const scheduleCheck = () => {
       this.checkTimer = setTimeout(async () => {
         if (this.isDestroyed) return;
         try {
-          await this.syncAndVerify();
+          await this.syncAndVerifyAll(false);
         } catch (error) {
           this.logger.warn(`Catalog auto-verify cycle failed: ${error instanceof Error ? error.message : error}`);
         } finally {
@@ -339,7 +171,18 @@ export class CatalogService implements OnModuleInit, OnModuleDestroy {
         }
       }, intervalMs);
     };
-    scheduleCheck();
+
+    // First background check 15 seconds after server starts
+    this.checkTimer = setTimeout(async () => {
+      if (this.isDestroyed) return;
+      try {
+        await this.syncAndVerifyAll(false);
+      } catch (error) {
+        this.logger.warn(`Initial catalog sync failed: ${error instanceof Error ? error.message : error}`);
+      } finally {
+        if (!this.isDestroyed) scheduleCheck();
+      }
+    }, 15_000);
   }
 
   onModuleDestroy() {
@@ -347,35 +190,197 @@ export class CatalogService implements OnModuleInit, OnModuleDestroy {
     if (this.checkTimer) clearTimeout(this.checkTimer);
   }
 
-  async getAll(): Promise<AiCatalogItem[]> {
+  async getAll(filters?: { q?: string; category?: string; hasFree?: boolean }): Promise<AiCatalogItem[]> {
+    let items: AiCatalogItem[] = [];
     try {
-      const { rows } = await this.db.query<any>(`
+      const { rows } = await this.db.query<AiCatalogItem & { pricingDocUrl?: string }>(`
         SELECT id, provider_id AS "providerId", provider_name AS "providerName",
                category, title, tagline, models, free_tier AS "freeTier",
                current_promotions AS "currentPromotions", advantages, limitations,
                pricing_summary AS "pricingSummary", official_url AS "officialUrl",
-               last_verified_at AS "lastVerifiedAt"
+               pricing_doc_url AS "pricingDocUrl", last_verified_at AS "lastVerifiedAt"
         FROM ai_catalogs
-        ORDER BY CASE 
+        ORDER BY CASE
           WHEN provider_id = 'gemini' THEN 1
           WHEN provider_id = 'claude' THEN 2
           WHEN provider_id = 'openai' THEN 3
           WHEN provider_id = 'mistral' THEN 4
-          ELSE 5 END, id
+          WHEN provider_id = 'huggingface' THEN 5
+          WHEN provider_id = 'grok' THEN 6
+          WHEN provider_id = 'perplexity' THEN 7
+          ELSE 8 END, id
       `);
       if (rows && rows.length > 0) {
-        return rows;
+        items = rows;
       }
     } catch {
-      // Fallback to static catalog if DB table is initializing
+      // Fallback to seed if DB table is not ready
     }
-    return INITIAL_CATALOG;
+    if (!items.length) items = INITIAL_CATALOG;
+
+    const now = new Date();
+    const staleThresholdMs = 7 * 24 * 60 * 60_000;
+    let normalized = items.map(item => {
+      const verifiedMs = Date.parse(item.lastVerifiedAt);
+      const isOutdated = !Number.isFinite(verifiedMs) || (now.getTime() - verifiedMs > staleThresholdMs);
+      const activePromos = (item.currentPromotions || [])
+        .map(p => ({ ...p, isExpired: isPromotionExpired(p, now) }))
+        .filter(p => !p.isExpired);
+
+      return {
+        ...item,
+        currentPromotions: activePromos,
+        verificationStatus: (isOutdated ? 'outdated' : 'confirmed') as 'confirmed' | 'outdated',
+      };
+    });
+
+    if (filters?.category) {
+      const cat = filters.category.toLowerCase();
+      normalized = normalized.filter(i => i.category.toLowerCase().includes(cat));
+    }
+    if (filters?.hasFree) {
+      normalized = normalized.filter(i => i.freeTier?.hasFree);
+    }
+    if (filters?.q) {
+      const q = filters.q.toLowerCase();
+      normalized = normalized.filter(i =>
+        i.providerName.toLowerCase().includes(q) ||
+        i.title.toLowerCase().includes(q) ||
+        i.tagline.toLowerCase().includes(q) ||
+        i.models.some(m => m.name.toLowerCase().includes(q) || m.bestFor.toLowerCase().includes(q)) ||
+        i.currentPromotions.some(p => p.title.toLowerCase().includes(q)),
+      );
+    }
+    return normalized;
   }
 
   async getByProvider(providerId: string): Promise<AiCatalogItem | null> {
     const all = await this.getAll();
     const item = all.find(c => c.providerId.toLowerCase() === providerId.toLowerCase());
-    return item || null;
+    if (!item) return null;
+    const recentChanges = await this.getRecentChanges(item.providerId, 15);
+    return { ...item, recentChanges };
+  }
+
+  async getModels(filters?: { q?: string; providerId?: string; capability?: string; minContext?: number }) {
+    const all = await this.getAll();
+    let models = all.flatMap(provider =>
+      (provider.models || []).map((model: ModelDetail) => ({
+        id: `${provider.providerId}:${model.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+        providerId: provider.providerId,
+        providerName: provider.providerName,
+        officialUrl: provider.officialUrl,
+        pricingDocUrl: provider.pricingDocUrl,
+        lastVerifiedAt: provider.lastVerifiedAt,
+        hasFreeTier: provider.freeTier?.hasFree ?? false,
+        ...model,
+      })),
+    );
+
+    if (filters?.providerId) {
+      const pid = filters.providerId.toLowerCase();
+      models = models.filter(m => m.providerId.toLowerCase() === pid);
+    }
+    if (filters?.capability) {
+      const cap = filters.capability.toLowerCase();
+      models = models.filter(m => (m.capabilities || []).some(c => c.toLowerCase() === cap));
+    }
+    if (filters?.minContext) {
+      models = models.filter(m => (m.contextTokens || 0) >= filters.minContext!);
+    }
+    if (filters?.q) {
+      const q = filters.q.toLowerCase();
+      models = models.filter(m =>
+        m.name.toLowerCase().includes(q) ||
+        m.providerName.toLowerCase().includes(q) ||
+        m.bestFor.toLowerCase().includes(q) ||
+        m.strengths.some(s => s.toLowerCase().includes(q)),
+      );
+    }
+    return models;
+  }
+
+  async getPromotions(filters?: { q?: string; providerId?: string }) {
+    const all = await this.getAll();
+    let promos = all.flatMap(provider =>
+      (provider.currentPromotions || []).map((promo, idx) => ({
+        id: `${provider.providerId}:promo-${idx}`,
+        providerId: provider.providerId,
+        providerName: provider.providerName,
+        officialUrl: provider.officialUrl,
+        lastVerifiedAt: provider.lastVerifiedAt,
+        ...promo,
+      })),
+    );
+    if (filters?.providerId) {
+      const pid = filters.providerId.toLowerCase();
+      promos = promos.filter(p => p.providerId.toLowerCase() === pid);
+    }
+    if (filters?.q) {
+      const q = filters.q.toLowerCase();
+      promos = promos.filter(p =>
+        p.title.toLowerCase().includes(q) ||
+        p.description.toLowerCase().includes(q) ||
+        p.providerName.toLowerCase().includes(q),
+      );
+    }
+    return promos;
+  }
+
+  async getRecentChanges(providerId?: string, limit = 30): Promise<CatalogChangeItem[]> {
+    const safeLimit = Math.max(1, Math.min(100, limit));
+    try {
+      const { rows } = await this.db.query<CatalogChangeItem>(
+        `SELECT id::text, provider_id AS "providerId", change_type AS "changeType",
+                field_name AS "fieldName", summary, source_url AS "sourceUrl",
+                confidence, detected_at AS "detectedAt"
+         FROM ai_catalog_changes
+         WHERE ($1::text IS NULL OR provider_id = $1)
+         ORDER BY detected_at DESC
+         LIMIT $2`,
+        [providerId || null, safeLimit],
+      );
+      return rows;
+    } catch {
+      return [];
+    }
+  }
+
+  async triggerRefresh(providerId?: string, force = false): Promise<{ success: boolean; updated: string[]; skipped: string[] }> {
+    if (this.activeSync && !providerId) {
+      return this.activeSync;
+    }
+    const run = async () => {
+      const updated: string[] = [];
+      const skipped: string[] = [];
+      const targets = providerId
+        ? PROVIDERS_CONFIG.filter(p => p.providerId.toLowerCase() === providerId.toLowerCase())
+        : PROVIDERS_CONFIG;
+
+      for (const cfg of targets) {
+        const result = await this.parseAndRefineProviderWithGemini(cfg, force);
+        if (result === 'updated') updated.push(cfg.providerId);
+        else skipped.push(cfg.providerId);
+      }
+      return { success: true, updated, skipped };
+    };
+
+    if (!providerId) {
+      this.activeSync = run().finally(() => { this.activeSync = undefined; });
+      return this.activeSync;
+    }
+    return run();
+  }
+
+  /**
+   * Called by the news pipeline when a new important article is published for a provider.
+   * Performs an incremental evidence check without regenerating unchanged providers.
+   */
+  async notifyArticlePublished(providerId: string, articleTitle: string, articleUrl: string): Promise<void> {
+    const cfg = PROVIDERS_CONFIG.find(p => p.providerId === providerId);
+    if (!cfg) return;
+    this.logger.log(`News-triggered encyclopedia check for [${providerId}] due to: "${articleTitle.slice(0, 70)}"`);
+    await this.parseAndRefineProviderWithGemini(cfg, false, `[RECENT NEWS ${articleUrl}]: ${articleTitle}`);
   }
 
   private async ensureInitialSeed() {
@@ -385,22 +390,9 @@ export class CatalogService implements OnModuleInit, OnModuleDestroy {
           INSERT INTO ai_catalogs (
             id, provider_id, provider_name, category, title, tagline,
             models, free_tier, current_promotions, advantages, limitations,
-            pricing_summary, official_url, last_verified_at, updated_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13, now(), now())
-          ON CONFLICT (id) DO UPDATE SET
-            provider_name = EXCLUDED.provider_name,
-            category = EXCLUDED.category,
-            title = EXCLUDED.title,
-            tagline = EXCLUDED.tagline,
-            models = EXCLUDED.models,
-            free_tier = EXCLUDED.free_tier,
-            current_promotions = EXCLUDED.current_promotions,
-            advantages = EXCLUDED.advantages,
-            limitations = EXCLUDED.limitations,
-            pricing_summary = EXCLUDED.pricing_summary,
-            official_url = EXCLUDED.official_url,
-            last_verified_at = now(),
-            updated_at = now()
+            pricing_summary, official_url, pricing_doc_url, last_verified_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13, $14, now(), now())
+          ON CONFLICT (id) DO NOTHING
         `, [
           item.id,
           item.providerId,
@@ -415,18 +407,284 @@ export class CatalogService implements OnModuleInit, OnModuleDestroy {
           JSON.stringify(item.limitations),
           item.pricingSummary,
           item.officialUrl,
+          item.pricingDocUrl || item.officialUrl,
         ]);
       }
-      this.logger.log(`Initialized AI Opportunities & Encyclopedia catalog (${INITIAL_CATALOG.length} providers active).`);
+      this.logger.log(`AI Encyclopedia ready (${INITIAL_CATALOG.length} providers seeded).`);
     } catch (error) {
       this.logger.warn(`Could not seed ai_catalogs table: ${error instanceof Error ? error.message : error}`);
     }
   }
 
-  private async syncAndVerify() {
-    this.logger.log('Performing catalog condition & promotional validation check.');
+  async syncAndVerifyAll(force = false) {
+    if (this.activeSync) return this.activeSync;
+    this.activeSync = (async () => {
+      this.logger.log('Starting incremental AI Encyclopedia verification cycle.');
+      const updated: string[] = [];
+      const skipped: string[] = [];
+
+      let freshSet = new Set<string>();
+      if (!force) {
+        try {
+          const { rows } = await this.db.query<{ id: string }>(
+            `SELECT id FROM ai_catalogs WHERE last_verified_at > now() - interval '6 hours' AND evidence_hash IS NOT NULL`,
+          );
+          freshSet = new Set(rows.map(r => r.id));
+        } catch { /* ignore if column not migrated yet */ }
+      }
+
+      for (const cfg of PROVIDERS_CONFIG) {
+        if (this.isDestroyed) break;
+        if (!force && freshSet.has(cfg.id)) {
+          skipped.push(cfg.providerId);
+          continue;
+        }
+        try {
+          const res = await this.parseAndRefineProviderWithGemini(cfg, force);
+          if (res === 'updated') updated.push(cfg.providerId);
+          else skipped.push(cfg.providerId);
+        } catch (err) {
+          this.logger.warn(`Failed verifying provider ${cfg.providerId}: ${err instanceof Error ? err.message : err}`);
+          skipped.push(cfg.providerId);
+        }
+      }
+      this.logger.log(`Completed Encyclopedia verification: ${updated.length} updated, ${skipped.length} unchanged/skipped.`);
+      return { success: true, updated, skipped };
+    })().finally(() => { this.activeSync = undefined; });
+
+    return this.activeSync;
+  }
+
+  private async parseAndRefineProviderWithGemini(
+    cfg: ProviderConfig,
+    force = false,
+    extraContext?: string,
+  ): Promise<'updated' | 'unchanged' | 'skipped'> {
+    const evidence = await this.collectProviderEvidence(cfg, extraContext);
+    const evidenceHash = createHash('sha256').update(evidence).digest('hex');
+
+    // Check existing record and evidence_hash to avoid unnecessary Gemini calls
+    let existingItem: AiCatalogItem | undefined;
+    let existingHash: string | null = null;
     try {
-      await this.db.query(`UPDATE ai_catalogs SET last_verified_at = now()`);
-    } catch {}
+      const { rows } = await this.db.query<AiCatalogItem & { evidence_hash: string | null }>(`
+        SELECT id, provider_id AS "providerId", provider_name AS "providerName",
+               category, title, tagline, models, free_tier AS "freeTier",
+               current_promotions AS "currentPromotions", advantages, limitations,
+               pricing_summary AS "pricingSummary", official_url AS "officialUrl",
+               last_verified_at AS "lastVerifiedAt", evidence_hash
+        FROM ai_catalogs WHERE id = $1 LIMIT 1
+      `, [cfg.id]);
+      if (rows[0]) {
+        existingItem = rows[0];
+        existingHash = rows[0].evidence_hash;
+      }
+    } catch { /* ignore */ }
+
+    if (!force && existingHash === evidenceHash) {
+      await this.db.query(`UPDATE ai_catalogs SET last_verified_at = now() WHERE id = $1`, [cfg.id]).catch(() => undefined);
+      return 'unchanged';
+    }
+
+    if (!this.geminiKey) {
+      await this.db.query(`UPDATE ai_catalogs SET last_verified_at = now() WHERE id = $1`, [cfg.id]).catch(() => undefined);
+      return 'skipped';
+    }
+
+    try {
+      const prompt = `Ти експерт-аналітик ринку штучного інтелекту. Твоє завдання — оновити структурований запис енциклопедії для провайдера "${cfg.providerName}" (${cfg.officialUrl}).
+
+Використовуй ЛИШЕ факти з наведених нижче офіційних джерел. НЕ вигадуй ціни, ліміти чи акції, яких немає у джерелах. Якщо якась деталь не вказана, залиш попереднє підтверджене значення або вкажи, що умови уточнюються.
+
+Зібрані матеріали з офіційних джерел:
+---
+${evidence.slice(0, 7500)}
+---
+
+Поточний запис у базі (для збереження підтверджених характеристик):
+${JSON.stringify({
+  title: existingItem?.title,
+  models: existingItem?.models?.slice(0, 3),
+  freeTier: existingItem?.freeTier,
+  pricingSummary: existingItem?.pricingSummary,
+}).slice(0, 2500)}
+
+Поверни валідний JSON українською мовою за схемою. Для тимчасових акцій вказуй expires у форматі YYYY-MM-DD якщо дата відома.`;
+
+      const parsed = await retryWithBackoff(
+        async () => {
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.geminiModel)}:generateContent`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': this.geminiKey!,
+              },
+              signal: AbortSignal.timeout(65_000),
+              body: JSON.stringify({
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                generationConfig: {
+                  responseMimeType: 'application/json',
+                  responseJsonSchema: catalogItemSchema,
+                  maxOutputTokens: 6000,
+                },
+              }),
+            },
+          );
+
+          if (!response.ok) {
+            await response.body?.cancel();
+            const err = new Error(`Gemini HTTP ${response.status}`);
+            (err as Error & { status?: number }).status = response.status;
+            throw err;
+          }
+
+          const raw = (await response.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+          const textPart = raw.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (!textPart) throw new Error('Empty Gemini response');
+          return JSON.parse(textPart);
+        },
+        {
+          maxAttempts: 2,
+          baseDelayMs: 1500,
+          shouldRetry: (err) => {
+            const status = (err as { status?: number })?.status;
+            return typeof status === 'number' ? isTransientHttpStatus(status) : false;
+          },
+        },
+      );
+
+      if (!parsed || typeof parsed.title !== 'string' || !Array.isArray(parsed.models)) {
+        throw new Error('Invalid Gemini catalog structure');
+      }
+
+      const updatedItem: AiCatalogItem = {
+        id: cfg.id,
+        providerId: cfg.providerId,
+        providerName: cfg.providerName,
+        category: cfg.category,
+        title: parsed.title || cfg.providerName,
+        tagline: parsed.tagline || existingItem?.tagline || '',
+        models: (parsed.models as ModelDetail[]).map(m => ({
+          ...m,
+          sourceUrl: cfg.pricingDocUrl,
+          verificationStatus: 'confirmed',
+        })),
+        freeTier: {
+          ...(parsed.freeTier || existingItem?.freeTier || { hasFree: false, limits: '', description: '', renewPeriod: '' }),
+          sourceUrl: cfg.pricingDocUrl,
+          verificationStatus: 'confirmed',
+        },
+        currentPromotions: ((parsed.currentPromotions || []) as Promotion[]).map(p => ({
+          ...p,
+          sourceUrl: cfg.officialUrl,
+          verificationStatus: 'company_claim',
+        })),
+        advantages: Array.isArray(parsed.advantages) ? parsed.advantages : (existingItem?.advantages || []),
+        limitations: Array.isArray(parsed.limitations) ? parsed.limitations : (existingItem?.limitations || []),
+        pricingSummary: parsed.pricingSummary || existingItem?.pricingSummary || '',
+        officialUrl: cfg.officialUrl,
+        pricingDocUrl: cfg.pricingDocUrl,
+        lastVerifiedAt: new Date().toISOString(),
+      };
+
+      const changes = diffCatalogItems(existingItem, updatedItem, cfg.pricingDocUrl);
+      await this.saveToDatabase(updatedItem, evidenceHash);
+      for (const change of changes) {
+        await this.db.query(
+          `INSERT INTO ai_catalog_changes(provider_id, change_type, field_name, summary, source_url, confidence)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [cfg.providerId, change.changeType, change.fieldName, change.summary, change.sourceUrl, change.confidence],
+        ).catch(() => undefined);
+      }
+
+      this.logger.log(`Updated catalog provider [${cfg.providerId}] (${changes.length} changes recorded).`);
+      return 'updated';
+    } catch (error) {
+      this.logger.warn(`Gemini catalog verification failed for [${cfg.providerId}]: ${error instanceof Error ? error.message : error}`);
+      await this.db.query(`UPDATE ai_catalogs SET last_verified_at = now() WHERE id = $1`, [cfg.id]).catch(() => undefined);
+      return 'skipped';
+    }
+  }
+
+  private async collectProviderEvidence(cfg: ProviderConfig, extraContext?: string): Promise<string> {
+    const snippets: string[] = [];
+    if (extraContext) snippets.push(extraContext);
+
+    for (const feedUrl of cfg.feedUrls.filter(u => !u.endsWith('.atom'))) {
+      try {
+        const resp = await fetch(feedUrl, {
+          signal: AbortSignal.timeout(7_000),
+          headers: { 'User-Agent': 'OpportunityRadar/1.0' },
+        });
+        if (resp.ok) {
+          const text = await resp.text();
+          const clean = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+          snippets.push(`[FEED ${feedUrl}]: ${clean.slice(0, 2000)}`);
+        }
+      } catch { /* ignore individual feed errors */ }
+    }
+
+    try {
+      const resp = await fetch(cfg.pricingDocUrl, {
+        signal: AbortSignal.timeout(8_000),
+        headers: { 'User-Agent': 'OpportunityRadar/1.0' },
+      });
+      if (resp.ok) {
+        const text = await resp.text();
+        const clean = text
+          .replace(/<script[\s\S]*?<\/script>/gi, '')
+          .replace(/<style[\s\S]*?<\/style>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        snippets.push(`[PRICING/DOCS ${cfg.pricingDocUrl}]: ${clean.slice(0, 3000)}`);
+      }
+    } catch { /* ignore */ }
+
+    return snippets.join('\n\n') || `Provider official portal: ${cfg.officialUrl}`;
+  }
+
+  private async saveToDatabase(item: AiCatalogItem, evidenceHash: string) {
+    await this.db.query(`
+      INSERT INTO ai_catalogs (
+        id, provider_id, provider_name, category, title, tagline,
+        models, free_tier, current_promotions, advantages, limitations,
+        pricing_summary, official_url, pricing_doc_url, evidence_hash, last_verified_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13, $14, $15, now(), now())
+      ON CONFLICT (id) DO UPDATE SET
+        provider_name = EXCLUDED.provider_name,
+        category = EXCLUDED.category,
+        title = EXCLUDED.title,
+        tagline = EXCLUDED.tagline,
+        models = EXCLUDED.models,
+        free_tier = EXCLUDED.free_tier,
+        current_promotions = EXCLUDED.current_promotions,
+        advantages = EXCLUDED.advantages,
+        limitations = EXCLUDED.limitations,
+        pricing_summary = EXCLUDED.pricing_summary,
+        official_url = EXCLUDED.official_url,
+        pricing_doc_url = EXCLUDED.pricing_doc_url,
+        evidence_hash = EXCLUDED.evidence_hash,
+        last_verified_at = now(),
+        updated_at = now()
+    `, [
+      item.id,
+      item.providerId,
+      item.providerName,
+      item.category,
+      item.title,
+      item.tagline,
+      JSON.stringify(item.models),
+      JSON.stringify(item.freeTier),
+      JSON.stringify(item.currentPromotions),
+      JSON.stringify(item.advantages),
+      JSON.stringify(item.limitations),
+      item.pricingSummary,
+      item.officialUrl,
+      item.pricingDocUrl || item.officialUrl,
+      evidenceHash,
+    ]);
   }
 }

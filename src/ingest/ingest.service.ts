@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
+import { canonicalizeUrl } from '../common/url-utils';
 import { DatabaseService } from '../database/database.service';
 import { ArticleDto, IngestRequestDto } from './ingest.dto';
 import { GeminiEditorService } from './gemini-editor.service';
@@ -26,13 +27,15 @@ export class IngestService {
       const s = payload.source;
       if (this.editor.enabled) {
         const [item] = payload.items;
+        const canonical = canonicalizeUrl(item.url);
         // Coalesce duplicate work across processes, and commit each valid result independently.
         await client.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [s.slug, item.externalId]);
         const fingerprint = this.editor.fingerprint(s, item);
-        const cached = await client.query<{ fingerprint: string | null; status: string }>(`
-          SELECT ai_metadata->>'editorial_fingerprint' AS fingerprint, status
+        const cached = await client.query<{ fingerprint: string | null; status: string; content_hash: string }>(`
+          SELECT ai_metadata->>'editorial_fingerprint' AS fingerprint, status, content_hash
           FROM news_items n JOIN sources s ON s.id=n.source_id
-          WHERE s.slug=$1 AND n.external_id=$2`, [s.slug, item.externalId]);
+          WHERE (s.slug=$1 AND n.external_id=$2) OR n.canonical_url=$3
+          LIMIT 1`, [s.slug, item.externalId, canonical]);
         const previous = cached.rows[0];
         if (previous?.fingerprint === fingerprint || (fromFeed && previous?.status === 'rejected')) {
           await client.query('COMMIT');
@@ -53,15 +56,25 @@ export class IngestService {
           delete metadata.article;
           delete metadata.editorial_fingerprint;
         }
+        const canonical = canonicalizeUrl(item.url);
         const hash = this.contentHash(item);
+        // Skip if another external_id already ingested the exact same canonical URL and content hash
+        const dupCheck = await client.query<{ id: string }>(`
+          SELECT id FROM news_items
+          WHERE canonical_url = $1 AND content_hash = $2 AND external_id <> $3
+          LIMIT 1`, [canonical, hash, item.externalId]);
+        if (dupCheck.rowCount) {
+          unchanged += 1;
+          continue;
+        }
         // Existing published news is sent back for review ONLY when its content changes.
         const result = await client.query(`
-          INSERT INTO news_items(source_id,external_id,url,original_title,original_summary,
+          INSERT INTO news_items(source_id,external_id,url,canonical_url,original_title,original_summary,
              title_uk,summary_uk,why_it_matters,category,importance,free_access,
              published_at,ai_metadata,content_hash,status)
-          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15,$16)
           ON CONFLICT(source_id,external_id) DO UPDATE SET
-             url=EXCLUDED.url, original_title=EXCLUDED.original_title, original_summary=EXCLUDED.original_summary,
+             url=EXCLUDED.url, canonical_url=EXCLUDED.canonical_url, original_title=EXCLUDED.original_title, original_summary=EXCLUDED.original_summary,
              title_uk=EXCLUDED.title_uk, summary_uk=EXCLUDED.summary_uk,
              why_it_matters=EXCLUDED.why_it_matters, category=EXCLUDED.category,
              importance=EXCLUDED.importance, free_access=EXCLUDED.free_access,
@@ -70,7 +83,7 @@ export class IngestService {
           WHERE news_items.content_hash IS DISTINCT FROM EXCLUDED.content_hash
              OR (EXCLUDED.ai_metadata ? 'editorial_fingerprint'
                  AND news_items.ai_metadata->>'editorial_fingerprint' IS DISTINCT FROM EXCLUDED.ai_metadata->>'editorial_fingerprint')
-          RETURNING id`, [sourceId,item.externalId,item.url,item.originalTitle,
+          RETURNING id`, [sourceId,item.externalId,item.url,canonical,item.originalTitle,
              item.originalSummary || null,item.titleUk || null,item.summaryUk || null,
              item.whyItMatters || null,item.category,item.importance,item.freeAccess,
              item.publishedAt || null,JSON.stringify(metadata),hash,fromFeed ? 'published' : 'needs_review']);

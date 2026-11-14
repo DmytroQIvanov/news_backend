@@ -13,7 +13,8 @@
     "start:prod": "node scripts/migrate.cjs && node dist/main.js",
     "migrate": "node scripts/migrate.cjs",
     "typecheck": "tsc --noEmit -p tsconfig.build.json",
-    "preflight": "node scripts/preflight.cjs"
+    "preflight": "node scripts/preflight.cjs",
+    "test": "npm run build && node --test tests/backend.test.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^12.4.2",
