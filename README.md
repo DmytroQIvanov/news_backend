@@ -116,6 +116,8 @@ Make sure `.env` local connection strings match your PostgreSQL password and hos
 
 ## 8. Routes
 
+The news listing combines published database records with the latest linked headlines from Anthropic, OpenAI, Google DeepMind, Mistral AI, and Hugging Face. Anthropic and Mistral AI use community RSS mirrors. The API downloads the requested feeds on demand, caches successful downloads for 10 minutes, and can reuse the last successful result for up to 24 hours if a feed is unavailable. Feed headlines are served directly and keep their original titles and links. Imported records continue through the existing review workflow.
+
 | Method | Endpoint | Authorization | Function |
 |---|---|---|---|
 | GET | `/health` | Public | DB readiness |
@@ -123,7 +125,7 @@ Make sure `.env` local connection strings match your PostgreSQL password and hos
 | GET | `/api/v1/news/test-notification` | Public | Static Anthropic test notification for the mobile screen |
 | GET | `/api/v1/sources` | Public | Sources |
 | GET | `/api/v1/news?limit=20&offset=0&category=api` | Public | **Published** news only |
-| GET | `/api/v1/news?sources=openai-news,google-deepmind` | Public | Published news from the specified source slugs |
+| GET | `/api/v1/news?sources=openai-news,google-deepmind` | Public | Latest feed headlines and published database records from the specified source slugs |
 | GET | `/api/v1/news/review` | `x-ingest-key` | Pending review |
 | POST | `/api/v1/ingest/news` | `x-ingest-key` | Batch upsert source and up to 25 news |
 | PATCH | `/api/v1/news/:id/publish` | `x-ingest-key` | Manual publish |
