@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: opportunity-radar-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_POOL_MAX
+        value: "3"
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: INGEST_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        value: http://localhost:3001
