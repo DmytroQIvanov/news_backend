@@ -48,6 +48,11 @@ export class IngestService {
         RETURNING id`, [s.slug, s.name, s.homepageUrl, s.feedUrl || null, s.unofficial ?? false]);
       const sourceId = source.rows[0].id;
       for (const item of payload.items) {
+        const metadata = { ...item.aiMetadata };
+        if (!this.editor.enabled) {
+          delete metadata.article;
+          delete metadata.editorial_fingerprint;
+        }
         const hash = this.contentHash(item);
         // Existing published news is sent back for review ONLY when its content changes.
         const result = await client.query(`
@@ -63,11 +68,12 @@ export class IngestService {
              published_at=EXCLUDED.published_at, ai_metadata=EXCLUDED.ai_metadata,
              content_hash=EXCLUDED.content_hash, status=EXCLUDED.status, updated_at=now()
           WHERE news_items.content_hash IS DISTINCT FROM EXCLUDED.content_hash
-             OR news_items.ai_metadata->>'editorial_fingerprint' IS DISTINCT FROM EXCLUDED.ai_metadata->>'editorial_fingerprint'
+             OR (EXCLUDED.ai_metadata ? 'editorial_fingerprint'
+                 AND news_items.ai_metadata->>'editorial_fingerprint' IS DISTINCT FROM EXCLUDED.ai_metadata->>'editorial_fingerprint')
           RETURNING id`, [sourceId,item.externalId,item.url,item.originalTitle,
              item.originalSummary || null,item.titleUk || null,item.summaryUk || null,
              item.whyItMatters || null,item.category,item.importance,item.freeAccess,
-             item.publishedAt || null,JSON.stringify(item.aiMetadata || {}),hash,fromFeed ? 'published' : 'needs_review']);
+             item.publishedAt || null,JSON.stringify(metadata),hash,fromFeed ? 'published' : 'needs_review']);
         if (result.rowCount) changed += 1; else unchanged += 1;
       }
       await client.query('COMMIT');
