@@ -9,8 +9,25 @@ import { GeminiEditorService } from './ingest/gemini-editor.service';
 import { IngestController } from './ingest/ingest.controller';
 import { IngestService } from './ingest/ingest.service';
 import { IngestKeyGuard } from './common/ingest-key.guard';
+import { CatalogController } from './catalog/catalog.controller';
+import { CatalogService } from './catalog/catalog.service';
+
 @Module({
-  controllers: [HealthController, SourcesController, NewsController, IngestController],
-  providers: [DatabaseService, IngestService, IngestKeyGuard, CompanyFeedsService, GeminiEditorService, FeedEditorialService],
+  controllers: [
+    HealthController,
+    SourcesController,
+    NewsController,
+    IngestController,
+    CatalogController,
+  ],
+  providers: [
+    DatabaseService,
+    IngestService,
+    IngestKeyGuard,
+    CompanyFeedsService,
+    GeminiEditorService,
+    FeedEditorialService,
+    CatalogService,
+  ],
 })
 export class AppModule {}
