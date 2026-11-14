@@ -28,6 +28,9 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-radar}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-radar}
       DIRECT_URL: postgresql://${POSTGRES_USER:-radar}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-radar}
       INGEST_API_KEY: ${INGEST_API_KEY:?Set INGEST_API_KEY in .env}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
+      GEMINI_RESEARCH: ${GEMINI_RESEARCH:-false}
       CORS_ORIGINS: ${CORS_ORIGINS-http://localhost:3001}
       DB_POOL_MAX: 3
     ports:

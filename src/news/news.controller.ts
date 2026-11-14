@@ -1,4 +1,4 @@
-import { Controller, Get, Param, ParseIntPipe, Patch, Query, UseGuards, BadRequestException, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get, Param, ParseIntPipe, Patch, Query, UseGuards, BadRequestException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { IngestKeyGuard } from '../common/ingest-key.guard';
 import { CompanyFeedsService, maxFeedArticles } from './company-feeds.service';
@@ -20,6 +20,7 @@ export class NewsController {
     @Query('offset') offsetRaw?: string,
     @Query('category') category?: string,
     @Query('sources') sourcesRaw?: string,
+    @Query('important') important?: string,
   ) {
     const limit = limitRaw === undefined ? 20 : Number(limitRaw);
     const offset = offsetRaw === undefined ? 0 : Number(offsetRaw);
@@ -34,16 +35,22 @@ export class NewsController {
         sources.some(slug => !/^[a-z0-9][a-z0-9-]{2,79}$/.test(slug)))) {
       throw new BadRequestException('sources must contain 1–20 comma-separated source slugs');
     }
+    if (important !== undefined && important !== 'true' && important !== 'false') {
+      throw new BadRequestException('important must be true or false');
+    }
+    const onlyDatabase = !!category || important === 'true';
     const published = this.db.query<{ id: string; url: string; published_at: Date | null }>(`
       SELECT n.id,n.url,n.title_uk,n.summary_uk,n.original_title,n.category,n.importance,
+             COALESCE(n.ai_metadata->'article'->'important' = 'true'::jsonb, false) AS important,
              n.free_access,n.published_at,n.updated_at,s.name AS source_name,s.slug AS source_slug
       FROM news_items n JOIN sources s ON s.id=n.source_id
       WHERE n.status='published' AND ($1::text IS NULL OR n.category=$1)
         AND ($4::text[] IS NULL OR s.slug = ANY($4::text[]))
+        AND (NOT $5::boolean OR n.ai_metadata->'article'->'important' = 'true'::jsonb)
       ORDER BY n.published_at DESC NULLS LAST,n.id DESC LIMIT $2 OFFSET $3`,
-    [category || null, category ? limit : offset + limit + maxFeedArticles, category ? offset : 0,
-      sources.length ? sources : null]);
-    if (category) return { items: (await published).rows, limit, offset };
+    [category || null, onlyDatabase ? limit : offset + limit + maxFeedArticles, onlyDatabase ? offset : 0,
+      sources.length ? sources : null, important === 'true']);
+    if (onlyDatabase) return { items: (await published).rows, limit, offset };
 
     const [result, feeds] = await Promise.all([published, this.companyFeeds.list(sources)]);
     if (feeds.unavailable && !result.rows.length) {
@@ -65,6 +72,29 @@ export class NewsController {
       SELECT n.*,s.name AS source_name FROM news_items n JOIN sources s ON s.id=n.source_id
       WHERE n.status='needs_review' ORDER BY n.updated_at DESC LIMIT $1`, [limit]);
     return { items: result.rows };
+  }
+  @Get(':id')
+  async detail(@Param('id') id: string, @Query('source') source?: string) {
+    if (/^rss-[a-f0-9]{24}$/.test(id)) {
+      const result = await this.db.query(`
+        SELECT n.id,n.url,n.original_title,n.original_summary,n.title_uk,n.summary_uk,n.published_at,
+               n.ai_metadata->'article' AS article,s.name AS source_name,s.slug AS source_slug
+        FROM news_items n JOIN sources s ON s.id=n.source_id
+        WHERE n.external_id=$1 AND n.status='published' LIMIT 1`, [id]);
+      if (result.rows[0]) return result.rows[0];
+      const feeds = await this.companyFeeds.list(source ? [source] : []);
+      const item = feeds.items.find(article => article.id === id);
+      if (item) return item;
+      if (feeds.unavailable) throw new ServiceUnavailableException('Company feeds are temporarily unavailable');
+    } else if (/^\d{1,18}$/.test(id)) {
+      const { rows } = await this.db.query(`
+        SELECT n.id,n.url,n.original_title,n.original_summary,n.title_uk,n.summary_uk,n.published_at,
+               n.ai_metadata->'article' AS article,s.name AS source_name,s.slug AS source_slug
+        FROM news_items n JOIN sources s ON s.id=n.source_id
+        WHERE n.id=$1 AND n.status='published'`, [id]);
+      if (rows[0]) return rows[0];
+    }
+    throw new NotFoundException('Article not found');
   }
   @Patch(':id/publish')
   @UseGuards(IngestKeyGuard)

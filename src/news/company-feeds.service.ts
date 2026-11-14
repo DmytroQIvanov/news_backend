@@ -15,9 +15,10 @@ const maxStaleAge = 24 * 60 * 60_000;
 const maxFeedBytes = 4 * 1024 * 1024;
 const articlesPerFeed = 20;
 export const maxFeedArticles = feeds.length * articlesPerFeed;
+export const companyFeeds = feeds;
 
 type Feed = typeof feeds[number];
-type Article = { id: string; url: string; original_title: string; published_at: string; source_name: string; source_slug: string };
+type Article = { id: string; url: string; original_title: string; original_summary: string; published_at: string; source_name: string; source_slug: string };
 type FeedState = { items: Article[]; fetchedAt: number; refreshAt: number; pending?: Promise<void> };
 
 @Injectable()
@@ -78,7 +79,7 @@ async function loadRss(feed: Feed): Promise<Article[]> {
   const append = (part: string) => {
     const field = stack[3];
     if (rss && stack[1] === 'channel' && stack[2] === 'item' &&
-        (field === 'title' || field === 'link' || field === 'pubDate')) {
+        (field === 'title' || field === 'link' || field === 'pubDate' || field === 'description')) {
       fields[field] = (fields[field] || '') + part;
     }
   };
@@ -128,6 +129,7 @@ function articleFromRss(feed: Feed, fields: Record<string, string>): Article | u
     id: `rss-${createHash('sha256').update(url).digest('hex').slice(0, 24)}`,
     url,
     original_title: originalTitle,
+    original_summary: (fields.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 2500),
     published_at: new Date(publishedAt).toISOString(),
     source_name: feed.name,
     source_slug: feed.slug,

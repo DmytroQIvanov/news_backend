@@ -118,6 +118,10 @@ Make sure `.env` local connection strings match your PostgreSQL password and hos
 
 The news listing combines published database records with the latest linked headlines from Anthropic, OpenAI, Google DeepMind, Mistral AI, and Hugging Face. Anthropic and Mistral AI use community RSS mirrors. The API downloads the requested feeds on demand, caches successful downloads for 10 minutes, and can reuse the last successful result for up to 24 hours if a feed is unavailable. Feed headlines are served directly and keep their original titles and links. Imported records continue through the existing review workflow.
 
+Set `GEMINI_API_KEY` in the Render service environment to enable editorial processing. `GEMINI_MODEL` defaults to `gemini-3.5-flash-lite`. Set `GEMINI_RESEARCH=true` to enable Google Search and URL Context for additional sources. Those tools use your Gemini project quota. Edit `src/ingest/editorial-prompt.md` to change editorial instructions and redeploy.
+
+While the server is running, it processes up to one outstanding headline per company per cycle, starting shortly after startup and scheduling the next cycle ten minutes after the previous one finishes. It stores validated editorial JSON in the existing `ai_metadata` column before publishing RSS articles. Manual imports still enter review. Editorial fingerprints avoid spending tokens again on the same input, model, research setting, and prompt during ingestion. The Free Render web service may sleep, which pauses editorial processing until it wakes. Raw RSS headlines remain available before processing. Only published, Gemini-classified important stories appear with `important=true`.
+
 | Method | Endpoint | Authorization | Function |
 |---|---|---|---|
 | GET | `/health` | Public | DB readiness |
@@ -126,6 +130,8 @@ The news listing combines published database records with the latest linked head
 | GET | `/api/v1/sources` | Public | Sources |
 | GET | `/api/v1/news?limit=20&offset=0&category=api` | Public | **Published** news only |
 | GET | `/api/v1/news?sources=openai-news,google-deepmind` | Public | Latest feed headlines and published database records from the specified source slugs |
+| GET | `/api/v1/news?important=true` | Public | Published stories classified as important |
+| GET | `/api/v1/news/:id` | Public | Source material or the full editorial article with citations |
 | GET | `/api/v1/news/review` | `x-ingest-key` | Pending review |
 | POST | `/api/v1/ingest/news` | `x-ingest-key` | Batch upsert source and up to 25 news |
 | PATCH | `/api/v1/news/:id/publish` | `x-ingest-key` | Manual publish |
