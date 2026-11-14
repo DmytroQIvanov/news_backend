@@ -78,18 +78,33 @@ export class NewsController {
     if (/^rss-[a-f0-9]{24}$/.test(id)) {
       const result = await this.db.query(`
         SELECT n.id,n.url,n.original_title,n.original_summary,n.title_uk,n.summary_uk,n.published_at,
-               n.ai_metadata->'article' AS article,s.name AS source_name,s.slug AS source_slug
+               n.category,n.importance,n.why_it_matters,n.free_access,
+               n.ai_metadata,n.ai_metadata->'article' AS article,
+               s.name AS source_name,s.slug AS source_slug,s.homepage_url,s.unofficial AS source_is_unofficial
         FROM news_items n JOIN sources s ON s.id=n.source_id
         WHERE n.external_id=$1 AND n.status='published' LIMIT 1`, [id]);
       if (result.rows[0]) return result.rows[0];
       const feeds = await this.companyFeeds.list(source ? [source] : []);
       const item = feeds.items.find(article => article.id === id);
-      if (item) return item;
+      if (item) {
+        return {
+          ...item,
+          category: 'other',
+          importance: 'unknown',
+          why_it_matters: null,
+          free_access: 'unknown',
+          article: null,
+          ai_metadata: null,
+          source_is_unofficial: false,
+        };
+      }
       if (feeds.unavailable) throw new ServiceUnavailableException('Company feeds are temporarily unavailable');
     } else if (/^\d{1,18}$/.test(id)) {
       const { rows } = await this.db.query(`
         SELECT n.id,n.url,n.original_title,n.original_summary,n.title_uk,n.summary_uk,n.published_at,
-               n.ai_metadata->'article' AS article,s.name AS source_name,s.slug AS source_slug
+               n.category,n.importance,n.why_it_matters,n.free_access,
+               n.ai_metadata,n.ai_metadata->'article' AS article,
+               s.name AS source_name,s.slug AS source_slug,s.homepage_url,s.unofficial AS source_is_unofficial
         FROM news_items n JOIN sources s ON s.id=n.source_id
         WHERE n.id=$1 AND n.status='published'`, [id]);
       if (rows[0]) return rows[0];

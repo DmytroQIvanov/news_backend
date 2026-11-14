@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { SaxesParser } from 'saxes';
 
@@ -9,8 +9,9 @@ const feeds = [
   { slug: 'mistral-ai-community-feed', alias: 'mistral-ai', name: 'Mistral AI', domain: 'mistral.ai', url: 'https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_mistral.xml' },
   { slug: 'hugging-face', name: 'Hugging Face', domain: 'huggingface.co', url: 'https://huggingface.co/blog/feed.xml' },
 ];
-const refreshInterval = 10 * 60_000;
-const retryInterval = 60_000;
+
+const refreshInterval = 60_000; // 1 minute active polling cadence
+const retryInterval = 30_000;  // 30s retry on failure
 const maxStaleAge = 24 * 60 * 60_000;
 const maxFeedBytes = 4 * 1024 * 1024;
 const articlesPerFeed = 20;
@@ -19,12 +20,54 @@ export const companyFeeds = feeds;
 
 type Feed = typeof feeds[number];
 type Article = { id: string; url: string; original_title: string; original_summary: string; published_at: string; source_name: string; source_slug: string };
-type FeedState = { items: Article[]; fetchedAt: number; refreshAt: number; pending?: Promise<void> };
+type FeedState = { items: Article[]; fetchedAt: number; refreshAt: number; etag?: string; lastModified?: string; pending?: Promise<void> };
 
 @Injectable()
-export class CompanyFeedsService {
+export class CompanyFeedsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(CompanyFeedsService.name);
   private readonly cache = new Map<string, FeedState>();
+  private pollTimer?: NodeJS.Timeout;
+  private isDestroyed = false;
+
+  onModuleInit() {
+    // Automated background polling of all news feeds every 60 seconds (1 minute)
+    const intervalMs = Math.max(30_000, Number(process.env.FEED_POLL_INTERVAL_MS) || refreshInterval);
+    const scheduleNext = () => {
+      this.pollTimer = setTimeout(async () => {
+        if (this.isDestroyed) return;
+        try {
+          await this.pollAll();
+        } catch (error) {
+          this.logger.warn(`1-minute news feeds polling cycle warning: ${error instanceof Error ? error.message : error}`);
+        } finally {
+          if (!this.isDestroyed) scheduleNext();
+        }
+      }, intervalMs);
+    };
+
+    // Initial poll 2 seconds after server boot
+    this.pollTimer = setTimeout(async () => {
+      if (this.isDestroyed) return;
+      try {
+        await this.pollAll();
+      } catch (error) {
+        this.logger.warn(`Initial news poll error: ${error instanceof Error ? error.message : error}`);
+      } finally {
+        if (!this.isDestroyed) scheduleNext();
+      }
+    }, 2_000);
+  }
+
+  onModuleDestroy() {
+    this.isDestroyed = true;
+    if (this.pollTimer) clearTimeout(this.pollTimer);
+  }
+
+  async pollAll() {
+    const batches = await Promise.all(feeds.map(feed => this.read(feed)));
+    const total = batches.reduce((acc, items) => acc + (items?.length || 0), 0);
+    this.logger.log(`Automatic 1-minute news poll completed: ${total} articles active across ${feeds.length} feeds.`);
+  }
 
   async list(sources: string[]) {
     const selected = feeds.filter(feed => !sources.length || sources.includes(feed.slug) ||
@@ -46,7 +89,7 @@ export class CompanyFeedsService {
 
   private async refresh(feed: Feed, state: FeedState): Promise<void> {
     try {
-      state.items = await loadRss(feed);
+      state.items = await loadRss(feed, state);
       state.fetchedAt = Date.now();
       state.refreshAt = state.fetchedAt + refreshInterval;
     } catch (error) {
@@ -58,12 +101,30 @@ export class CompanyFeedsService {
   }
 }
 
-async function loadRss(feed: Feed): Promise<Article[]> {
-  const response = await fetch(feed.url, { signal: AbortSignal.timeout(5_000) });
+async function loadRss(feed: Feed, state: FeedState): Promise<Article[]> {
+  const headers: Record<string, string> = {
+    'User-Agent': 'OpportunityRadar/1.0 (RSS Reader; 60s cadence)',
+    'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*',
+  };
+  if (state.etag) headers['If-None-Match'] = state.etag;
+  if (state.lastModified) headers['If-Modified-Since'] = state.lastModified;
+
+  const response = await fetch(feed.url, { headers, signal: AbortSignal.timeout(8_000) });
+
+  if (response.status === 304 && state.items.length > 0) {
+    // 304 Not Modified: return existing cached articles without reparsing
+    return state.items;
+  }
+
   if (!response.ok || !response.body) {
     await response.body?.cancel();
     throw new Error(`HTTP ${response.status}`);
   }
+
+  const etag = response.headers.get('etag');
+  const lastModified = response.headers.get('last-modified');
+  if (etag) state.etag = etag;
+  if (lastModified) state.lastModified = lastModified;
 
   const parser = new SaxesParser();
   const stack: string[] = [];

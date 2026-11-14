@@ -51,7 +51,7 @@ export class GeminiEditorService {
           systemInstruction: { parts: [{ text: this.prompt }] },
           contents: [{ role: 'user', parts: [{ text: JSON.stringify(this.input(source, item)) }] }],
           tools: this.research ? [{ googleSearch: {} }, { urlContext: {} }] : undefined,
-          generationConfig: { responseMimeType: 'application/json', responseJsonSchema: schema, maxOutputTokens: 8000 },
+          generationConfig: { responseMimeType: 'application/json', responseJsonSchema: schema, maxOutputTokens: 12000 },
         }),
       });
       if (!response.ok) {
