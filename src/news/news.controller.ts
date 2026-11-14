@@ -42,7 +42,8 @@ export class NewsController {
     const published = this.db.query<{ id: string; url: string; published_at: Date | null }>(`
       SELECT n.id,n.url,n.title_uk,n.summary_uk,n.original_title,n.category,n.importance,
              COALESCE(n.ai_metadata->'article'->'important' = 'true'::jsonb, false) AS important,
-             n.free_access,n.published_at,n.updated_at,s.name AS source_name,s.slug AS source_slug
+             n.free_access,n.credibility_tier,n.is_retracted,n.correction_note,n.corrected_at,
+             n.published_at,n.updated_at,s.name AS source_name,s.slug AS source_slug
       FROM news_items n JOIN sources s ON s.id=n.source_id
       WHERE n.status='published' AND ($1::text IS NULL OR n.category=$1)
         AND ($4::text[] IS NULL OR s.slug = ANY($4::text[]))
@@ -83,6 +84,7 @@ export class NewsController {
       const result = await this.db.query(`
         SELECT n.id,n.url,n.original_title,n.original_summary,n.title_uk,n.summary_uk,n.published_at,
                n.category,n.importance,n.why_it_matters,n.free_access,
+               n.credibility_tier,n.is_retracted,n.correction_note,n.corrected_at,n.fact_claims,
                n.ai_metadata,n.ai_metadata->'article' AS article,
                s.name AS source_name,s.slug AS source_slug,s.homepage_url,s.unofficial AS source_is_unofficial
         FROM news_items n JOIN sources s ON s.id=n.source_id
@@ -107,6 +109,7 @@ export class NewsController {
       const { rows } = await this.db.query(`
         SELECT n.id,n.url,n.original_title,n.original_summary,n.title_uk,n.summary_uk,n.published_at,
                n.category,n.importance,n.why_it_matters,n.free_access,
+               n.credibility_tier,n.is_retracted,n.correction_note,n.corrected_at,n.fact_claims,
                n.ai_metadata,n.ai_metadata->'article' AS article,
                s.name AS source_name,s.slug AS source_slug,s.homepage_url,s.unofficial AS source_is_unofficial
         FROM news_items n JOIN sources s ON s.id=n.source_id

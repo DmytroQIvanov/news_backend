@@ -9,6 +9,7 @@ import { diffCatalogItems, isPromotionExpired } from '../dist/catalog/catalog.se
 import { INITIAL_CATALOG } from '../dist/catalog/catalog-seed.js';
 import { slugifySource } from '../dist/news/source-discovery.service.js';
 import { detectStoreName } from '../dist/games/games.service.js';
+import { classifyCredibilityTier, extractEntitySlugs } from '../dist/kg/kg-seed.js';
 
 test('canonicalizeUrl strips tracking params, www, hash, and trailing slash', () => {
   const input = 'https://www.openai.com/news/gpt-5/?utm_source=rss&fbclid=123&ref=x#top';
@@ -182,4 +183,20 @@ test('detectStoreName identifies game marketplaces', () => {
   assert.equal(detectStoreName('PC, Epic Games Store', 'https://store.epicgames.com/uk/p/test'), 'Epic Games');
   assert.equal(detectStoreName('Steam', 'https://store.steampowered.com/app/123'), 'Steam');
   assert.equal(detectStoreName('GOG', 'https://www.gog.com/game/test'), 'GOG');
+});
+
+test('extractEntitySlugs links NVIDIA, GPU, local AI, and Ollama', () => {
+  const slugs = extractEntitySlugs('NVIDIA Blackwell RTX GPU accelerates local AI with Ollama and Llama 3');
+  assert.ok(slugs.includes('nvidia'));
+  assert.ok(slugs.includes('gpu-hardware'));
+  assert.ok(slugs.includes('local-ai'));
+  assert.ok(slugs.includes('ollama-vllm'));
+  assert.ok(slugs.includes('llama-models'));
+});
+
+test('classifyCredibilityTier separates independent tests, verified facts, and rumors', () => {
+  assert.equal(classifyCredibilityTier('Independent SWE-bench benchmark on arXiv').tier, 'independent_test');
+  assert.equal(classifyCredibilityTier('Official release notes v2.1 documentation').tier, 'verified_fact');
+  assert.equal(classifyCredibilityTier('Rumor: new model might launch next week', true).tier, 'ai_inference');
+  assert.equal(classifyCredibilityTier('Correction: earlier latency figures updated').isCorrectionSignal, true);
 });

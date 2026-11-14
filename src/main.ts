@@ -17,7 +17,7 @@ async function bootstrap(): Promise<void> {
   app.enableShutdownHooks();
   app.use(json({ limit: '2mb' }));
   app.use((req: { method?: string; path?: string }, res: { setHeader: (k: string, v: string) => void }, next: () => void) => {
-    if (req.method === 'GET' && req.path && /^\/api\/v1\/(news|catalog|games)/.test(req.path)) {
+    if (req.method === 'GET' && req.path && /^\/api\/v1\/(news|catalog|games|kg)/.test(req.path)) {
       res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
     }
     next();
