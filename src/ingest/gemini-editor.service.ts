@@ -28,7 +28,7 @@ export class GeminiEditorService {
   static lastAiError: string | null = null;
   private readonly logger = new Logger(GeminiEditorService.name);
   private readonly prompt = readFileSync(join(__dirname, 'editorial-prompt.md'), 'utf8');
-  private readonly model = process.env.GEMINI_MODEL?.trim() || 'gemini-2.0-flash-lite';
+  private readonly model = process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash';
   private readonly key = process.env.GEMINI_API_KEY?.trim();
   private readonly research = process.env.GEMINI_RESEARCH === 'strict';
 

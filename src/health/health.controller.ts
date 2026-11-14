@@ -1,7 +1,9 @@
 import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
+import { CatalogService } from '../catalog/catalog.service';
 import { DatabaseService } from '../database/database.service';
 import { GamesService } from '../games/games.service';
 import { INITIAL_GRANTS_SEED } from '../grants/grants-seed';
+import { GrantsService } from '../grants/grants.service';
 import { GeminiEditorService } from '../ingest/gemini-editor.service';
 @Controller('health')
 export class HealthController {
@@ -25,11 +27,20 @@ export class HealthController {
   @Get('summary')
   async summary() {
     const activeSeedGrants = INITIAL_GRANTS_SEED.filter((g) => g.status === 'active');
+    const fallbackByAudience: Record<string, number> = {};
+    for (const grant of activeSeedGrants) {
+      for (const aud of grant.audiences) {
+        fallbackByAudience[aud] = (fallbackByAudience[aud] ?? 0) + 1;
+      }
+    }
     const fallbackGrants = {
       active: activeSeedGrants.length,
       equityFree: activeSeedGrants.filter((g) => g.equityFree).length,
       totalFundingUsd: activeSeedGrants.reduce((sum, g) => sum + g.fundingMaxUsd, 0),
       lastVerifiedAt: activeSeedGrants[0]?.lastVerifiedAt ?? null,
+      byAudience: fallbackByAudience,
+      lastAiVerificationAt: GrantsService.lastAiVerificationAt,
+      dailyCheckIntervalHours: 24 as const,
     };
 
     try {
@@ -65,8 +76,8 @@ export class HealthController {
            FROM game_offers
            WHERE status = 'active'`,
         ),
-        this.db
-          .query<{
+        Promise.all([
+          this.db.query<{
             active: string;
             equity_free: string;
             total_funding_usd: string;
@@ -77,16 +88,47 @@ export class HealthController {
                     COALESCE(SUM(funding_max_usd) FILTER (WHERE status = 'active'), 0)::text AS total_funding_usd,
                     MAX(last_verified_at)::text AS last_verified
              FROM grants_opportunities`,
-          )
-          .then((res) => {
+          ),
+          this.db
+            .query<{ key: string; cnt: string }>(
+              `SELECT aud AS key, COUNT(*)::text AS cnt
+               FROM grants_opportunities, jsonb_array_elements_text(audiences) AS aud
+               WHERE status = 'active'
+               GROUP BY aud`,
+            )
+            .catch(() => null),
+          this.db
+            .query<{ last_ai: string | null }>(
+              `SELECT MAX(last_ai_verified_at)::text AS last_ai FROM grants_opportunities`,
+            )
+            .catch(() => null),
+        ])
+          .then(([res, audRes, aiRes]) => {
             const row = res.rows[0];
             const active = Number(row?.active ?? 0);
             if (active === 0) return fallbackGrants;
+
+            const byAudience: Record<string, number> = {};
+            if (audRes && audRes.rows.length > 0) {
+              for (const r of audRes.rows) {
+                if (r.key) byAudience[r.key] = Number(r.cnt ?? 0);
+              }
+            } else {
+              Object.assign(byAudience, fallbackByAudience);
+            }
+
+            const dbAiAt = aiRes?.rows[0]?.last_ai
+              ? new Date(aiRes.rows[0].last_ai).toISOString()
+              : null;
+
             return {
               active,
               equityFree: Number(row?.equity_free ?? 0),
               totalFundingUsd: Number(row?.total_funding_usd ?? 0),
               lastVerifiedAt: row?.last_verified ?? null,
+              byAudience,
+              lastAiVerificationAt: dbAiAt ?? GrantsService.lastAiVerificationAt,
+              dailyCheckIntervalHours: 24 as const,
             };
           })
           .catch(() => fallbackGrants),
@@ -109,6 +151,8 @@ export class HealthController {
         catalog: {
           providers: Number(catalogRes.rows[0]?.total ?? 0),
           lastVerifiedAt: catalogRes.rows[0]?.last_verified ?? null,
+          lastDailyVerificationAt: CatalogService.lastDailyVerificationAt,
+          dailyCheckIntervalHours: CatalogService.dailyCheckIntervalHours,
         },
         games: {
           active: Number(gamesRes.rows[0]?.total ?? 0),

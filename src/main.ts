@@ -16,7 +16,10 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.enableShutdownHooks();
   app.use(json({ limit: '2mb' }));
-  app.use((req: { method?: string; path?: string }, res: { setHeader: (k: string, v: string) => void }, next: () => void) => {
+  app.use((req: { method?: string; url?: string; path?: string }, res: { setHeader: (k: string, v: string) => void }, next: () => void) => {
+    if (req.method === 'GET' && req.path === '/api/v1/health' && req.url) {
+      req.url = req.url.replace('/api/v1/health', '/health');
+    }
     if (req.method === 'GET' && req.path && /^\/api\/v1\/(news|catalog|games|kg|grants)/.test(req.path)) {
       res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
     }

@@ -9,6 +9,131 @@ export interface ModelDetail {
   strengths: string[];
   sourceUrl?: string;
   verificationStatus?: 'confirmed' | 'company_claim' | 'unverified' | 'outdated';
+  tokenPracticalityScore?: number;
+  costEfficiencyScore?: number;
+  tokensPer1kWordsUk?: number;
+  practicalityNoteUk?: string;
+}
+
+export interface ModelTokenPracticality {
+  tokenPracticalityScore: number;
+  costEfficiencyScore: number;
+  tokensPer1kWordsUk: number;
+  practicalityNoteUk: string;
+}
+
+function parseFirstUsdPrice(raw?: string): number | null {
+  if (!raw) return null;
+  const match = raw.match(/\$\s*([0-9]+(?:\.[0-9]+)?)/);
+  if (!match) return null;
+  const val = Number(match[1]);
+  return Number.isFinite(val) ? val : null;
+}
+
+export function computeModelTokenPracticality(
+  model: ModelDetail,
+  providerId?: string,
+): ModelTokenPracticality {
+  const key = `${providerId || ''} ${model.name}`.toLowerCase();
+  const caps = model.capabilities || [];
+  const isOpenWeights = caps.includes('open_weights');
+  const isFast = caps.includes('fast');
+  const isReasoning =
+    caps.includes('reasoning') || /\b(o1|o3|r1|thinking|grok 3|sonnet)\b/i.test(model.name);
+  const isPureReasoning = /\b(o1|o3|r1)\b/i.test(model.name) && !key.includes('mini');
+
+  // Estimated tokens per 1,000 Ukrainian words (Cyrillic BPE/SentencePiece density)
+  let tokensPer1kWordsUk = 1850;
+  if (key.includes('gemini')) {
+    tokensPer1kWordsUk = key.includes('flash') ? 1480 : 1520;
+  } else if (key.includes('gpt-4o') || key.includes('openai')) {
+    tokensPer1kWordsUk = key.includes('mini') ? 1560 : key.includes('o3') || key.includes('o1') ? 1620 : 1580;
+  } else if (key.includes('deepseek')) {
+    tokensPer1kWordsUk = key.includes('v3') ? 1640 : 1680;
+  } else if (key.includes('command') || key.includes('cohere')) {
+    tokensPer1kWordsUk = 1690;
+  } else if (key.includes('qwen')) {
+    tokensPer1kWordsUk = 1710;
+  } else if (key.includes('sonar') || key.includes('perplexity')) {
+    tokensPer1kWordsUk = 1860;
+  } else if (key.includes('llama') || key.includes('groq')) {
+    tokensPer1kWordsUk = 1910;
+  } else if (key.includes('grok')) {
+    tokensPer1kWordsUk = key.includes('mini') ? 1900 : 1950;
+  } else if (key.includes('claude') || key.includes('sonnet') || key.includes('haiku')) {
+    tokensPer1kWordsUk = key.includes('haiku') ? 1940 : 1990;
+  } else if (key.includes('mistral') || key.includes('codestral')) {
+    tokensPer1kWordsUk = key.includes('codestral') ? 2080 : 2150;
+  } else if (key.includes(':free') || key.includes('openrouter')) {
+    tokensPer1kWordsUk = 1780;
+  }
+  tokensPer1kWordsUk = Math.max(1450, Math.min(2350, Math.round(tokensPer1kWordsUk)));
+
+  const parsedInput = parseFirstUsdPrice(model.inputPrice);
+  const parsedOutput = parseFirstUsdPrice(model.outputPrice);
+  const isFree =
+    key.includes(':free') ||
+    (parsedInput === 0 && (parsedOutput === 0 || parsedOutput === null));
+
+  const effectiveInput = parsedInput ?? (isOpenWeights ? 0.25 : 1.5);
+  const effectiveOutput = parsedOutput ?? (isOpenWeights ? 0.5 : 4.5);
+  const weightedPrice = effectiveInput * 0.3 + effectiveOutput * 0.7;
+
+  let costScore = 96;
+  if (!isFree) {
+    if (weightedPrice <= 0.35) costScore = 93;
+    else if (weightedPrice <= 1.0) costScore = 85;
+    else if (weightedPrice <= 2.5) costScore = 76;
+    else if (weightedPrice <= 5.0) costScore = 67;
+    else if (weightedPrice <= 10.0) costScore = 56;
+    else costScore = 44;
+  }
+
+  // Adjust cost efficiency for Cyrillic token inflation/compression & reasoning overhead
+  const densityDelta = Math.round((1850 - tokensPer1kWordsUk) / 95);
+  costScore += densityDelta;
+  if (isPureReasoning && !isFree) costScore -= 5;
+  if (isFast && !isFree) costScore += 2;
+  const costEfficiencyScore = Math.max(25, Math.min(99, Math.round(costScore)));
+
+  // Practicality combines Cyrillic density, cost efficiency, context window, and reasoning overhead
+  const densityScore = ((2350 - tokensPer1kWordsUk) / 900) * 30; // 0..30
+  const costContribution = costEfficiencyScore * 0.45; // ~11..44
+  const ctx = model.contextTokens || 0;
+  const contextBonus = ctx >= 1_000_000 ? 12 : ctx >= 200_000 ? 8 : ctx >= 128_000 ? 5 : 2;
+  const agilityBonus = (isFast ? 4 : 0) + (isOpenWeights ? 3 : 0);
+  const reasoningPenalty = isPureReasoning ? -5 : isReasoning && !isFast ? -2 : 0;
+
+  const rawPracticality = 14 + densityScore + costContribution + contextBonus + agilityBonus + reasoningPenalty;
+  const tokenPracticalityScore = Math.max(40, Math.min(98, Math.round(rawPracticality)));
+
+  const densityLabel =
+    tokensPer1kWordsUk <= 1650
+      ? `Економний кириличний токенізатор (~${tokensPer1kWordsUk} ток./1000 слів укр.)`
+      : tokensPer1kWordsUk <= 1950
+        ? `Середня щільність кирилиці (~${tokensPer1kWordsUk} ток./1000 слів укр.)`
+        : `Підвищена витрата токенів на кирилиці (~${tokensPer1kWordsUk} ток./1000 слів укр.)`;
+
+  const reasoningLabel = isReasoning
+    ? 'приховані reasoning-токени збільшують фінальний output-рахунок'
+    : 'мінімальний службовий оверхед на відповідь';
+
+  const valueLabel = isFree
+    ? 'нульова вартість API у free-квотах'
+    : isOpenWeights && parsedInput === null
+      ? 'гнучка ціна при self-hosting або виборі API-провайдера'
+      : costEfficiencyScore >= 80
+        ? 'відмінне співвідношення якість/$'
+        : costEfficiencyScore >= 60
+          ? 'збалансована вартість для production-задач'
+          : 'преміальний тариф для складних завдань';
+
+  return {
+    tokenPracticalityScore,
+    costEfficiencyScore,
+    tokensPer1kWordsUk,
+    practicalityNoteUk: `${densityLabel}; ${reasoningLabel}; ${valueLabel}.`,
+  };
 }
 
 export interface Promotion {
@@ -185,7 +310,7 @@ export const PROVIDERS_CONFIG: ProviderConfig[] = [
   },
 ];
 
-export const INITIAL_CATALOG: AiCatalogItem[] = [
+const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
   {
     id: 'google-gemini',
     providerId: 'gemini',
@@ -958,3 +1083,11 @@ export const INITIAL_CATALOG: AiCatalogItem[] = [
     verificationStatus: 'confirmed',
   },
 ];
+
+export const INITIAL_CATALOG: AiCatalogItem[] = RAW_INITIAL_CATALOG.map((item) => ({
+  ...item,
+  models: item.models.map((model) => ({
+    ...model,
+    ...computeModelTokenPracticality(model, item.providerId),
+  })),
+}));

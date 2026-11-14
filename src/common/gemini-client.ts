@@ -1,6 +1,6 @@
 import { isTransientHttpStatus } from './url-utils';
 
-const FALLBACK_GEMINI_MODELS = [
+export const FALLBACK_GEMINI_MODELS = [
   'gemini-2.5-flash',
   'gemini-3.5-flash-lite',
   'gemini-2.0-flash-lite',
@@ -61,6 +61,42 @@ export function normalizeGeminiModel(model?: string): string {
   return cleaned || 'gemini-2.5-flash';
 }
 
+export function supportsGeminiThinkingBudget(model: string): boolean {
+  return /^gemini-2\.5/i.test(normalizeGeminiModel(model));
+}
+
+export function buildGeminiRequestBody(
+  baseBody: Record<string, unknown>,
+  model: string,
+  envThinkingBudget: string | undefined = process.env.GEMINI_THINKING_BUDGET,
+): Record<string, unknown> {
+  const rawGenConfig = baseBody.generationConfig;
+  const genConfig =
+    rawGenConfig && typeof rawGenConfig === 'object' && !Array.isArray(rawGenConfig)
+      ? { ...(rawGenConfig as Record<string, unknown>) }
+      : undefined;
+
+  if (envThinkingBudget !== undefined && envThinkingBudget.trim() !== '') {
+    const parsedBudget = Number(envThinkingBudget.trim());
+    if (
+      Number.isInteger(parsedBudget) &&
+      parsedBudget >= 0 &&
+      supportsGeminiThinkingBudget(model) &&
+      genConfig?.thinkingConfig === undefined
+    ) {
+      return {
+        ...baseBody,
+        generationConfig: {
+          ...(genConfig ?? {}),
+          thinkingConfig: { thinkingBudget: parsedBudget },
+        },
+      };
+    }
+  }
+
+  return genConfig ? { ...baseBody, generationConfig: genConfig } : { ...baseBody };
+}
+
 export async function postGeminiGenerateContent(params: {
   apiKey: string;
   preferredModel?: string;
@@ -74,6 +110,7 @@ export async function postGeminiGenerateContent(params: {
   for (let i = 0; i < candidates.length; i += 1) {
     const model = candidates[i];
     const hasNextModel = i < candidates.length - 1;
+    const requestPayload = buildGeminiRequestBody(params.body, model);
     try {
       for (let attempt = 1; attempt <= 2; attempt += 1) {
         const result = await enqueueGeminiHttpAttempt(async () => {
@@ -85,7 +122,7 @@ export async function postGeminiGenerateContent(params: {
               'x-goog-api-key': params.apiKey,
             },
             signal: AbortSignal.timeout(params.timeoutMs ?? 45_000),
-            body: JSON.stringify(params.body),
+            body: JSON.stringify(requestPayload),
           });
           if (resp.ok) {
             return { ok: true as const, data: await resp.json() };

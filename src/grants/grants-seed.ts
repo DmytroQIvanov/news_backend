@@ -8,11 +8,19 @@ export type GrantSector =
   | 'creative_media';
 export type GrantOpportunityType =
   | 'grant'
+  | 'hackathon'
   | 'accelerator'
+  | 'contest'
   | 'cloud_credits'
-  | 'fellowship'
-  | 'competition';
+  | 'fellowship';
 export type GrantStage = 'idea' | 'mvp' | 'scale';
+export type GrantAudienceCode =
+  | 'students_youth'
+  | 'indie_devs'
+  | 'startups'
+  | 'researchers'
+  | 'defense_veterans'
+  | 'sme_ngo';
 
 export interface GrantOpportunityItem {
   id: string;
@@ -26,6 +34,8 @@ export interface GrantOpportunityItem {
   sector: GrantSector;
   sectorLabelUk: string;
   opportunityType: GrantOpportunityType;
+  audiences: GrantAudienceCode[];
+  targetAudienceUk: string;
   fundingAmount: string;
   fundingMaxUsd: number;
   equityFree: boolean;
@@ -62,16 +72,26 @@ export const GRANT_SECTOR_LABELS_UK: Record<GrantSector, string> = {
 
 export const GRANT_TYPE_LABELS_UK: Record<GrantOpportunityType, string> = {
   grant: 'Грант',
+  hackathon: 'Хакатон',
   accelerator: 'Акселератор',
+  contest: 'Конкурс',
   cloud_credits: 'Хмарні кредити',
   fellowship: 'Стипендія / Research',
-  competition: 'Конкурс',
 };
 
 export const GRANT_STAGE_LABELS_UK: Record<GrantStage, string> = {
   idea: 'Ідея / Pre-seed',
   mvp: 'MVP / Прототип',
   scale: 'Масштабування / Scale',
+};
+
+export const GRANT_AUDIENCE_LABELS_UK: Record<GrantAudienceCode, string> = {
+  students_youth: 'Студенти та молодь',
+  indie_devs: 'Інді-розробники та соло-білдери',
+  startups: 'Стартапи та команди',
+  researchers: 'Науковці та дослідники',
+  defense_veterans: 'DefenseTech та ветерани',
+  sme_ngo: 'МСБ та ГО',
 };
 
 const SEED_VERIFIED_AT = '2026-11-14T18:00:00Z';
@@ -89,6 +109,8 @@ export const INITIAL_GRANTS_SEED: GrantOpportunityItem[] = [
     sector: 'defensetech',
     sectorLabelUk: GRANT_SECTOR_LABELS_UK.defensetech,
     opportunityType: 'grant',
+    audiences: ['defense_veterans', 'startups', 'researchers'],
+    targetAudienceUk: 'Оборонні стартапи, інженери-дослідники та ветеранські команди',
     fundingAmount: 'до $25,000–$200,000 (в екв.)',
     fundingMaxUsd: 200000,
     equityFree: true,
@@ -125,6 +147,8 @@ export const INITIAL_GRANTS_SEED: GrantOpportunityItem[] = [
     sector: 'ai_deeptech',
     sectorLabelUk: GRANT_SECTOR_LABELS_UK.ai_deeptech,
     opportunityType: 'grant',
+    audiences: ['startups', 'researchers'],
+    targetAudienceUk: 'Українські DeepTech-стартапи та R&D-команди',
     fundingAmount: 'до €60,000',
     fundingMaxUsd: 65000,
     equityFree: true,
@@ -161,6 +185,8 @@ export const INITIAL_GRANTS_SEED: GrantOpportunityItem[] = [
     sector: 'ai_deeptech',
     sectorLabelUk: GRANT_SECTOR_LABELS_UK.ai_deeptech,
     opportunityType: 'grant',
+    audiences: ['startups', 'indie_devs', 'students_youth'],
+    targetAudienceUk: 'Ранні технологічні стартапи, студентські команди та інді-розробники',
     fundingAmount: '$25,000 – $50,000',
     fundingMaxUsd: 50000,
     equityFree: true,
@@ -197,6 +223,8 @@ export const INITIAL_GRANTS_SEED: GrantOpportunityItem[] = [
     sector: 'sme_veterans',
     sectorLabelUk: GRANT_SECTOR_LABELS_UK.sme_veterans,
     opportunityType: 'grant',
+    audiences: ['defense_veterans', 'sme_ngo'],
+    targetAudienceUk: 'Ветерани, члени їхніх родин та малі й середні підприємства України',
     fundingAmount: '250 тис. – 8 млн грн',
     fundingMaxUsd: 200000,
     equityFree: true,
@@ -233,6 +261,8 @@ export const INITIAL_GRANTS_SEED: GrantOpportunityItem[] = [
     sector: 'ai_deeptech',
     sectorLabelUk: GRANT_SECTOR_LABELS_UK.ai_deeptech,
     opportunityType: 'grant',
+    audiences: ['startups', 'researchers'],
+    targetAudienceUk: 'DeepTech-стартапи з проривними технологіями TRL 5–8 та наукові спін-оффи',
     fundingAmount: 'до €2.5M грант (+ equity опція)',
     fundingMaxUsd: 2700000,
     equityFree: true,
@@ -269,6 +299,8 @@ export const INITIAL_GRANTS_SEED: GrantOpportunityItem[] = [
     sector: 'defensetech',
     sectorLabelUk: GRANT_SECTOR_LABELS_UK.defensetech,
     opportunityType: 'grant',
+    audiences: ['startups', 'sme_ngo', 'researchers'],
+    targetAudienceUk: 'ІТ-компанії, МСП, університети та кібербезпекові консорціуми',
     fundingAmount: '€100,000 – €1,500,000',
     fundingMaxUsd: 1600000,
     equityFree: true,
@@ -305,6 +337,8 @@ export const INITIAL_GRANTS_SEED: GrantOpportunityItem[] = [
     sector: 'creative_media',
     sectorLabelUk: GRANT_SECTOR_LABELS_UK.creative_media,
     opportunityType: 'grant',
+    audiences: ['sme_ngo', 'indie_devs', 'students_youth'],
+    targetAudienceUk: 'Незалежні медіа, ГО, креативні студії, молодь та інді-розробники',
     fundingAmount: '€5,000 – €50,000',
     fundingMaxUsd: 54000,
     equityFree: true,
@@ -341,6 +375,8 @@ export const INITIAL_GRANTS_SEED: GrantOpportunityItem[] = [
     sector: 'sme_veterans',
     sectorLabelUk: GRANT_SECTOR_LABELS_UK.sme_veterans,
     opportunityType: 'grant',
+    audiences: ['sme_ngo', 'startups', 'defense_veterans'],
+    targetAudienceUk: 'Українські МСБ, експортери, ІТ-компанії та ветеранські підприємства',
     fundingAmount: '$50,000 – $300,000',
     fundingMaxUsd: 300000,
     equityFree: true,
@@ -377,6 +413,8 @@ export const INITIAL_GRANTS_SEED: GrantOpportunityItem[] = [
     sector: 'ai_deeptech',
     sectorLabelUk: GRANT_SECTOR_LABELS_UK.ai_deeptech,
     opportunityType: 'cloud_credits',
+    audiences: ['startups', 'indie_devs'],
+    targetAudienceUk: 'AI-стартапи та незалежні розробники хмарних продуктів',
     fundingAmount: 'до $350,000 (Cloud & GPU/TPU кредити)',
     fundingMaxUsd: 350000,
     equityFree: true,
@@ -412,6 +450,8 @@ export const INITIAL_GRANTS_SEED: GrantOpportunityItem[] = [
     sector: 'ai_deeptech',
     sectorLabelUk: GRANT_SECTOR_LABELS_UK.ai_deeptech,
     opportunityType: 'cloud_credits',
+    audiences: ['startups', 'researchers'],
+    targetAudienceUk: 'AI/ML-стартапи та інженерно-дослідницькі команди',
     fundingAmount: 'до $100,000 у хмарних GPU + знижки на H100/B200',
     fundingMaxUsd: 100000,
     equityFree: true,
@@ -447,6 +487,8 @@ export const INITIAL_GRANTS_SEED: GrantOpportunityItem[] = [
     sector: 'ai_deeptech',
     sectorLabelUk: GRANT_SECTOR_LABELS_UK.ai_deeptech,
     opportunityType: 'cloud_credits',
+    audiences: ['startups', 'indie_devs', 'students_youth'],
+    targetAudienceUk: 'Ранні стартапи, соло-розробники та студентські команди на стадії ідеї',
     fundingAmount: 'до $150,000 Azure & OpenAI API кредитів',
     fundingMaxUsd: 150000,
     equityFree: true,
@@ -482,6 +524,8 @@ export const INITIAL_GRANTS_SEED: GrantOpportunityItem[] = [
     sector: 'ai_deeptech',
     sectorLabelUk: GRANT_SECTOR_LABELS_UK.ai_deeptech,
     opportunityType: 'cloud_credits',
+    audiences: ['startups', 'indie_devs'],
+    targetAudienceUk: 'Стартапи та інді-розробники, що будують інфраструктуру на AWS',
     fundingAmount: 'до $100,000 AWS Activate кредитів',
     fundingMaxUsd: 100000,
     equityFree: true,
@@ -517,6 +561,8 @@ export const INITIAL_GRANTS_SEED: GrantOpportunityItem[] = [
     sector: 'edtech_science',
     sectorLabelUk: GRANT_SECTOR_LABELS_UK.edtech_science,
     opportunityType: 'accelerator',
+    audiences: ['startups', 'researchers', 'students_youth'],
+    targetAudienceUk: 'EdTech/SciTech стартапи, дослідники та університетські команди',
     fundingAmount: '£25,000 – £150,000',
     fundingMaxUsd: 190000,
     equityFree: true,
@@ -553,6 +599,8 @@ export const INITIAL_GRANTS_SEED: GrantOpportunityItem[] = [
     sector: 'greentech',
     sectorLabelUk: GRANT_SECTOR_LABELS_UK.greentech,
     opportunityType: 'accelerator',
+    audiences: ['students_youth', 'researchers', 'startups'],
+    targetAudienceUk: 'Студенти, науковці, інженери та молоді стартап-команди',
     fundingAmount: 'до €10,000 приз + вихід на EIT Seed до €50k',
     fundingMaxUsd: 55000,
     equityFree: true,
@@ -588,6 +636,8 @@ export const INITIAL_GRANTS_SEED: GrantOpportunityItem[] = [
     sector: 'edtech_science',
     sectorLabelUk: GRANT_SECTOR_LABELS_UK.edtech_science,
     opportunityType: 'fellowship',
+    audiences: ['researchers', 'indie_devs', 'defense_veterans'],
+    targetAudienceUk: 'Дослідники ШІ, фахівці з кіберзахисту та незалежні інженери',
     fundingAmount: '$10,000 – $100,000 (гранти та API-кредити)',
     fundingMaxUsd: 100000,
     equityFree: true,
@@ -623,6 +673,8 @@ export const INITIAL_GRANTS_SEED: GrantOpportunityItem[] = [
     sector: 'creative_media',
     sectorLabelUk: GRANT_SECTOR_LABELS_UK.creative_media,
     opportunityType: 'fellowship',
+    audiences: ['indie_devs', 'researchers', 'students_youth'],
+    targetAudienceUk: 'Інді-розробники open-source, дослідники та студенти-контрибʼютори',
     fundingAmount: '€5,000 – €50,000 + $10k менторство',
     fundingMaxUsd: 55000,
     equityFree: true,
@@ -658,6 +710,8 @@ export const INITIAL_GRANTS_SEED: GrantOpportunityItem[] = [
     sector: 'greentech',
     sectorLabelUk: GRANT_SECTOR_LABELS_UK.greentech,
     opportunityType: 'grant',
+    audiences: ['sme_ngo', 'defense_veterans'],
+    targetAudienceUk: 'Місцевий МСБ, фермери, ГО, громади та ветерани',
     fundingAmount: 'до 500 тис. – 1.5 млн грн',
     fundingMaxUsd: 40000,
     equityFree: true,
@@ -682,6 +736,304 @@ export const INITIAL_GRANTS_SEED: GrantOpportunityItem[] = [
     status: 'active',
     lastVerifiedAt: SEED_VERIFIED_AT,
   },
+  // 8 additional programs: Hackathons, Contests, Youth, Indie Devs, Researchers, Veterans, SMEs/NGOs
+  {
+    id: 'seed-ethglobal-hackathons',
+    externalId: 'ethglobal-ai-hackathons',
+    title: 'ETHGlobal Hackathons & AI Agents Track',
+    titleUk: 'ETHGlobal — Міжнародні онлайн- та офлайн-хакатони',
+    organization: 'ETHGlobal',
+    countryCode: 'global',
+    countryLabelUk: GRANT_COUNTRY_LABELS_UK.global,
+    regionDetailsUk: 'Глобально (регулярні онлайн-хакатони та події у Європі й Північній Америці)',
+    sector: 'ai_deeptech',
+    sectorLabelUk: GRANT_SECTOR_LABELS_UK.ai_deeptech,
+    opportunityType: 'hackathon',
+    audiences: ['indie_devs', 'students_youth', 'startups'],
+    targetAudienceUk: 'Інді-розробники, студенти та ранні продуктові команди (1–5 осіб)',
+    fundingAmount: '$10,000 – $500,000 (призовий фонд)',
+    fundingMaxUsd: 100000,
+    equityFree: true,
+    coFinancingPct: 0,
+    stage: 'idea',
+    deadlineAt: null,
+    isRolling: true,
+    summaryUk:
+      'Найбільша світова серія хакатонів із треками для AI-агентів, ZK-криптографії, децентралізованої інфраструктури та Web3-платежів. Дає швидкий вихід на призи спонсорів і мікрогранти на продовження проєкту.',
+    eligibilityUk:
+      'Будь-які розробники, дизайнери та студенти від 18 років (юрособа не потрібна; участь індивідуально або в команді до 5 осіб).',
+    requirementsUk: [
+      'Публічний GitHub-репозиторій із кодом, написаним під час хакатону',
+      'Робоче демо або прототип та 2–4 хвилинне відео-презентація проєкту',
+      'Короткий технічний опис архітектури на платформі ETHGlobal',
+    ],
+    applicationTipsUk:
+      'Поєднуйте AI-агентів із партнерськими SDK спонсорів — окремі bounty-номінації дають високі шанси виграти $2,000–$15,000 навіть соло-розробнику.',
+    officialUrl: 'https://ethglobal.com/events',
+    worthScore: 90,
+    status: 'active',
+    lastVerifiedAt: SEED_VERIFIED_AT,
+  },
+  {
+    id: 'seed-devpost-mlh-hackathons',
+    externalId: 'devpost-mlh-ai-hackathons',
+    title: 'Devpost & MLH Global AI Hackathons',
+    titleUk: 'Devpost & MLH — Глобальні AI-хакатони для студентів та інді-розробників',
+    organization: 'Devpost / Major League Hacking (MLH)',
+    countryCode: 'us',
+    countryLabelUk: GRANT_COUNTRY_LABELS_UK.us,
+    regionDetailsUk: 'США / Глобально (онлайн-хакатони від Google, Microsoft, AWS, NVIDIA)',
+    sector: 'ai_deeptech',
+    sectorLabelUk: GRANT_SECTOR_LABELS_UK.ai_deeptech,
+    opportunityType: 'hackathon',
+    audiences: ['students_youth', 'indie_devs'],
+    targetAudienceUk: 'Студенти, молодь та інді-розробники (соло або в команді)',
+    fundingAmount: '$5,000 – $100,000 + хмарні кредити',
+    fundingMaxUsd: 100000,
+    equityFree: true,
+    coFinancingPct: 0,
+    stage: 'idea',
+    deadlineAt: null,
+    isRolling: true,
+    summaryUk:
+      'Постійні онлайн-хакатони від технологічних корпорацій на платформах Devpost і MLH: створення AI-асистентів, мультимодальних додатків, мобільних сервісів і developer tools із грошовими призами та API-кредитами.',
+    eligibilityUk:
+      'Студенти ВНЗ, випускники, інді-розробники та невеликі команди з усього світу (для більшості глобальних онлайн-хакатонів достатньо віку 18+).',
+    requirementsUk: [
+      'Зареєстрований проєкт на сторінці хакатону Devpost до дедлайну сабміту',
+      'Посилання на відкритий код, інструкція запуску та демо-відео (до 3 хв)',
+      'Короткий опис використаних API/моделей та вирішеної проблеми користувачів',
+    ],
+    applicationTipsUk:
+      'Робіть чисте коротке відео з реальним UX-сценарієм у перші 20 секунд — журі переглядає сотні заявок і спершу оцінює працююче демо.',
+    officialUrl: 'https://devpost.com/hackathons',
+    worthScore: 91,
+    status: 'active',
+    lastVerifiedAt: SEED_VERIFIED_AT,
+  },
+  {
+    id: 'seed-brave1-hackathon',
+    externalId: 'brave1-defensetech-hackathon',
+    title: 'Brave1 Defense Tech Hackathon & Precision Innovation',
+    titleUk: 'Brave1 Хакатони — Оборонні та ШІ-інновації для фронту',
+    organization: 'Brave1 / Мінцифри / Міноборони України',
+    countryCode: 'ua',
+    countryLabelUk: GRANT_COUNTRY_LABELS_UK.ua,
+    regionDetailsUk: 'Україна (інженерні хакатони та SPRINT-змагання для розробників)',
+    sector: 'defensetech',
+    sectorLabelUk: GRANT_SECTOR_LABELS_UK.defensetech,
+    opportunityType: 'hackathon',
+    audiences: ['defense_veterans', 'indie_devs', 'students_youth', 'startups'],
+    targetAudienceUk: 'Інженери, інді-розробники, студенти технічних ВНЗ, ветерани й стартапи',
+    fundingAmount: 'до $50,000 (призи, R&D-контракти й фаст-трек до грантів)',
+    fundingMaxUsd: 50000,
+    equityFree: true,
+    coFinancingPct: 0,
+    stage: 'idea',
+    deadlineAt: '2026-12-22T23:59:59Z',
+    isRolling: false,
+    summaryUk:
+      'Спеціалізовані оборонні хакатони та технологічні спринти Brave1 (AI для виявлення цілей, автономна навігація без GPS, перехоплення БПЛА, тактичний софт і кіберзахист) із прискореним переходом до грантів $25k–$200k.',
+    eligibilityUk:
+      'Українські інженери, R&D-команди, студенти, ветерани та стартапи (наявність юрособи на етапі хакатону не є обовʼязковою).',
+    requirementsUk: [
+      'Онлайн-реєстрація команди та вибір інженерного треку до закриття набору',
+      'Технічне рішення або робочий PoC/алгоритм, презентований перед військовими менторами',
+      'Дотримання правил інформаційної безпеки та нерозголошення чутливих даних',
+    ],
+    applicationTipsUk:
+      'Навіть без заліза можна перемогти у софтверному треку (computer vision, оптична навігація, симулятори, OSINT/кібер) та отримати команду й грант на впровадження.',
+    officialUrl: 'https://brave1.gov.ua/',
+    worthScore: 95,
+    status: 'active',
+    lastVerifiedAt: SEED_VERIFIED_AT,
+  },
+  {
+    id: 'seed-erasmus-social-contest',
+    externalId: 'erasmus-youth-digital-contests',
+    title: 'Erasmus+ Youth & European Social Innovation Competition',
+    titleUk: 'Erasmus+ & European Social Innovation — Конкурси для молоді та ГО',
+    organization: 'Європейська комісія / EIC / Erasmus+',
+    countryCode: 'eu',
+    countryLabelUk: GRANT_COUNTRY_LABELS_UK.eu,
+    regionDetailsUk: 'ЄС та асоційовані країни (Україна бере участь у програмах ЄС для молоді й ГО)',
+    sector: 'edtech_science',
+    sectorLabelUk: GRANT_SECTOR_LABELS_UK.edtech_science,
+    opportunityType: 'contest',
+    audiences: ['students_youth', 'sme_ngo'],
+    targetAudienceUk: 'Студенти, молодіжні ініціативи, громадські організації та освітні проєкти',
+    fundingAmount: '€15,000 – €75,000',
+    fundingMaxUsd: 81000,
+    equityFree: true,
+    coFinancingPct: 0,
+    stage: 'idea',
+    deadlineAt: '2027-01-30T17:00:00Z',
+    isRolling: false,
+    summaryUk:
+      'Щорічні європейські конкурси соціальних, цифрових і освітніх інновацій від Єврокомісії та EIC (премії по €50,000–€75,000 переможцям + менторська академія у фіналі для молодіжних і громадських ініціатив).',
+    eligibilityUk:
+      'Молодіжні команди, студенти, соціальні підприємці, освітні стартапи та ГО з України та країн ЄС.',
+    requirementsUk: [
+      'Опис інноваційного рішення та його вимірного соціального чи освітнього ефекту',
+      'План масштабування або впровадження проєкту в громадах протягом 12 місяців',
+      'Короткий бюджет використання призу та презентація команди',
+    ],
+    applicationTipsUk:
+      'Чітко привʼяжіть проєкт до поточної теми року (цифрова освіта, зелена відбудова, інклюзія, стійкість громад) та наведіть перші пілотні метрики.',
+    officialUrl: 'https://eic.ec.europa.eu/eic-prizes/european-social-innovation-competition_en',
+    worthScore: 87,
+    status: 'active',
+    lastVerifiedAt: SEED_VERIFIED_AT,
+  },
+  {
+    id: 'seed-kaggle-competitions',
+    externalId: 'kaggle-ai-research-competitions',
+    title: 'Kaggle Featured AI & Science Competitions',
+    titleUk: 'Kaggle — Глобальні конкурси з ML, LLM-бенчмарків та науки',
+    organization: 'Kaggle (Google)',
+    countryCode: 'global',
+    countryLabelUk: GRANT_COUNTRY_LABELS_UK.global,
+    regionDetailsUk: 'Глобально (відкриті міжнародні змагання з машинного навчання)',
+    sector: 'edtech_science',
+    sectorLabelUk: GRANT_SECTOR_LABELS_UK.edtech_science,
+    opportunityType: 'contest',
+    audiences: ['researchers', 'indie_devs', 'students_youth'],
+    targetAudienceUk: 'Науковці, ML-дослідники, інді-розробники та студенти',
+    fundingAmount: '$25,000 – $1,000,000 (призові фонди)',
+    fundingMaxUsd: 250000,
+    equityFree: true,
+    coFinancingPct: 0,
+    stage: 'mvp',
+    deadlineAt: null,
+    isRolling: true,
+    summaryUk:
+      'Провідна світова платформа наукових та інженерних AI-конкурсів (ARC Prize, AIMO Math Olympiad, медичне зображення, LLM alignment) з прозорим оцінюванням на лідерборді, безкоштовними GPU/TPU квотами та великими грошовими призами.',
+    eligibilityUk:
+      'Будь-які учасники від 18 років (індивідуально або у команді), незалежно від країни проживання чи наявності компанії.',
+    requirementsUk: [
+      'Акаунт на Kaggle та прийняття офіційних правил конкретного конкурсу',
+      'Відтворюваний ноутбук/код інференсу, що завантажується для перевірки на прихованому тесті',
+      'Для призерів — відкритий опис рішення (write-up) та перевірка коду на відсутність витоків',
+    ],
+    applicationTipsUk:
+      'Використовуйте безкоштовні 30 год/тиждень GPU P100/T4 та TPU на Kaggle для експериментів і обʼєднуйтесь у команди за 2 тижні до мердж-дедлайну.',
+    officialUrl: 'https://www.kaggle.com/competitions',
+    worthScore: 93,
+    status: 'active',
+    lastVerifiedAt: SEED_VERIFIED_AT,
+  },
+  {
+    id: 'seed-uk-british-council-contest',
+    externalId: 'uk-royal-society-british-council',
+    title: 'British Council & UKRI Research Partnership Contests',
+    titleUk: 'British Council & UKRI — Наукові конкурси та партнерства з Великою Британією',
+    organization: 'British Council / UK Research and Innovation (UKRI)',
+    countryCode: 'uk',
+    countryLabelUk: GRANT_COUNTRY_LABELS_UK.uk,
+    regionDetailsUk: 'Велика Британія та Україна (спільні академічні, студентські та ГО-проєкти)',
+    sector: 'edtech_science',
+    sectorLabelUk: GRANT_SECTOR_LABELS_UK.edtech_science,
+    opportunityType: 'contest',
+    audiences: ['researchers', 'students_youth', 'sme_ngo'],
+    targetAudienceUk: 'Українські науковці, університети, студенти й освітні ГО',
+    fundingAmount: '£15,000 – £100,000',
+    fundingMaxUsd: 128000,
+    equityFree: true,
+    coFinancingPct: 0,
+    stage: 'idea',
+    deadlineAt: '2027-02-15T23:59:59Z',
+    isRolling: false,
+    summaryUk:
+      'Конкурси грантів та академічного партнерства між українськими й британськими університетами, дослідниками та освітніми ГО (UK-Ukraine R&I Twinning, Going Global Partnerships, дослідницькі стажування та спільні публікації).',
+    eligibilityUk:
+      'Українські університети, наукові установи, аспіранти/дослідники та неприбуткові освітні організації у партнерстві з установою у Великій Британії.',
+    requirementsUk: [
+      'Спільна англомовна конкурсна заявка від українського та британського партнерів',
+      'План наукового або освітнього обміну, спільних курсів чи досліджень',
+      'Лист підтримки від керівництва обох установ та бюджет за статтями UKRI',
+    ],
+    applicationTipsUk:
+      'Британська Рада регулярно публікує списки UK-університетів, які шукають українських партнерів — використайте їхній matchmaking-портал.',
+    officialUrl: 'https://www.britishcouncil.org.ua/',
+    worthScore: 88,
+    status: 'active',
+    lastVerifiedAt: SEED_VERIFIED_AT,
+  },
+  {
+    id: 'seed-uvf-varto-contest',
+    externalId: 'uvf-varto-veteran-contest',
+    title: 'Ukrainian Veteran Fund (UVF) — VARTO Business Contest',
+    titleUk: 'Український ветеранський фонд — Конкурс «Варто» для ветеранського бізнесу',
+    organization: 'Український ветеранський фонд (Мінветеранів)',
+    countryCode: 'ua',
+    countryLabelUk: GRANT_COUNTRY_LABELS_UK.ua,
+    regionDetailsUk: 'Україна (державна конкурсна підтримка ветеранського підприємництва та ГО)',
+    sector: 'sme_veterans',
+    sectorLabelUk: GRANT_SECTOR_LABELS_UK.sme_veterans,
+    opportunityType: 'contest',
+    audiences: ['defense_veterans', 'sme_ngo'],
+    targetAudienceUk: 'Ветерани, члени їхніх родин, ветеранський МСБ та громадські організації',
+    fundingAmount: '500 тис. – 1.5 млн грн',
+    fundingMaxUsd: 38000,
+    equityFree: true,
+    coFinancingPct: 0,
+    stage: 'mvp',
+    deadlineAt: '2026-12-26T23:59:59Z',
+    isRolling: false,
+    summaryUk:
+      'Конкурсна програма фінансування «ВАРТО» від Українського ветеранського фонду: безповоротна фінансова підтримка на запуск або масштабування бізнесу ветеранів, агропідприємств, сервісів, IT-продуктів та реабілітаційних ініціатив ГО.',
+    eligibilityUk:
+      'Ветерани війни, особи з інвалідністю внаслідок війни, члени сімей загиблих Захисників і Захисниць, зареєстровані як ФОП, ТОВ або ГО.',
+    requirementsUk: [
+      'Посвідчення УБД / довідка про участь у бойових діях або документи члена родини',
+      'Виписка з ЄДР (ФОП, ТОВ або ГО з відповідним КВЕД)',
+      'Аплікаційна форма, опис бізнес-ідеї, кошторис та календарний план реалізації',
+      'Захист проєкту (онлайн-інтервʼю) у разі проходження технічного відбору',
+    ],
+    applicationTipsUk:
+      'Детально перевірте всі обовʼязкові довідки до подачі (відсутність заборгованості, правильний шаблон кошторису), щоб не відсіятися на формальній перевірці.',
+    officialUrl: 'https://veteranfund.com.ua/',
+    worthScore: 94,
+    status: 'active',
+    lastVerifiedAt: SEED_VERIFIED_AT,
+  },
+  {
+    id: 'seed-horizon-msca-fellowship',
+    externalId: 'horizon-msca-research-fellowships',
+    title: 'Horizon Europe — MSCA Fellowships & MSCA4Ukraine',
+    titleUk: 'Horizon Europe MSCA — Стипендії для українських науковців і дослідників',
+    organization: 'European Research Executive Agency (Horizon Europe)',
+    countryCode: 'eu',
+    countryLabelUk: GRANT_COUNTRY_LABELS_UK.eu,
+    regionDetailsUk: 'ЄС та Україна (європейські дослідницькі гранти для PhD і постдоків)',
+    sector: 'edtech_science',
+    sectorLabelUk: GRANT_SECTOR_LABELS_UK.edtech_science,
+    opportunityType: 'fellowship',
+    audiences: ['researchers', 'students_youth'],
+    targetAudienceUk: 'Науковці, аспіранти (PhD), постдоки та дослідницькі групи з України',
+    fundingAmount: '€70,000 – €220,000 (стипендія + R&D бюджет)',
+    fundingMaxUsd: 240000,
+    equityFree: true,
+    coFinancingPct: 0,
+    stage: 'mvp',
+    deadlineAt: '2027-02-20T17:00:00Z',
+    isRolling: false,
+    summaryUk:
+      'Престижні індивідуальні дослідницькі стипендії ЄС (MSCA Postdoctoral Fellowships та спеціальна схема MSCA4Ukraine), що повністю покривають зарплату дослідника, витрати на дослідження, мобільність та публікації протягом 12–24 місяців.',
+    eligibilityUk:
+      'Дослідники з науковим ступенем PhD або кандидати наук (а для докторантури MSCA — магістри/студенти старших курсів), у співпраці з приймаючим університетом чи R&D-центром.',
+    requirementsUk: [
+      'Наукова пропозиція (Part B1 + B2, до 10 сторінок) за шаблоном Horizon Europe',
+      'Погодження приймаючої установи (Host Institution) та наукового керівника (Supervisor)',
+      'CV дослідника з переліком публікацій, патентів або відкритих датасетів/коду',
+    ],
+    applicationTipsUk:
+      'Починайте пошук приймаючої лабораторії за 2–3 місяці до дедлайну — європейські університети мають спеціальні грант-офіси, що допомагають відшліфувати заявку.',
+    officialUrl: 'https://marie-sklodowska-curie-actions.ec.europa.eu/',
+    worthScore: 93,
+    status: 'active',
+    lastVerifiedAt: SEED_VERIFIED_AT,
+  },
 ];
 
 export interface GrantMatchProfile {
@@ -689,6 +1041,7 @@ export interface GrantMatchProfile {
   stage?: string;
   sector?: string;
   country?: string;
+  audience?: GrantAudienceCode;
   preferEquityFree?: boolean;
 }
 
@@ -703,6 +1056,15 @@ export function computeGrantMatchScore(
   profile: GrantMatchProfile,
 ): number {
   let score = 60 + Math.round((grant.worthScore - 80) * 0.25);
+
+  // Audience fit (+12 when matched)
+  if (profile.audience && (profile.audience as string) !== 'all') {
+    if (grant.audiences.includes(profile.audience)) {
+      score += 12;
+    } else {
+      score -= 6;
+    }
+  }
 
   // Sector match
   if (profile.sector && profile.sector !== 'all') {
@@ -741,7 +1103,6 @@ export function computeGrantMatchScore(
     } else if (grant.countryCode === 'global') {
       score += 8;
     } else if (profile.country === 'ua' && grant.countryCode === 'eu') {
-      // Ukraine has associated status in Horizon Europe, Digital Europe, Seeds of Bravery, House of Europe
       score += 6;
     } else if (profile.country === 'ua' && (grant.countryCode === 'us' || grant.countryCode === 'uk')) {
       score += 3;
@@ -754,7 +1115,12 @@ export function computeGrantMatchScore(
   if (profile.legalStatus) {
     const legal = profile.legalStatus.trim().toLowerCase();
     if (legal === 'individual' || legal === 'person' || legal === 'researcher') {
-      if (grant.opportunityType === 'fellowship' || grant.stage === 'idea') {
+      if (
+        grant.opportunityType === 'fellowship' ||
+        grant.opportunityType === 'hackathon' ||
+        grant.opportunityType === 'contest' ||
+        grant.stage === 'idea'
+      ) {
         score += 8;
       }
       if (grant.stage === 'scale' || grant.coFinancingPct > 0) {
@@ -773,6 +1139,7 @@ export function computeGrantMatchScore(
       }
     } else if (legal === 'ngo' || legal === 'nonprofit') {
       if (
+        grant.audiences.includes('sme_ngo') ||
         grant.sector === 'creative_media' ||
         grant.sector === 'edtech_science' ||
         grant.opportunityType === 'fellowship'
@@ -782,7 +1149,7 @@ export function computeGrantMatchScore(
         score -= 5;
       }
     } else if (legal === 'veteran') {
-      if (grant.sector === 'sme_veterans' || grant.countryCode === 'ua') {
+      if (grant.audiences.includes('defense_veterans') || grant.sector === 'sme_veterans' || grant.countryCode === 'ua') {
         score += 12;
       }
     }

@@ -1,0 +1,24 @@
+name: Keep-Alive Render & Neon DB
+
+on:
+  schedule:
+    - cron: '*/12 * * * *'
+  workflow_dispatch:
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Ping backend and PostgreSQL health endpoints
+        env:
+          RENDER_API_URL: ${{ secrets.RENDER_API_URL || 'https://news-backend-v0jj.onrender.com' }}
+        run: |
+          node scripts/keep-alive.mjs --once --api "${RENDER_API_URL}"

@@ -5,10 +5,15 @@ import { canonicalizeUrl, retryWithBackoff } from '../dist/common/url-utils.js';
 import { parseFeedXml } from '../dist/news/company-feeds.service.js';
 import { validateArticle } from '../dist/ingest/gemini-editor.service.js';
 import { IngestKeyGuard } from '../dist/common/ingest-key.guard.js';
-import { diffCatalogItems, isPromotionExpired } from '../dist/catalog/catalog.service.js';
-import { INITIAL_CATALOG } from '../dist/catalog/catalog-seed.js';
+import { CatalogService, diffCatalogItems, isPromotionExpired } from '../dist/catalog/catalog.service.js';
+import { computeModelTokenPracticality, INITIAL_CATALOG } from '../dist/catalog/catalog-seed.js';
 import { slugifySource } from '../dist/news/source-discovery.service.js';
 import { detectStoreName } from '../dist/games/games.service.js';
+import {
+  buildGeminiRequestBody,
+  FALLBACK_GEMINI_MODELS,
+  normalizeGeminiModel,
+} from '../dist/common/gemini-client.js';
 import {
   classifyCredibilityTier,
   extractEntitySlugs,
@@ -17,6 +22,7 @@ import {
 } from '../dist/kg/kg-seed.js';
 import {
   computeGrantMatchScore,
+  GRANT_AUDIENCE_LABELS_UK,
   GRANT_COUNTRY_LABELS_UK,
   GRANT_SECTOR_LABELS_UK,
   INITIAL_GRANTS_SEED,
@@ -24,6 +30,7 @@ import {
 import { GrantsService } from '../dist/grants/grants.service.js';
 import { GrantsController } from '../dist/grants/grants.controller.js';
 import { HealthController } from '../dist/health/health.controller.js';
+import { buildHealthUrls, parseKeepAliveArgs } from '../scripts/keep-alive.mjs';
 
 test('canonicalizeUrl strips tracking params, www, hash, and trailing slash', () => {
   const input = 'https://www.openai.com/news/gpt-5/?utm_source=rss&fbclid=123&ref=x#top';
@@ -215,14 +222,17 @@ test('classifyCredibilityTier separates independent tests, verified facts, and r
   assert.equal(classifyCredibilityTier('Correction: earlier latency figures updated').isCorrectionSignal, true);
 });
 
-test('INITIAL_GRANTS_SEED covers all 5 regions, all 6 sectors, valid https URLs, and requirementsUk', () => {
-  assert.ok(INITIAL_GRANTS_SEED.length >= 16);
+test('INITIAL_GRANTS_SEED covers all 5 regions, 6 sectors, 6 audiences, hackathons/contests, and valid https URLs', () => {
+  assert.ok(INITIAL_GRANTS_SEED.length >= 25);
 
   const seenIds = new Set();
   const countries = new Set();
   const sectors = new Set();
-  const validTypes = new Set(['grant', 'accelerator', 'cloud_credits', 'fellowship', 'competition']);
+  const types = new Set();
+  const audiences = new Set();
+  const validTypes = new Set(['grant', 'hackathon', 'accelerator', 'contest', 'cloud_credits', 'fellowship']);
   const validStages = new Set(['idea', 'mvp', 'scale']);
+  const validAudiences = new Set(Object.keys(GRANT_AUDIENCE_LABELS_UK));
 
   for (const grant of INITIAL_GRANTS_SEED) {
     assert.ok(grant.externalId.length > 0 && grant.externalId.length <= 160);
@@ -235,6 +245,12 @@ test('INITIAL_GRANTS_SEED covers all 5 regions, all 6 sectors, valid https URLs,
     assert.equal(grant.sectorLabelUk, GRANT_SECTOR_LABELS_UK[grant.sector]);
     assert.ok(validTypes.has(grant.opportunityType));
     assert.ok(validStages.has(grant.stage));
+    assert.ok(Array.isArray(grant.audiences) && grant.audiences.length >= 1);
+    for (const aud of grant.audiences) {
+      assert.ok(validAudiences.has(aud), `Invalid audience: ${aud}`);
+      audiences.add(aud);
+    }
+    assert.ok(grant.targetAudienceUk && grant.targetAudienceUk.length > 5);
     assert.ok(grant.fundingAmount.length > 0);
     assert.ok(grant.fundingMaxUsd > 0);
     assert.ok(grant.worthScore >= 50 && grant.worthScore <= 100);
@@ -253,6 +269,7 @@ test('INITIAL_GRANTS_SEED covers all 5 regions, all 6 sectors, valid https URLs,
 
     countries.add(grant.countryCode);
     sectors.add(grant.sector);
+    types.add(grant.opportunityType);
   }
 
   for (const code of ['ua', 'eu', 'us', 'uk', 'global']) {
@@ -261,18 +278,25 @@ test('INITIAL_GRANTS_SEED covers all 5 regions, all 6 sectors, valid https URLs,
   for (const sector of ['ai_deeptech', 'defensetech', 'greentech', 'edtech_science', 'sme_veterans', 'creative_media']) {
     assert.ok(sectors.has(sector), `Missing sector coverage: ${sector}`);
   }
+  for (const aud of ['students_youth', 'indie_devs', 'startups', 'researchers', 'defense_veterans', 'sme_ngo']) {
+    assert.ok(audiences.has(aud), `Missing audience coverage: ${aud}`);
+  }
+  assert.ok(types.has('hackathon'), 'Expected hackathon opportunities');
+  assert.ok(types.has('contest'), 'Expected contest opportunities');
 });
 
-test('computeGrantMatchScore returns clamped [40, 99] integers and ranks aligned grants higher', () => {
+test('computeGrantMatchScore supports audience (+12) and clamps scores to [40, 99]', () => {
   const brave1 = INITIAL_GRANTS_SEED.find((g) => g.externalId === 'brave1-defense-tech');
   const eic = INITIAL_GRANTS_SEED.find((g) => g.externalId === 'eic-accelerator-horizon');
-  assert.ok(brave1 && eic);
+  const devpost = INITIAL_GRANTS_SEED.find((g) => g.externalId === 'devpost-mlh-ai-hackathons');
+  assert.ok(brave1 && eic && devpost);
 
   const alignedScore = computeGrantMatchScore(brave1, {
     legalStatus: 'tov',
     stage: 'mvp',
     sector: 'defensetech',
     country: 'ua',
+    audience: 'defense_veterans',
     preferEquityFree: true,
   });
   const mismatchedScore = computeGrantMatchScore(eic, {
@@ -280,6 +304,7 @@ test('computeGrantMatchScore returns clamped [40, 99] integers and ranks aligned
     stage: 'idea',
     sector: 'creative_media',
     country: 'us',
+    audience: 'students_youth',
     preferEquityFree: true,
   });
 
@@ -287,12 +312,19 @@ test('computeGrantMatchScore returns clamped [40, 99] integers and ranks aligned
   assert.ok(Number.isInteger(mismatchedScore) && mismatchedScore >= 40 && mismatchedScore <= 99);
   assert.ok(alignedScore > mismatchedScore);
 
+  const withoutAud = computeGrantMatchScore(devpost, {});
+  const withMatchedAud = computeGrantMatchScore(devpost, { audience: 'students_youth' });
+  const withMismatchedAud = computeGrantMatchScore(devpost, { audience: 'sme_ngo' });
+  assert.equal(withMatchedAud - withoutAud, 12);
+  assert.ok(withMatchedAud > withMismatchedAud);
+
   for (const grant of INITIAL_GRANTS_SEED) {
     const score = computeGrantMatchScore(grant, {
       legalStatus: 'fop',
       stage: 'mvp',
       sector: 'ai_deeptech',
       country: 'ua',
+      audience: 'startups',
       preferEquityFree: true,
     });
     assert.ok(Number.isInteger(score) && score >= 40 && score <= 99);
@@ -333,7 +365,7 @@ test('KG seed contains grant ecosystem entities and links them to AI entities', 
   assert.ok(matched.includes('cloud-gpu-grants'));
 });
 
-test('GrantsService and GrantsController fall back cleanly to INITIAL_GRANTS_SEED when DB is unavailable', async () => {
+test('GrantsService and GrantsController support audience filtering, meta fields, and DB fallbacks', async () => {
   const failingDb = {
     query: async () => {
       throw new Error('relation "grants_opportunities" does not exist');
@@ -348,8 +380,22 @@ test('GrantsService and GrantsController fall back cleanly to INITIAL_GRANTS_SEE
   assert.equal(all.hasMore, false);
 
   const uaGrants = await service.list({ country: 'ua' });
-  assert.equal(uaGrants.total, 4);
+  assert.equal(uaGrants.total, 6);
   assert.ok(uaGrants.items.every((g) => g.countryCode === 'ua'));
+
+  const studentGrants = await controller.list(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    'students_youth',
+  );
+  assert.ok(studentGrants.total >= 10);
+  assert.ok(studentGrants.items.every((g) => g.audiences.includes('students_youth')));
+
+  const hackathons = await service.list({ type: 'hackathon' });
+  assert.ok(hackathons.total >= 3);
+  assert.ok(hackathons.items.every((g) => g.opportunityType === 'hackathon'));
 
   const byFunding = await service.list({ sort: 'funding_desc', limit: 3 });
   assert.equal(byFunding.items.length, 3);
@@ -362,17 +408,84 @@ test('GrantsService and GrantsController fall back cleanly to INITIAL_GRANTS_SEE
 
   const meta = await controller.getMeta();
   assert.equal(meta.totalActive, INITIAL_GRANTS_SEED.length);
-  assert.equal(meta.uaCount, 4);
-  assert.equal(meta.byCountry.ua, 4);
+  assert.equal(meta.uaCount, 6);
+  assert.equal(meta.byCountry.ua, 6);
+  assert.equal(meta.dailyCheckIntervalHours, 24);
+  assert.ok(Number.isFinite(Date.parse(meta.lastAiVerificationAt)));
+  for (const aud of Object.keys(GRANT_AUDIENCE_LABELS_UK)) {
+    assert.ok((meta.byAudience[aud] ?? 0) > 0, `Missing meta.byAudience for ${aud}`);
+  }
   assert.ok(meta.totalFundingUsd > 5_000_000);
 
   const brave1 = await controller.detail('brave1-defense-tech');
   assert.equal(brave1.countryCode, 'ua');
+  assert.ok(brave1.audiences.includes('defense_veterans'));
 
   await assert.rejects(() => controller.detail('missing-grant-id'), NotFoundException);
+
+  // Verify daily verification check skips cleanly within 24h cooldown
+  GrantsService.lastAiVerificationAt = new Date().toISOString();
+  const verifyResult = await service.verifyAndRefreshWithGemini(false);
+  assert.equal(verifyResult.skipped, true);
 });
 
-test('HealthController.summary falls back gracefully to INITIAL_GRANTS_SEED when grants table is absent', async () => {
+test('GrantsService gracefully falls back when migration 009 columns do not exist yet', async () => {
+  const pre009Db = {
+    query: async (sql) => {
+      if (sql.includes('UPDATE grants_opportunities')) {
+        return { rowCount: 0, rows: [] };
+      }
+      if (sql.includes('target_audience_uk') || sql.includes('audiences @>')) {
+        throw new Error('column "audiences" does not exist');
+      }
+      if (sql.includes('FROM grants_opportunities')) {
+        return {
+          rows: [
+            {
+              id: '1',
+              externalId: 'brave1-defense-tech',
+              title: 'Brave1 Defense Tech Grants',
+              titleUk: 'Brave1 — Гранти на DefenseTech-розробки',
+              organization: 'Brave1',
+              countryCode: 'ua',
+              countryLabelUk: 'Україна',
+              regionDetailsUk: 'Україна',
+              sector: 'defensetech',
+              sectorLabelUk: 'DefenseTech та Кібербезпека',
+              opportunityType: 'grant',
+              fundingAmount: 'до $200,000',
+              fundingMaxUsd: 200000,
+              equityFree: true,
+              coFinancingPct: 0,
+              stage: 'mvp',
+              deadlineAt: null,
+              isRolling: true,
+              summaryUk: 'Опис гранту Brave1.',
+              eligibilityUk: 'Українські компанії.',
+              requirementsUk: ['Анкета', 'Pitch deck', 'Бюджет'],
+              applicationTipsUk: 'Порада.',
+              officialUrl: 'https://brave1.gov.ua/',
+              worthScore: 98,
+              status: 'active',
+              lastVerifiedAt: '2026-11-14T18:00:00Z',
+              totalCount: 1,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    },
+  };
+
+  const service = new GrantsService(pre009Db);
+  const res = await service.list({ audience: 'defense_veterans' });
+  assert.equal(res.total, 1);
+  assert.equal(res.items[0].externalId, 'brave1-defense-tech');
+  assert.ok(res.items[0].audiences.includes('defense_veterans'));
+  assert.ok(res.items[0].targetAudienceUk.length > 0);
+});
+
+test('HealthController.summary exposes grants audience breakdown and 24h AI verification metadata', async () => {
   const mockDb = {
     query: async (sql) => {
       if (sql.includes('grants_opportunities')) {
@@ -395,5 +508,110 @@ test('HealthController.summary falls back gracefully to INITIAL_GRANTS_SEED when
   assert.equal(summary.status, 'ok');
   assert.equal(summary.grants.active, INITIAL_GRANTS_SEED.length);
   assert.equal(summary.grants.equityFree, INITIAL_GRANTS_SEED.filter((g) => g.equityFree).length);
+  assert.equal(summary.grants.dailyCheckIntervalHours, 24);
+  assert.ok(Number.isFinite(Date.parse(summary.grants.lastAiVerificationAt)));
+  assert.ok((summary.grants.byAudience.students_youth ?? 0) > 0);
   assert.ok(summary.grants.totalFundingUsd > 5_000_000);
+});
+
+test('computeModelTokenPracticality scores INITIAL_CATALOG models deterministically', () => {
+  for (const provider of INITIAL_CATALOG) {
+    assert.ok(provider.models.length > 0);
+    for (const model of provider.models) {
+      assert.ok(typeof model.tokenPracticalityScore === 'number');
+      assert.ok(model.tokenPracticalityScore >= 0 && model.tokenPracticalityScore <= 100);
+      assert.ok(typeof model.costEfficiencyScore === 'number');
+      assert.ok(model.costEfficiencyScore >= 0 && model.costEfficiencyScore <= 100);
+      assert.ok(typeof model.tokensPer1kWordsUk === 'number');
+      assert.ok(model.tokensPer1kWordsUk >= 1450 && model.tokensPer1kWordsUk <= 2350);
+      assert.ok(typeof model.practicalityNoteUk === 'string' && model.practicalityNoteUk.length > 15);
+    }
+  }
+
+  const geminiFlash = computeModelTokenPracticality(
+    {
+      name: 'Gemini 2.5 Flash',
+      contextWindow: '1M',
+      contextTokens: 1000000,
+      inputPrice: '$0.075 / 1M',
+      outputPrice: '$0.30 / 1M',
+      capabilities: ['fast', 'coding'],
+      bestFor: 'Fast API',
+      strengths: ['Fast'],
+    },
+    'gemini',
+  );
+  const heavyReasoning = computeModelTokenPracticality(
+    {
+      name: 'OpenAI o1',
+      contextWindow: '200k',
+      contextTokens: 200000,
+      inputPrice: '$15.00 / 1M',
+      outputPrice: '$60.00 / 1M',
+      capabilities: ['reasoning', 'math'],
+      bestFor: 'Math',
+      strengths: ['Reasoning'],
+    },
+    'openai',
+  );
+  assert.ok(geminiFlash.tokenPracticalityScore > heavyReasoning.tokenPracticalityScore);
+  assert.ok(geminiFlash.costEfficiencyScore > heavyReasoning.costEfficiencyScore);
+  assert.ok(geminiFlash.tokensPer1kWordsUk < 1600);
+
+  const catalogSvc = new CatalogService({ query: async () => ({ rows: [] }) });
+  assert.equal(catalogSvc.getDailyVerificationStatus().dailyCheckIntervalHours, 24);
+});
+
+test('Gemini client defaults to gemini-2.5-flash and applies GEMINI_THINKING_BUDGET only to gemini-2.5 models', () => {
+  assert.equal(FALLBACK_GEMINI_MODELS[0], 'gemini-2.5-flash');
+  assert.equal(normalizeGeminiModel(undefined), 'gemini-2.5-flash');
+  assert.equal(normalizeGeminiModel('models/gemini-2.5-flash'), 'gemini-2.5-flash');
+
+  const baseBody = {
+    contents: [{ role: 'user', parts: [{ text: 'hi' }] }],
+    generationConfig: {
+      temperature: 0.2,
+      responseMimeType: 'application/json',
+      responseJsonSchema: { type: 'object', properties: {} },
+    },
+  };
+
+  const body25 = buildGeminiRequestBody(baseBody, 'gemini-2.5-flash', '1024');
+  assert.deepEqual(body25.generationConfig.thinkingConfig, { thinkingBudget: 1024 });
+  assert.deepEqual(body25.generationConfig.responseJsonSchema, { type: 'object', properties: {} });
+  assert.equal(body25.generationConfig.temperature, 0.2);
+
+  const body20 = buildGeminiRequestBody(baseBody, 'gemini-2.0-flash', '1024');
+  assert.equal(body20.generationConfig.thinkingConfig, undefined);
+
+  const explicitBody = buildGeminiRequestBody(
+    {
+      generationConfig: { thinkingConfig: { thinkingBudget: 0 } },
+    },
+    'gemini-2.5-flash',
+    '2048',
+  );
+  assert.deepEqual(explicitBody.generationConfig.thinkingConfig, { thinkingBudget: 0 });
+});
+
+test('keep-alive helpers build health URLs and parse CLI args cleanly', () => {
+  assert.deepEqual(buildHealthUrls('https://news-backend-v0jj.onrender.com/'), [
+    'https://news-backend-v0jj.onrender.com/api/v1/health',
+    'https://news-backend-v0jj.onrender.com/health/db',
+  ]);
+
+  const defaultArgs = parseKeepAliveArgs([], {});
+  assert.equal(defaultArgs.apiUrl, 'https://news-backend-v0jj.onrender.com');
+  assert.equal(defaultArgs.once, false);
+  assert.equal(defaultArgs.intervalSeconds, 720);
+  assert.equal(defaultArgs.syncIfKey, false);
+
+  const parsed = parseKeepAliveArgs(
+    ['--api', 'https://custom.example.com/', '--once', '--interval=900', '--sync-if-key'],
+    {},
+  );
+  assert.equal(parsed.apiUrl, 'https://custom.example.com');
+  assert.equal(parsed.once, true);
+  assert.equal(parsed.intervalSeconds, 900);
+  assert.equal(parsed.syncIfKey, true);
 });

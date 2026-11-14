@@ -12,6 +12,7 @@ export class GrantsController {
     @Query('sector') sector?: string,
     @Query('type') type?: string,
     @Query('stage') stage?: string,
+    @Query('audience') audience?: string,
     @Query('equityFree') equityFreeRaw?: string,
     @Query('q') q?: string,
     @Query('sort') sort?: string,
@@ -30,6 +31,7 @@ export class GrantsController {
       sector: sector?.trim() || undefined,
       type: type?.trim() || undefined,
       stage: stage?.trim() || undefined,
+      audience: audience?.trim() || undefined,
       equityFree,
       q: q?.trim() || undefined,
       sort: sort?.trim() || undefined,
@@ -54,7 +56,7 @@ export class GrantsController {
 
   @Post('refresh')
   @UseGuards(IngestKeyGuard)
-  refresh() {
-    return this.grants.refresh();
+  refresh(@Query('force') force?: string) {
+    return this.grants.refresh(force === 'true');
   }
 }

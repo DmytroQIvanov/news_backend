@@ -8,14 +8,24 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    if: ${{ secrets.RENDER_API_URL != '' && secrets.INGEST_API_KEY != '' }}
+    if: ${{ secrets.INGEST_API_KEY != '' }}
     steps:
-      - name: Trigger backend sync
+      - name: Trigger backend news & encyclopedia sync
         env:
-          RENDER_API_URL: ${{ secrets.RENDER_API_URL }}
+          RENDER_API_URL: ${{ secrets.RENDER_API_URL || 'https://news-backend-v0jj.onrender.com' }}
           INGEST_API_KEY: ${{ secrets.INGEST_API_KEY }}
         run: |
           curl --fail --show-error --silent --max-time 120 \
             -X POST "${RENDER_API_URL%/}/api/v1/ingest/sync" \
+            -H "x-ingest-key: ${INGEST_API_KEY}" \
+            -H "Content-Type: application/json"
+
+      - name: Trigger grants refresh and daily verification check
+        env:
+          RENDER_API_URL: ${{ secrets.RENDER_API_URL || 'https://news-backend-v0jj.onrender.com' }}
+          INGEST_API_KEY: ${{ secrets.INGEST_API_KEY }}
+        run: |
+          curl --fail --show-error --silent --max-time 120 \
+            -X POST "${RENDER_API_URL%/}/api/v1/grants/refresh" \
             -H "x-ingest-key: ${INGEST_API_KEY}" \
             -H "Content-Type: application/json"

@@ -5,6 +5,7 @@ import { DatabaseService } from '../database/database.service';
 import {
   type AiCatalogItem,
   type CatalogChangeItem,
+  computeModelTokenPracticality,
   INITIAL_CATALOG,
   type ModelDetail,
   type Promotion,
@@ -12,6 +13,7 @@ import {
   PROVIDERS_CONFIG,
 } from './catalog-seed';
 
+export { computeModelTokenPracticality } from './catalog-seed';
 export type {
   AiCatalogItem,
   CatalogChangeItem,
@@ -19,6 +21,8 @@ export type {
   ModelDetail,
   Promotion,
 } from './catalog-seed';
+
+export const CATALOG_DAILY_VERIFY_INTERVAL_MS = 24 * 60 * 60_000;
 
 const catalogItemSchema = {
   type: 'object',
@@ -146,19 +150,33 @@ export function diffCatalogItems(
 
 @Injectable()
 export class CatalogService implements OnModuleInit, OnModuleDestroy {
+  static lastDailyVerificationAt: string | null = null;
+  static readonly dailyCheckIntervalHours = 24;
   private readonly logger = new Logger(CatalogService.name);
   private checkTimer?: NodeJS.Timeout;
   private isDestroyed = false;
   private activeSync?: Promise<{ success: boolean; updated: string[]; skipped: string[] }>;
   private readonly geminiKey = process.env.GEMINI_API_KEY?.trim();
-  private readonly geminiModel = process.env.GEMINI_MODEL?.trim() || 'gemini-2.0-flash-lite';
+  private readonly geminiModel = process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash';
 
   constructor(private readonly db: DatabaseService) {}
+
+  getDailyVerificationStatus() {
+    return {
+      lastDailyVerificationAt: CatalogService.lastDailyVerificationAt,
+      dailyCheckIntervalHours: CatalogService.dailyCheckIntervalHours,
+      staleThresholdHours: 24,
+    };
+  }
+
+  async runDailyVerification(force = false) {
+    return this.syncAndVerifyAll(force);
+  }
 
   async onModuleInit() {
     await this.ensureInitialSeed();
 
-    const intervalMs = 60 * 60_000;
+    const intervalMs = CATALOG_DAILY_VERIFY_INTERVAL_MS;
     const scheduleCheck = () => {
       this.checkTimer = setTimeout(async () => {
         if (this.isDestroyed) return;
@@ -228,7 +246,7 @@ export class CatalogService implements OnModuleInit, OnModuleDestroy {
 
     const seedById = new Map(INITIAL_CATALOG.map(s => [s.id, s]));
     const now = new Date();
-    const staleThresholdMs = 7 * 24 * 60 * 60_000;
+    const staleThresholdMs = CATALOG_DAILY_VERIFY_INTERVAL_MS;
     let normalized = items.map(item => {
       const seed = seedById.get(item.id);
       const verifiedMs = Date.parse(item.lastVerifiedAt);
@@ -236,9 +254,14 @@ export class CatalogService implements OnModuleInit, OnModuleDestroy {
       const activePromos = (item.currentPromotions || [])
         .map(p => ({ ...p, isExpired: isPromotionExpired(p, now) }))
         .filter(p => !p.isExpired);
+      const enrichedModels = (item.models || []).map((m) => ({
+        ...m,
+        ...computeModelTokenPracticality(m, item.providerId),
+      }));
 
       return {
         ...item,
+        models: enrichedModels,
         subscriptionPriceUsd: item.subscriptionPriceUsd ?? seed?.subscriptionPriceUsd ?? null,
         minInputPricePer1M: item.minInputPricePer1M ?? seed?.minInputPricePer1M ?? null,
         currentPromotions: activePromos,
@@ -451,7 +474,7 @@ export class CatalogService implements OnModuleInit, OnModuleDestroy {
       if (!force) {
         try {
           const { rows } = await this.db.query<{ id: string }>(
-            `SELECT id FROM ai_catalogs WHERE last_verified_at > now() - interval '6 hours' AND evidence_hash IS NOT NULL`,
+            `SELECT id FROM ai_catalogs WHERE last_verified_at > now() - interval '24 hours' AND evidence_hash IS NOT NULL`,
           );
           freshSet = new Set(rows.map(r => r.id));
         } catch { /* ignore if column not migrated yet */ }
@@ -472,6 +495,7 @@ export class CatalogService implements OnModuleInit, OnModuleDestroy {
           skipped.push(cfg.providerId);
         }
       }
+      CatalogService.lastDailyVerificationAt = new Date().toISOString();
       this.logger.log(`Completed Encyclopedia verification: ${updated.length} updated, ${skipped.length} unchanged/skipped.`);
       return { success: true, updated, skipped };
     })().finally(() => { this.activeSync = undefined; });
@@ -542,6 +566,7 @@ ${JSON.stringify({
         body: {
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
           generationConfig: {
+            temperature: 0.2,
             responseMimeType: 'application/json',
             responseJsonSchema: catalogItemSchema,
             maxOutputTokens: 6000,
@@ -566,6 +591,7 @@ ${JSON.stringify({
         tagline: parsed.tagline || existingItem?.tagline || '',
         models: (parsed.models as ModelDetail[]).map(m => ({
           ...m,
+          ...computeModelTokenPracticality(m, cfg.providerId),
           sourceUrl: cfg.pricingDocUrl,
           verificationStatus: 'confirmed',
         })),
