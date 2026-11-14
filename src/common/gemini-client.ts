@@ -2,8 +2,9 @@ import { isTransientHttpStatus } from './url-utils';
 
 const FALLBACK_GEMINI_MODELS = [
   'gemini-2.5-flash',
-  'gemini-2.0-flash',
+  'gemini-3.5-flash-lite',
   'gemini-2.0-flash-lite',
+  'gemini-2.0-flash',
   'gemini-1.5-flash',
 ];
 
@@ -70,7 +71,9 @@ export async function postGeminiGenerateContent(params: {
   const candidates = Array.from(new Set([primary, ...FALLBACK_GEMINI_MODELS]));
   let lastError: Error | null = null;
 
-  for (const model of candidates) {
+  for (let i = 0; i < candidates.length; i += 1) {
+    const model = candidates[i];
+    const hasNextModel = i < candidates.length - 1;
     try {
       for (let attempt = 1; attempt <= 2; attempt += 1) {
         const result = await enqueueGeminiHttpAttempt(async () => {
@@ -95,7 +98,7 @@ export async function postGeminiGenerateContent(params: {
         if (result.ok) {
           return { data: result.data, modelUsed: model };
         }
-        if (result.status === 429 && attempt === 1) {
+        if (result.status === 429 && !hasNextModel && attempt === 1) {
           cooldownUntil = Math.max(cooldownUntil, Date.now() + 61_000);
           continue;
         }
@@ -112,7 +115,7 @@ export async function postGeminiGenerateContent(params: {
     } catch (error) {
       const status = (error as { status?: number })?.status;
       lastError = error instanceof Error ? error : new Error(String(error));
-      if (status !== 404) {
+      if (status !== 404 && status !== 429) {
         throw lastError;
       }
     }
