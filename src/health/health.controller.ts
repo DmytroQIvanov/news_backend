@@ -1,5 +1,6 @@
 import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { GamesService } from '../games/games.service';
 @Controller('health')
 export class HealthController {
   constructor(private readonly db: DatabaseService) {}
@@ -23,12 +24,19 @@ export class HealthController {
   async summary() {
     try {
       const [newsRes, sourcesRes, catalogRes, gamesRes] = await Promise.all([
-        this.db.query<{ total: string; important_total: string; last_at: string | null }>(
-          `SELECT COUNT(*)::text AS total,
-                  COUNT(*) FILTER (WHERE importance IN ('high', 'critical'))::text AS important_total,
-                  MAX(published_at)::text AS last_at
-           FROM news_items
-           WHERE status = 'published'`,
+        this.db.query<{
+          total: string;
+          important_total: string;
+          needs_review: string;
+          rejected: string;
+          last_at: string | null;
+        }>(
+          `SELECT COUNT(*) FILTER (WHERE status = 'published')::text AS total,
+                  COUNT(*) FILTER (WHERE status = 'published' AND importance IN ('high', 'critical'))::text AS important_total,
+                  COUNT(*) FILTER (WHERE status = 'needs_review')::text AS needs_review,
+                  COUNT(*) FILTER (WHERE status = 'rejected')::text AS rejected,
+                  MAX(published_at) FILTER (WHERE status = 'published')::text AS last_at
+           FROM news_items`,
         ),
         this.db.query<{ total: string; healthy: string }>(
           `SELECT COUNT(*)::text AS total,
@@ -55,6 +63,8 @@ export class HealthController {
         news: {
           published: Number(newsRes.rows[0]?.total ?? 0),
           important: Number(newsRes.rows[0]?.important_total ?? 0),
+          needsReview: Number(newsRes.rows[0]?.needs_review ?? 0),
+          rejected: Number(newsRes.rows[0]?.rejected ?? 0),
           lastPublishedAt: newsRes.rows[0]?.last_at ?? null,
         },
         sources: {
@@ -76,6 +86,7 @@ export class HealthController {
               !process.env.GEMINI_API_KEY.trim().startsWith('replace_'),
           ),
           model: process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash',
+          lastGamesAiError: GamesService.lastAiError,
         },
       };
     } catch {

@@ -64,6 +64,7 @@ const enrichmentSchema = {
 
 @Injectable()
 export class GamesService implements OnModuleInit, OnModuleDestroy {
+  static lastAiError: string | null = null;
   private readonly logger = new Logger(GamesService.name);
   private readonly geminiKey = process.env.GEMINI_API_KEY?.trim();
   private readonly geminiModel = process.env.GEMINI_MODEL?.trim() || 'gemini-2.0-flash-lite';
@@ -476,6 +477,7 @@ ${JSON.stringify(batch.map(b => ({
           const text = raw.candidates?.[0]?.content?.parts?.[0]?.text;
           if (!text) return [];
           const parsed = JSON.parse(text) as { items?: Array<{ externalId: string; titleUk: string; descriptionUk: string; howToClaimUk: string }> };
+          GamesService.lastAiError = null;
           return Array.isArray(parsed.items) ? parsed.items : [];
         },
         {
@@ -485,7 +487,9 @@ ${JSON.stringify(batch.map(b => ({
         },
       );
     } catch (error) {
-      this.logger.warn(`Gemini games enrichment failed: ${error instanceof Error ? error.message : error}`);
+      const msg = error instanceof Error ? error.message : String(error);
+      GamesService.lastAiError = msg;
+      this.logger.warn(`Gemini games enrichment failed: ${msg}`);
       return [];
     }
   }
