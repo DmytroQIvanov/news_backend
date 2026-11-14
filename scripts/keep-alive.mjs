@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 export const DEFAULT_API_URL = 'https://news-backend-v0jj.onrender.com';
 export const DEFAULT_INTERVAL_SECONDS = 720; // 12 minutes
+export const DEFAULT_WAVE_DELAY_SECONDS = 240; // 4 minutes
 export const DEFAULT_MAX_RETRY_MS = 60_000;
 export const DEFAULT_RETRY_DELAY_MS = 5_000;
 export const DAILY_SYNC_INTERVAL_MS = 24 * 60 * 60_000;
@@ -30,6 +31,8 @@ export function parseKeepAliveArgs(argv = [], env = process.env) {
     apiUrl: defaultApi.replace(/\/+$/, ''),
     once: false,
     intervalSeconds: DEFAULT_INTERVAL_SECONDS,
+    waves: 1,
+    waveDelaySeconds: DEFAULT_WAVE_DELAY_SECONDS,
     syncIfKey: false,
     maxRetryMs: DEFAULT_MAX_RETRY_MS,
     retryDelayMs: DEFAULT_RETRY_DELAY_MS,
@@ -41,11 +44,13 @@ export function parseKeepAliveArgs(argv = [], env = process.env) {
       parsed.once = true;
     } else if (arg === '--sync-if-key') {
       parsed.syncIfKey = true;
-    } else if (arg === '--api' && argv[i + 1]) {
+    } else if ((arg === '--api' || arg === '--url') && argv[i + 1]) {
       parsed.apiUrl = String(argv[i + 1]).trim().replace(/\/+$/, '');
       i += 1;
     } else if (arg.startsWith('--api=')) {
       parsed.apiUrl = arg.slice('--api='.length).trim().replace(/\/+$/, '');
+    } else if (arg.startsWith('--url=')) {
+      parsed.apiUrl = arg.slice('--url='.length).trim().replace(/\/+$/, '');
     } else if (arg === '--interval' && argv[i + 1]) {
       const val = Number(argv[i + 1]);
       if (Number.isFinite(val) && val > 0) {
@@ -56,6 +61,28 @@ export function parseKeepAliveArgs(argv = [], env = process.env) {
       const val = Number(arg.slice('--interval='.length));
       if (Number.isFinite(val) && val > 0) {
         parsed.intervalSeconds = Math.round(val);
+      }
+    } else if (arg === '--waves' && argv[i + 1]) {
+      const val = Number(argv[i + 1]);
+      if (Number.isFinite(val) && val >= 1) {
+        parsed.waves = Math.round(val);
+      }
+      i += 1;
+    } else if (arg.startsWith('--waves=')) {
+      const val = Number(arg.slice('--waves='.length));
+      if (Number.isFinite(val) && val >= 1) {
+        parsed.waves = Math.round(val);
+      }
+    } else if (arg === '--wave-delay' && argv[i + 1]) {
+      const val = Number(argv[i + 1]);
+      if (Number.isFinite(val) && val >= 0) {
+        parsed.waveDelaySeconds = Math.round(val);
+      }
+      i += 1;
+    } else if (arg.startsWith('--wave-delay=')) {
+      const val = Number(arg.slice('--wave-delay='.length));
+      if (Number.isFinite(val) && val >= 0) {
+        parsed.waveDelaySeconds = Math.round(val);
       }
     }
   }
@@ -168,17 +195,32 @@ async function maybeTriggerGrantsRefresh(config, lastGrantsSyncAt) {
 async function main() {
   const config = parseKeepAliveArgs(process.argv.slice(2));
   console.log(
-    `[keep-alive] Target=${config.apiUrl} interval=${config.intervalSeconds}s once=${config.once} syncIfKey=${config.syncIfKey}`,
+    `[keep-alive] Target=${config.apiUrl} interval=${config.intervalSeconds}s waves=${config.waves} waveDelay=${config.waveDelaySeconds}s once=${config.once} syncIfKey=${config.syncIfKey}`,
   );
 
   let lastGrantsSyncAt = 0;
+  if (config.waves > 1 || config.once) {
+    let allWavesOk = true;
+    for (let wave = 1; wave <= config.waves; wave += 1) {
+      if (config.waves > 1) {
+        console.log(`[keep-alive] Starting wave ${wave}/${config.waves}`);
+      }
+      const waveOk = await pingTarget(config);
+      if (waveOk) {
+        lastGrantsSyncAt = await maybeTriggerGrantsRefresh(config, lastGrantsSyncAt);
+      } else {
+        allWavesOk = false;
+      }
+      if (wave < config.waves && config.waveDelaySeconds > 0) {
+        await sleep(config.waveDelaySeconds * 1000);
+      }
+    }
+    process.exit(allWavesOk ? 0 : 1);
+  }
+
   const ok = await pingTarget(config);
   if (ok) {
     lastGrantsSyncAt = await maybeTriggerGrantsRefresh(config, lastGrantsSyncAt);
-  }
-
-  if (config.once) {
-    process.exit(ok ? 0 : 1);
   }
 
   while (true) {

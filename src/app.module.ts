@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { DatabaseService } from './database/database.service';
 import { HealthController } from './health/health.controller';
+import { KeepAliveService } from './health/keep-alive.service';
 import { SourcesController } from './sources/sources.controller';
 import { NewsController } from './news/news.controller';
 import { CompanyFeedsService } from './news/company-feeds.service';
@@ -33,6 +34,7 @@ import { GrantsService } from './grants/grants.service';
   ],
   providers: [
     DatabaseService,
+    KeepAliveService,
     IngestService,
     IngestKeyGuard,
     CompanyFeedsService,

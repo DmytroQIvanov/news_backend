@@ -2,7 +2,7 @@ name: Keep-Alive Render & Neon DB
 
 on:
   schedule:
-    - cron: '*/12 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -21,4 +21,4 @@ jobs:
         env:
           RENDER_API_URL: ${{ secrets.RENDER_API_URL || 'https://news-backend-v0jj.onrender.com' }}
         run: |
-          node scripts/keep-alive.mjs --once --api "${RENDER_API_URL}"
+          node scripts/keep-alive.mjs --waves 3 --wave-delay 240 --api "${RENDER_API_URL}"

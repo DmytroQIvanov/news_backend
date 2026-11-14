@@ -2,7 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BadRequestException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { canonicalizeUrl, retryWithBackoff } from '../dist/common/url-utils.js';
-import { parseFeedXml } from '../dist/news/company-feeds.service.js';
+import {
+  classifyFeedArticleCategory,
+  COMPANY_FEED_CATALOG,
+  parseFeedXml,
+} from '../dist/news/company-feeds.service.js';
+import { CATEGORIES } from '../dist/ingest/ingest.dto.js';
+import { NewsController } from '../dist/news/news.controller.js';
+import { KeepAliveService } from '../dist/health/keep-alive.service.js';
 import {
   EDITORIAL_ARTICLE_SCHEMA,
   GeminiEditorService,
@@ -1174,4 +1181,278 @@ test('keep-alive helpers build health URLs and parse CLI args cleanly', () => {
   assert.equal(parsed.once, true);
   assert.equal(parsed.intervalSeconds, 900);
   assert.equal(parsed.syncIfKey, true);
+  assert.equal(parsed.waves, 1);
+  assert.equal(parsed.waveDelaySeconds, 240);
+
+  const waveParsed = parseKeepAliveArgs(
+    ['--url', 'https://alt.example.com/', '--waves', '3', '--wave-delay', '180'],
+    {},
+  );
+  assert.equal(waveParsed.apiUrl, 'https://alt.example.com');
+  assert.equal(waveParsed.waves, 3);
+  assert.equal(waveParsed.waveDelaySeconds, 180);
+});
+
+test('Multi-topic categories, expanded COMPANY_FEED_CATALOG, keyword classifier, and NewsController topics/depth work seamlessly', async () => {
+  const expectedCategories = [
+    'model',
+    'api',
+    'coding',
+    'open_source',
+    'research',
+    'business',
+    'defense',
+    'cybersecurity',
+    'science_space',
+    'hardware_gaming',
+    'startups_fintech',
+    'education_grants',
+    'global_tech',
+    'other',
+  ];
+  assert.deepEqual([...CATEGORIES], expectedCategories);
+
+  const slugs = new Set(COMPANY_FEED_CATALOG.map((feed) => feed.slug));
+  assert.equal(slugs.size, COMPANY_FEED_CATALOG.length, 'Feed slugs must be unique');
+  for (const requiredSlug of [
+    'itc-ua',
+    'dou-ua',
+    'dev-ua',
+    'nasa-breaking-news',
+    'ars-technica-science',
+    'nature-news',
+    'the-hacker-news',
+    'cloudflare-blog',
+    'github-blog',
+    'techcrunch-startups',
+    'yc-blog',
+    'toms-hardware',
+    'eurogamer',
+  ]) {
+    assert.ok(slugs.has(requiredSlug), `Expected feed ${requiredSlug} in COMPANY_FEED_CATALOG`);
+  }
+  for (const feed of COMPANY_FEED_CATALOG) {
+    assert.match(feed.url, /^https:\/\//);
+  }
+
+  assert.equal(classifyFeedArticleCategory('Українські FPV дрони Brave1 отримали новий РЕБ', 'Оборонний проєкт ЗСУ'), 'defense');
+  assert.equal(classifyFeedArticleCategory('Critical CVE-2026-9911 zero-day vulnerability hits cloud edge', 'Patch ransomware exploit now'), 'cybersecurity');
+  assert.equal(classifyFeedArticleCategory('NASA launches orbital telescope to study exoplanet atmospheres', 'Space mission report'), 'science_space');
+  assert.equal(classifyFeedArticleCategory('NVIDIA RTX GPU vs AMD Ryzen gaming benchmarks in Unreal Engine', 'PC hardware test'), 'hardware_gaming');
+  assert.equal(classifyFeedArticleCategory('Fintech startup raises $25M Series A led by Y Combinator', 'Venture funding round'), 'startups_fintech');
+  assert.equal(classifyFeedArticleCategory('Horizon Europe announces $5M research grant and hackathon', 'University scholarship'), 'education_grants');
+
+  const mockDb = {
+    query: async () => ({
+      rows: [
+        {
+          id: '101',
+          url: 'https://openai.com/news/model-1',
+          title_uk: 'OpenAI випустила оновлення моделі',
+          summary_uk: 'Швидший API для кодингу',
+          original_title: 'OpenAI model update',
+          category: 'model',
+          importance: 'low',
+          important: false,
+          hydrogen_deep_analysis: false,
+          published_at: '2026-11-14T12:00:00Z',
+          source_name: 'OpenAI',
+          source_slug: 'openai-news',
+        },
+        {
+          id: '102',
+          url: 'https://dou.ua/lenta/defense-drone',
+          title_uk: 'Українська команда презентувала навігацію для БПЛА',
+          summary_uk: 'Оборонні дрони автономного польоту',
+          original_title: 'Defense UAV autonomy',
+          category: 'defense',
+          importance: 'high',
+          important: true,
+          hydrogen_deep_analysis: true,
+          published_at: '2026-11-14T10:00:00Z',
+          source_name: 'DOU.ua',
+          source_slug: 'dou-ua',
+        },
+      ],
+    }),
+  };
+  const mockFeeds = {
+    list: async () => ({ items: [], unavailable: false }),
+  };
+
+  const controller = new NewsController(mockDb, mockFeeds);
+  const defenseRes = await controller.list(undefined, undefined, undefined, undefined, undefined, 'defense,ukraine', 'deep_technical');
+  assert.equal(defenseRes.items.length, 1);
+  assert.equal(defenseRes.items[0].id, '102');
+  assert.equal(defenseRes.depth, 'deep_technical');
+
+  await assert.rejects(
+    () => controller.list(undefined, undefined, undefined, undefined, undefined, undefined, 'invalid_depth'),
+    BadRequestException,
+  );
+});
+
+test('NewsTtsService adapts script length and jargon stripping across global_brief, balanced, and deep_technical styles with per-style caching', async () => {
+  resetGeminiClientStateForTests();
+  const sampleInput = {
+    titleUk: 'OpenAI випустила GPT-5.2 із 405B параметрів та новим API v3.1',
+    summaryUk: 'Модель знизила latency TTFT до 120ms, покращила SWE-bench та знизила вартість токенів для SDK розробників.',
+    whyItMatters: 'Компанії швидше запускають цифрові сервіси та автоматизацію для користувачів.',
+    sourceName: 'OpenAI',
+    hydrogenInsight: 'Практичний виграш відчутний на довгих контекстах у продакшені.',
+    facts: [{ claim: 'Підтверджене зниження затримки у 2.1 рази' }],
+    comparisons: ['Дешевше за попередній флагман у корпоративних сценаріях'],
+  };
+
+  const globalScript = buildBroadcastScriptUk(sampleInput, { depth: 'global_brief', style: 'headline_flash' });
+  const globalWords = globalScript.split(/\s+/);
+  assert.ok(globalWords.length >= 30 && globalWords.length <= 45, `Expected 30-45 words for global_brief, got ${globalWords.length}: ${globalScript}`);
+  assert.ok(!/\b(5\.2|405B|120ms|API|SDK|TTFT|SWE-bench|v3\.1)\b/i.test(globalScript), `Expected tech jargon stripped from global brief: ${globalScript}`);
+
+  const balancedScript = buildBroadcastScriptUk(sampleInput, { depth: 'balanced', style: 'podcast_story' });
+  const balancedWords = balancedScript.split(/\s+/);
+  assert.ok(balancedWords.length >= 65 && balancedWords.length <= 80, `Expected 65-80 words for podcast_story, got ${balancedWords.length}`);
+
+  const deepScript = buildBroadcastScriptUk(sampleInput, { depth: 'deep_technical', style: 'analyst_brief' });
+  const deepWords = deepScript.split(/\s+/);
+  assert.ok(deepWords.length >= 90 && deepWords.length <= 115, `Expected 90-115 words for analyst_brief, got ${deepWords.length}`);
+  assert.ok(deepScript.includes('405B') || deepScript.includes('TTFT') || deepScript.includes('SWE-bench'));
+
+  const mockDb = {
+    query: async () => ({
+      rows: [
+        {
+          id: '77',
+          external_id: 'major-77',
+          title_uk: sampleInput.titleUk,
+          original_title: 'GPT-5.2 Release',
+          summary_uk: sampleInput.summaryUk,
+          original_summary: null,
+          why_it_matters: sampleInput.whyItMatters,
+          importance: 'high',
+          important_flag: true,
+          source_name: 'OpenAI',
+          hydrogen_insight: sampleInput.hydrogenInsight,
+          comparisons: sampleInput.comparisons,
+          facts: sampleInput.facts,
+        },
+      ],
+    }),
+  };
+
+  const prevKey = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = 'test-tts-styles';
+  const ttsSvc = new NewsTtsService(mockDb);
+  let fetchCount = 0;
+  const pcm = Buffer.from([10, 20, 30, 40]);
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    fetchCount += 1;
+    return new Response(
+      JSON.stringify({
+        candidates: [
+          {
+            finishReason: 'STOP',
+            content: {
+              parts: [
+                {
+                  inlineData: {
+                    mimeType: 'audio/L16;rate=24000',
+                    data: pcm.toString('base64'),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  };
+
+  try {
+    const resGlobal1 = await ttsSvc.generateImportantNewsBriefing('major-77', undefined, {
+      depth: 'global_brief',
+      style: 'headline_flash',
+    });
+    assert.equal(resGlobal1.depth, 'global_brief');
+    assert.equal(resGlobal1.style, 'headline_flash');
+    assert.equal(resGlobal1.cached, false);
+
+    const resGlobal2 = await ttsSvc.generateImportantNewsBriefing('major-77', undefined, {
+      depth: 'global_brief',
+      style: 'headline_flash',
+    });
+    assert.equal(resGlobal2.cached, true);
+    assert.equal(fetchCount, 1);
+
+    const resDeep = await ttsSvc.generateImportantNewsBriefing('major-77', undefined, {
+      depth: 'deep_technical',
+      style: 'analyst_brief',
+    });
+    assert.equal(resDeep.depth, 'deep_technical');
+    assert.equal(resDeep.style, 'analyst_brief');
+    assert.equal(resDeep.cached, false);
+    assert.equal(fetchCount, 2);
+  } finally {
+    globalThis.fetch = origFetch;
+    if (prevKey === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = prevKey;
+    resetGeminiClientStateForTests();
+  }
+});
+
+test('KeepAliveService pings health endpoint, runs PostgreSQL SELECT 1 every 3rd tick, and exposes telemetry on GET /health', async () => {
+  let dbQueryCount = 0;
+  const mockDb = {
+    query: async (sql) => {
+      if (sql === 'SELECT 1') dbQueryCount += 1;
+      return { rows: [{ ok: 1 }] };
+    },
+  };
+
+  const pingCalls = [];
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    pingCalls.push({ url: String(url), headers: init?.headers });
+    return new Response(JSON.stringify({ status: 'ok' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  const prevUrl = process.env.RENDER_EXTERNAL_URL;
+  process.env.RENDER_EXTERNAL_URL = 'https://radar-test.onrender.com';
+
+  try {
+    const svc = new KeepAliveService(mockDb);
+    assert.equal(svc.getKeepAliveStats().intervalMs, 240_000);
+    assert.equal(svc.getKeepAliveStats().totalPings, 0);
+
+    await svc.runTick();
+    await svc.runTick();
+    assert.equal(dbQueryCount, 0);
+
+    const afterThird = await svc.runTick();
+    assert.equal(afterThird.totalPings, 3);
+    assert.equal(afterThird.lastOk, true);
+    assert.equal(afterThird.lastStatus, 200);
+    assert.equal(afterThird.lastDbOk, true);
+    assert.ok(afterThird.lastPingAt);
+    assert.ok(afterThird.lastDbPingAt);
+    assert.equal(dbQueryCount, 1);
+    assert.equal(pingCalls.length, 3);
+    assert.equal(pingCalls[0].url, 'https://radar-test.onrender.com/api/v1/health');
+    assert.equal(pingCalls[0].headers?.['x-keep-alive'], 'self');
+
+    const healthController = new HealthController(mockDb, svc);
+    const healthPayload = await healthController.health();
+    assert.equal(healthPayload.status, 'ok');
+    assert.equal(healthPayload.keepAlive.totalPings, 3);
+    assert.equal(healthPayload.keepAlive.lastDbOk, true);
+  } finally {
+    globalThis.fetch = origFetch;
+    if (prevUrl === undefined) delete process.env.RENDER_EXTERNAL_URL;
+    else process.env.RENDER_EXTERNAL_URL = prevUrl;
+  }
 });

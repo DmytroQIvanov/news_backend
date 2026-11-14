@@ -1,6 +1,22 @@
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsISO8601, IsNotEmpty, IsObject, IsOptional, IsString, Matches, MaxLength, ValidateNested } from 'class-validator';
-export const CATEGORIES = ['model','api','coding','open_source','research','business','other'] as const;
+export const CATEGORIES = [
+  'model',
+  'api',
+  'coding',
+  'open_source',
+  'research',
+  'business',
+  'defense',
+  'cybersecurity',
+  'science_space',
+  'hardware_gaming',
+  'startups_fintech',
+  'education_grants',
+  'global_tech',
+  'other',
+] as const;
+export type NewsCategory = (typeof CATEGORIES)[number];
 export const IMPORTANCE = ['high','medium','low','unknown'] as const;
 export const FREE_ACCESS = ['yes','no','unknown'] as const;
 export class SourceDto {

@@ -1,8 +1,9 @@
 import { Controller, Get, Optional, Param, ParseIntPipe, Patch, Query, UseGuards, BadRequestException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { IngestKeyGuard } from '../common/ingest-key.guard';
+import { CATEGORIES } from '../ingest/ingest.dto';
 import { CompanyFeedsService, maxFeedArticles } from './company-feeds.service';
-import { NewsTtsService } from './news-tts.service';
+import { NEWS_AUDIO_STYLES, NEWS_DEPTHS, NewsTtsService } from './news-tts.service';
 @Controller('news')
 export class NewsController {
   constructor(
@@ -26,14 +27,25 @@ export class NewsController {
     @Query('category') category?: string,
     @Query('sources') sourcesRaw?: string,
     @Query('important') important?: string,
+    @Query('topics') topicsRaw?: string,
+    @Query('depth') depthRaw?: string,
   ) {
     const limit = limitRaw === undefined ? 20 : Number(limitRaw);
     const offset = offsetRaw === undefined ? 0 : Number(offsetRaw);
     if (!Number.isInteger(limit) || limit < 1 || limit > 50 || !Number.isInteger(offset) || offset < 0 || offset > 10000) {
       throw new BadRequestException('limit: 1–50, offset: 0–10000');
     }
-    if (category && !['model','api','coding','open_source','research','business','other'].includes(category)) {
+    if (category && !(CATEGORIES as readonly string[]).includes(category)) {
       throw new BadRequestException('Invalid category');
+    }
+    if (depthRaw !== undefined && !(NEWS_DEPTHS as readonly string[]).includes(depthRaw)) {
+      throw new BadRequestException('Invalid depth');
+    }
+    const topics = typeof topicsRaw === 'string'
+      ? topicsRaw.split(',').map((entry) => entry.trim().toLowerCase()).filter(Boolean)
+      : [];
+    if (topicsRaw !== undefined && (topics.length === 0 || topics.length > 20 || topics.some((t) => !/^[a-z0-9_-]{2,48}$/.test(t)))) {
+      throw new BadRequestException('topics must contain 1–20 comma-separated topic tokens');
     }
     const sources = typeof sourcesRaw === 'string' ? sourcesRaw.split(',') : [];
     if (sourcesRaw !== undefined && (sources.length === 0 || sources.length > 20 ||
@@ -44,7 +56,21 @@ export class NewsController {
       throw new BadRequestException('important must be true or false');
     }
     const onlyDatabase = !!category || important === 'true';
-    const published = this.db.query<{ id: string; url: string; published_at: Date | null }>(`
+    const sqlLimit = onlyDatabase && topics.length === 0 ? limit : offset + limit + maxFeedArticles;
+    const sqlOffset = onlyDatabase && topics.length === 0 ? offset : 0;
+    const published = this.db.query<{
+      id: string;
+      url: string;
+      published_at: Date | string | null;
+      category?: string;
+      source_name?: string;
+      source_slug?: string;
+      title_uk?: string | null;
+      original_title?: string;
+      summary_uk?: string | null;
+      important?: boolean;
+      hydrogen_deep_analysis?: boolean;
+    }>(`
       SELECT n.id,n.url,n.title_uk,n.summary_uk,n.original_title,n.category,n.importance,
              COALESCE(n.ai_metadata->'article'->'important' = 'true'::jsonb, false) AS important,
              n.free_access,n.credibility_tier,n.is_retracted,n.correction_note,n.corrected_at,
@@ -58,11 +84,56 @@ export class NewsController {
         AND ($4::text[] IS NULL OR s.slug = ANY($4::text[]))
         AND (NOT $5::boolean OR n.ai_metadata->'article'->'important' = 'true'::jsonb)
       ORDER BY n.published_at DESC NULLS LAST,n.id DESC LIMIT $2 OFFSET $3`,
-    [category || null, onlyDatabase ? limit : offset + limit + maxFeedArticles, onlyDatabase ? offset : 0,
+    [category || null, sqlLimit, sqlOffset,
       sources.length ? sources : null, important === 'true']);
+
+    const applyTopicsAndDepth = <T extends Record<string, unknown>>(rawItems: T[]): T[] => {
+      let filtered = rawItems;
+      const scores = new Map<T, number>();
+      if (topics.length > 0) {
+        filtered = rawItems.filter((item) => {
+          const score = scoreTopicMatch(item, topics);
+          if (score > 0) {
+            scores.set(item, score);
+            return true;
+          }
+          return false;
+        });
+      }
+      return [...filtered].sort((a, b) => {
+        if (topics.length > 0) {
+          const diff = (scores.get(b) ?? 0) - (scores.get(a) ?? 0);
+          if (diff !== 0) return diff;
+        }
+        if (depthRaw === 'deep_technical') {
+          const aDeep = (a.hydrogen_deep_analysis ? 2 : 0) + (a.important ? 1 : 0);
+          const bDeep = (b.hydrogen_deep_analysis ? 2 : 0) + (b.important ? 1 : 0);
+          if (bDeep !== aDeep) return bDeep - aDeep;
+        }
+        return publishedTime((b.published_at as Date | string | null) ?? null) - publishedTime((a.published_at as Date | string | null) ?? null);
+      });
+    };
+
     if (onlyDatabase) {
       const rows = (await published).rows;
-      return { items: rows, limit, offset, hasMore: rows.length === limit };
+      if (topics.length > 0 || depthRaw === 'deep_technical') {
+        const ranked = applyTopicsAndDepth(rows);
+        const page = ranked.slice(offset, offset + limit);
+        return {
+          items: page,
+          limit,
+          offset,
+          hasMore: offset + page.length < ranked.length,
+          ...(depthRaw ? { depth: depthRaw } : {}),
+        };
+      }
+      return {
+        items: rows,
+        limit,
+        offset,
+        hasMore: rows.length === limit,
+        ...(depthRaw ? { depth: depthRaw } : {}),
+      };
     }
 
     const [result, feeds] = await Promise.all([published, this.companyFeeds.list(sources)]);
@@ -81,9 +152,19 @@ export class NewsController {
         hydrogen_deep_analysis: false,
         hydrogen_insight: null,
       }));
-    const items = [...result.rows, ...fresh].sort((a, b) => publishedTime(b.published_at) - publishedTime(a.published_at));
+    const combined = [...result.rows, ...fresh];
+    const items =
+      topics.length > 0 || depthRaw === 'deep_technical'
+        ? applyTopicsAndDepth(combined)
+        : combined.sort((a, b) => publishedTime(b.published_at) - publishedTime(a.published_at));
     const page = items.slice(offset, offset + limit);
-    return { items: page, limit, offset, hasMore: offset + page.length < items.length };
+    return {
+      items: page,
+      limit,
+      offset,
+      hasMore: offset + page.length < items.length,
+      ...(depthRaw ? { depth: depthRaw } : {}),
+    };
   }
   @Get('review')
   @UseGuards(IngestKeyGuard)
@@ -97,11 +178,22 @@ export class NewsController {
   }
 
   @Get(':id/tts')
-  async tts(@Param('id') id: string, @Query('source') source?: string) {
+  async tts(
+    @Param('id') id: string,
+    @Query('source') source?: string,
+    @Query('depth') depth?: string,
+    @Query('style') style?: string,
+  ) {
     if (!this.newsTts) {
       throw new ServiceUnavailableException('TTS service is unavailable');
     }
-    return this.newsTts.generateImportantNewsBriefing(id, source);
+    if (depth !== undefined && !(NEWS_DEPTHS as readonly string[]).includes(depth)) {
+      throw new BadRequestException('Invalid depth');
+    }
+    if (style !== undefined && !(NEWS_AUDIO_STYLES as readonly string[]).includes(style)) {
+      throw new BadRequestException('Invalid style');
+    }
+    return this.newsTts.generateImportantNewsBriefing(id, source, { depth, style });
   }
 
   @Get(':id')
@@ -201,4 +293,57 @@ function articleKey(value: string): string {
 
 function publishedTime(date: Date | string | null): number {
   return date ? new Date(date).getTime() : 0;
+}
+
+const TOPIC_ALIAS_MAP: Record<string, { categories: string[]; keywords: string[] }> = {
+  ai: { categories: ['model', 'api', 'coding', 'open_source', 'research'], keywords: ['ai', 'llm', 'gpt', 'claude', 'gemini', 'openai', 'anthropic', 'mistral', 'нейромереж'] },
+  defense: { categories: ['defense'], keywords: ['defense', 'defence', 'drone', 'uav', 'brave1', 'military', 'дрон', 'оборон', 'зсу', 'бпла'] },
+  defensetech: { categories: ['defense'], keywords: ['defense', 'defence', 'drone', 'uav', 'brave1', 'military', 'дрон', 'оборон', 'зсу'] },
+  ukraine: { categories: ['defense', 'global_tech', 'education_grants', 'startups_fintech'], keywords: ['ukraine', 'ukrainian', 'itc', 'dou', 'dev.ua', 'україн', 'київ', 'зсу'] },
+  cybersecurity: { categories: ['cybersecurity'], keywords: ['cyber', 'security', 'cve', 'vulnerability', 'ransomware', 'malware', 'cloudflare', 'hacker', 'кібер', 'вразлив'] },
+  security: { categories: ['cybersecurity'], keywords: ['cyber', 'security', 'cve', 'vulnerability', 'malware', 'cloudflare', 'hacker'] },
+  science: { categories: ['science_space', 'research'], keywords: ['science', 'nasa', 'space', 'quantum', 'biotech', 'nature', 'arstechnica', 'космос', 'наук'] },
+  space: { categories: ['science_space'], keywords: ['nasa', 'spacex', 'space', 'orbit', 'rocket', 'космос', 'орбіт'] },
+  science_space: { categories: ['science_space'], keywords: ['nasa', 'space', 'science', 'quantum', 'biotech', 'nature'] },
+  hardware: { categories: ['hardware_gaming'], keywords: ['gpu', 'cpu', 'nvidia', 'amd', 'intel', 'chip', 'hardware', 'tomshardware', 'процесор', 'відеокарт'] },
+  gaming: { categories: ['hardware_gaming'], keywords: ['gaming', 'game', 'eurogamer', 'playstation', 'xbox', 'nintendo', 'steam', 'геймінг', 'ігор'] },
+  hardware_gaming: { categories: ['hardware_gaming'], keywords: ['gpu', 'cpu', 'hardware', 'gaming', 'eurogamer', 'tomshardware'] },
+  startups: { categories: ['startups_fintech', 'business'], keywords: ['startup', 'venture', 'seed', 'funding', 'ycombinator', 'techcrunch', 'стартап', 'інвестиц'] },
+  fintech: { categories: ['startups_fintech', 'business'], keywords: ['fintech', 'payments', 'crypto', 'stripe', 'bank', 'фінтех'] },
+  startups_fintech: { categories: ['startups_fintech'], keywords: ['startup', 'fintech', 'venture', 'techcrunch', 'ycombinator'] },
+  education: { categories: ['education_grants'], keywords: ['education', 'grant', 'fellowship', 'hackathon', 'university', 'грант', 'освіт', 'хакатон'] },
+  grants: { categories: ['education_grants'], keywords: ['grant', 'fellowship', 'hackathon', 'accelerator', 'грант', 'стипенд'] },
+  education_grants: { categories: ['education_grants'], keywords: ['grant', 'education', 'hackathon', 'fellowship'] },
+  global: { categories: ['global_tech'], keywords: ['global', 'tech', 'itc', 'dou', 'dev.ua', 'технологі'] },
+  global_tech: { categories: ['global_tech'], keywords: ['global', 'tech', 'itc', 'dou', 'dev.ua'] },
+};
+
+function scoreTopicMatch(item: Record<string, unknown>, topics: string[]): number {
+  const category = String(item.category || '').toLowerCase();
+  const sourceSlug = String(item.source_slug || '').toLowerCase();
+  const sourceName = String(item.source_name || '').toLowerCase();
+  const text = `${String(item.title_uk || '')} ${String(item.original_title || '')} ${String(item.summary_uk || '')} ${String(item.original_summary || '')} ${sourceName} ${sourceSlug}`.toLowerCase();
+
+  let score = 0;
+  for (const token of topics) {
+    if (category === token) {
+      score += 4;
+      continue;
+    }
+    if (sourceSlug.includes(token) || sourceName.includes(token)) {
+      score += 3;
+    }
+    const alias = TOPIC_ALIAS_MAP[token];
+    if (alias) {
+      if (alias.categories.includes(category)) {
+        score += 3;
+      }
+      if (alias.keywords.some((kw) => text.includes(kw))) {
+        score += 2;
+      }
+    } else if (text.includes(token)) {
+      score += 2;
+    }
+  }
+  return score;
 }

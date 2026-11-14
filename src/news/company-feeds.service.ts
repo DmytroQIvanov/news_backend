@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { SaxesParser } from 'saxes';
 import { canonicalizeUrl, isTransientHttpStatus, retryWithBackoff } from '../common/url-utils';
 import { DatabaseService } from '../database/database.service';
+import { CATEGORIES, NewsCategory } from '../ingest/ingest.dto';
 
 export interface FeedDefinition {
   slug: string;
@@ -17,7 +18,8 @@ export interface FeedDefinition {
   autoDiscovered?: boolean;
 }
 
-export const DEFAULT_FEEDS: FeedDefinition[] = [
+export const COMPANY_FEED_CATALOG: FeedDefinition[] = [
+  // AI Frontier & Developer Ecosystems
   { slug: 'anthropic-news-community-feed', alias: 'anthropic-news', name: 'Anthropic', domain: 'anthropic.com', url: 'https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_news.xml', category: 'model', providerId: 'claude', unofficial: true },
   { slug: 'openai-news', name: 'OpenAI', domain: 'openai.com', url: 'https://openai.com/news/rss.xml', category: 'model', providerId: 'openai' },
   { slug: 'google-deepmind', name: 'Google DeepMind', domain: 'deepmind.google', allowedDomains: ['deepmind.google', 'blog.google', 'ai.google.dev'], url: 'https://deepmind.google/blog/rss.xml', category: 'model', providerId: 'gemini' },
@@ -26,20 +28,44 @@ export const DEFAULT_FEEDS: FeedDefinition[] = [
   { slug: 'mistral-ai-community-feed', alias: 'mistral-ai', name: 'Mistral AI', domain: 'mistral.ai', url: 'https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_mistral.xml', category: 'model', providerId: 'mistral', unofficial: true },
   { slug: 'hugging-face', name: 'Hugging Face', domain: 'huggingface.co', url: 'https://huggingface.co/blog/feed.xml', category: 'open_source', providerId: 'huggingface' },
   { slug: 'xai-news-community-feed', alias: 'xai-news', name: 'xAI', domain: 'x.ai', allowedDomains: ['x.ai', 'grok.com'], url: 'https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_xai.xml', category: 'model', providerId: 'grok', unofficial: true },
-  { slug: 'cloudflare-blog', name: 'Cloudflare AI & Dev', domain: 'blog.cloudflare.com', allowedDomains: ['blog.cloudflare.com', 'cloudflare.com'], url: 'https://blog.cloudflare.com/rss/', category: 'api' },
   { slug: 'aws-ml', name: 'AWS Machine Learning', domain: 'aws.amazon.com', url: 'https://aws.amazon.com/blogs/machine-learning/feed/', category: 'api' },
   { slug: 'claude-code-releases', name: 'Claude Code Releases', domain: 'github.com', url: 'https://github.com/anthropics/claude-code/releases.atom', category: 'coding', providerId: 'claude' },
   { slug: 'openai-python-sdk', name: 'OpenAI Python SDK', domain: 'github.com', url: 'https://github.com/openai/openai-python/releases.atom', category: 'api', providerId: 'openai' },
   { slug: 'ollama-releases', name: 'Ollama Releases', domain: 'github.com', url: 'https://github.com/ollama/ollama/releases.atom', category: 'open_source' },
   { slug: 'vllm-releases', name: 'vLLM Releases', domain: 'github.com', url: 'https://github.com/vllm-project/vllm/releases.atom', category: 'open_source' },
+
+  // DefenseTech & Ukraine Tech
+  { slug: 'itc-ua', name: 'ITC.ua', domain: 'itc.ua', allowedDomains: ['itc.ua'], url: 'https://itc.ua/ua/feed/', category: 'global_tech' },
+  { slug: 'dou-ua', name: 'DOU.ua', domain: 'dou.ua', allowedDomains: ['dou.ua', 'gamedev.dou.ua', 'jobs.dou.ua'], url: 'https://dou.ua/feed/', category: 'global_tech' },
+  { slug: 'dev-ua', name: 'Dev.ua', domain: 'dev.ua', allowedDomains: ['dev.ua'], url: 'https://dev.ua/rss', category: 'global_tech' },
+
+  // Science, Space & Biotech
+  { slug: 'nasa-breaking-news', name: 'NASA Breaking News', domain: 'nasa.gov', allowedDomains: ['nasa.gov', 'science.nasa.gov', 'blogs.nasa.gov'], url: 'https://www.nasa.gov/news-release/feed/', category: 'science_space' },
+  { slug: 'ars-technica-science', name: 'Ars Technica Science', domain: 'arstechnica.com', allowedDomains: ['arstechnica.com', 'feeds.arstechnica.com'], url: 'https://feeds.arstechnica.com/arstechnica/science', category: 'science_space' },
+  { slug: 'nature-news', name: 'Nature News', domain: 'nature.com', allowedDomains: ['nature.com', 'feeds.nature.com'], url: 'https://www.nature.com/nature.rss', category: 'science_space' },
+
+  // Cybersecurity, Cloud & Dev
+  { slug: 'the-hacker-news', name: 'The Hacker News', domain: 'thehackernews.com', allowedDomains: ['thehackernews.com', 'feeds.feedburner.com'], url: 'https://feeds.feedburner.com/TheHackersNews', category: 'cybersecurity' },
+  { slug: 'cloudflare-blog', name: 'Cloudflare Blog', domain: 'blog.cloudflare.com', allowedDomains: ['blog.cloudflare.com', 'cloudflare.com'], url: 'https://blog.cloudflare.com/rss/', category: 'cybersecurity' },
+  { slug: 'github-blog', name: 'GitHub Blog', domain: 'github.blog', allowedDomains: ['github.blog', 'github.com'], url: 'https://github.blog/feed/', category: 'coding' },
+
+  // Startups, Business & Fintech
+  { slug: 'techcrunch-startups', name: 'TechCrunch Startups', domain: 'techcrunch.com', allowedDomains: ['techcrunch.com'], url: 'https://techcrunch.com/category/startups/feed/', category: 'startups_fintech' },
+  { slug: 'yc-blog', name: 'Y Combinator Blog', domain: 'ycombinator.com', allowedDomains: ['ycombinator.com', 'blog.ycombinator.com'], url: 'https://www.ycombinator.com/blog/rss', category: 'startups_fintech' },
+
+  // Hardware, Gadgets & Gaming
+  { slug: 'toms-hardware', name: "Tom's Hardware", domain: 'tomshardware.com', allowedDomains: ['tomshardware.com'], url: 'https://www.tomshardware.com/feeds/all', category: 'hardware_gaming' },
+  { slug: 'eurogamer', name: 'Eurogamer', domain: 'eurogamer.net', allowedDomains: ['eurogamer.net'], url: 'https://www.eurogamer.net/feed', category: 'hardware_gaming' },
 ];
+
+export const DEFAULT_FEEDS = COMPANY_FEED_CATALOG;
 
 const refreshInterval = 60_000;
 const retryInterval = 30_000;
 const maxStaleAge = 24 * 60 * 60_000;
 const maxFeedBytes = 4 * 1024 * 1024;
 const articlesPerFeed = 20;
-export const companyFeeds = DEFAULT_FEEDS;
+export const companyFeeds = COMPANY_FEED_CATALOG;
 export const maxFeedArticles = 250;
 
 export type FeedArticle = {
@@ -440,16 +466,71 @@ function normalizeArticle(
   link.hash = '';
   const url = link.href;
   const canonical = canonicalizeUrl(url);
+  const originalSummary = (raw.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 2500);
+  const classifiedCategory = classifyFeedArticleCategory(originalTitle, originalSummary, feed.category);
   return {
     id: `rss-${createHash('sha256').update(canonical).digest('hex').slice(0, 24)}`,
     url,
     canonical_url: canonical,
     original_title: originalTitle,
-    original_summary: (raw.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 2500),
+    original_summary: originalSummary,
     published_at: new Date(publishedAt).toISOString(),
     source_name: feed.name,
     source_slug: feed.slug,
-    category: feed.category,
+    category: classifiedCategory,
     provider_id: feed.providerId,
   };
+}
+
+export function classifyFeedArticleCategory(
+  title: string,
+  summary: string,
+  fallbackCategory?: string,
+): NewsCategory {
+  const haystack = `${title || ''} ${summary || ''}`;
+
+  if (/\b(defen[cs]e|military|drone|uav|fpv|electronic warfare|brave1|missile|combat|battlefield|nato|pentagon|radar|munitions)\b|дрон|бпла|реб|оборон|військов|зсу|фронт|армі|міноборони/i.test(haystack)) {
+    return 'defense';
+  }
+  if (/\b(cve-\d+|zero-day|0-day|ransomware|malware|phishing|breach|exploit|vulnerability|ddos|infosec|cybersecurity|threat actor|botnet|backdoor|authentication bypass)\b|кібер|вразлив|злам|фішинг|шифрувальник/i.test(haystack)) {
+    return 'cybersecurity';
+  }
+  if (/\b(nasa|spacex|spacecraft|rocket|orbit|mars|moon|telescope|jwst|astronomy|exoplanet|quantum|physics|biotech|crispr|genome|fusion|cern)\b|космос|супутник|орбіт|телескоп|квантов|біотех|науков/i.test(haystack)) {
+    return 'science_space';
+  }
+  if (/\b(nvidia rtx|geforce|radeon|gpu|cpu|ryzen|intel core|snapdragon|apple silicon|chipset|motherboard|ssd|playstation|ps5|xbox|nintendo|steam deck|gaming|game engine|unreal engine|fps|vr headset)\b|відеокарт|процесор|геймінг|консол|ігров/i.test(haystack)) {
+    return 'hardware_gaming';
+  }
+  if (/\b(grant|fellowship|scholarship|hackathon|accelerator|funding call|horizon europe|erasmus|university|curriculum|bootcamp|student|mentorship)\b|грант|стипенді|хакатон|акселератор|освіт|навчання|університет|студент/i.test(haystack)) {
+    return 'education_grants';
+  }
+  if (/\b(seed round|series [a-d]|venture|vc fund|funding round|valuation|ipo|fintech|neobank|crypto|blockchain|stablecoin|payments|stripe|startup|y combinator|founder)\b|стартап|інвестиц|раунд|венчур|фінтех|платіж/i.test(haystack)) {
+    return 'startups_fintech';
+  }
+  if (/\b(ide|copilot|code editor|compiler|typescript|python|rust|javascript|refactor|cli|pull request|github actions|sdk|debugging|devtools|claude code|cursor)\b|програмуван|розробник|кодинг/i.test(haystack)) {
+    return 'coding';
+  }
+  if (/\b(open[- ]source|open[- ]weight|apache 2\.0|mit license|hugging ?face|ollama|vllm|llama|weights released|github repo)\b|відкрит(ий|ого) код/i.test(haystack)) {
+    return 'open_source';
+  }
+  if (/\b(api|endpoint|rate limit|latency|throughput|tokens per second|webhook|inference|cloud|serverless|workers)\b|інференс|хмарн/i.test(haystack)) {
+    return 'api';
+  }
+  if (/\b(llm|gpt-|claude|gemini|grok|mistral|multimodal|foundation model|reasoning model|benchmark|evals|context window|fine-tun)\b|нейромереж|мовн(а|ої) модел/i.test(haystack)) {
+    return 'model';
+  }
+  if (/\b(paper|arxiv|preprint|study|ablation|dataset|empirical|theorem)\b|досліджен|препринт/i.test(haystack)) {
+    return 'research';
+  }
+  if (/\b(enterprise|revenue|profit|acquisition|merger|layoffs|antitrust|regulation|eu ai act|partnership|market share)\b|бізнес|виручк|регуляц|угода/i.test(haystack)) {
+    return 'business';
+  }
+  if (/\b(tech industry|big tech|smartphone|telecom|5g|6g|ev|autonomous|robotics|infrastructure|data center|semiconductor)\b|технологі|робототехн|дата-центр/i.test(haystack)) {
+    return 'global_tech';
+  }
+
+  if (fallbackCategory && (CATEGORIES as readonly string[]).includes(fallbackCategory)) {
+    return fallbackCategory as NewsCategory;
+  }
+  return 'other';
 }

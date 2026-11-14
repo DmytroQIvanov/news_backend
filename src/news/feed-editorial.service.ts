@@ -113,8 +113,9 @@ export class FeedEditorialService implements OnModuleInit, OnModuleDestroy {
 
       for (const { feed, item } of prioritizedCandidates) {
         if (this.stopped || processed >= maxPerCycle) break;
-        const safeCategory = CATEGORIES.includes(feed.category as typeof CATEGORIES[number])
-          ? (feed.category as typeof CATEGORIES[number])
+        const candidateCategory = item.category || feed.category;
+        const safeCategory = CATEGORIES.includes(candidateCategory as typeof CATEGORIES[number])
+          ? (candidateCategory as typeof CATEGORIES[number])
           : 'other';
         try {
           const result = await this.ingest.ingest(

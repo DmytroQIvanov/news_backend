@@ -1,17 +1,25 @@
-import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { CatalogService } from '../catalog/catalog.service';
 import { DatabaseService } from '../database/database.service';
 import { GamesService } from '../games/games.service';
 import { INITIAL_GRANTS_SEED } from '../grants/grants-seed';
 import { GrantsService } from '../grants/grants.service';
 import { GeminiEditorService } from '../ingest/gemini-editor.service';
+import { KeepAliveService } from './keep-alive.service';
 @Controller('health')
 export class HealthController {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    @Optional() private readonly keepAlive?: KeepAliveService,
+  ) {}
   @Get()
   async health() {
     const database = await this.databaseHealth();
-    return { ...database, timestamp: new Date().toISOString() };
+    return {
+      ...database,
+      timestamp: new Date().toISOString(),
+      keepAlive: this.keepAlive?.getKeepAliveStats() ?? null,
+    };
   }
 
   @Get('db')

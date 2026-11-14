@@ -2,13 +2,14 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import { createHash } from 'node:crypto';
 import { postGeminiGenerateContent } from '../common/gemini-client';
 import { DatabaseService } from '../database/database.service';
+import { CATEGORIES, NewsCategory } from '../ingest/ingest.dto';
 import { CompanyFeedsService, type FeedDefinition, fetchAndParseFeedUrl } from './company-feeds.service';
 
 interface CandidateFeed {
   name: string;
   homepageUrl: string;
   feedUrl: string;
-  category: 'model' | 'api' | 'coding' | 'open_source' | 'research' | 'business' | 'other';
+  category: NewsCategory;
   providerId?: string;
   unofficial?: boolean;
 }
@@ -24,7 +25,7 @@ const discoverySchema = {
           name: { type: 'string' },
           homepageUrl: { type: 'string' },
           feedUrl: { type: 'string' },
-          category: { type: 'string', enum: ['model', 'api', 'coding', 'open_source', 'research', 'business', 'other'] },
+          category: { type: 'string', enum: [...CATEGORIES] },
           providerId: { type: 'string' },
           unofficial: { type: 'boolean' },
         },
