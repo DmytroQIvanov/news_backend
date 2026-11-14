@@ -1,6 +1,7 @@
 import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { GamesService } from '../games/games.service';
+import { GeminiEditorService } from '../ingest/gemini-editor.service';
 @Controller('health')
 export class HealthController {
   constructor(private readonly db: DatabaseService) {}
@@ -87,6 +88,7 @@ export class HealthController {
           ),
           model: process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash',
           lastGamesAiError: GamesService.lastAiError,
+          lastNewsAiError: GeminiEditorService.lastAiError,
         },
       };
     } catch {

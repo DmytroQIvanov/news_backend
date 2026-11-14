@@ -2,7 +2,7 @@ import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { isTransientHttpStatus, retryWithBackoff } from '../common/url-utils';
+import { postGeminiGenerateContent } from '../common/gemini-client';
 import { ArticleDto, CATEGORIES, SourceDto } from './ingest.dto';
 
 const textSchema = { type: 'string' };
@@ -25,6 +25,7 @@ type GeminiResponse = { candidates?: { finishReason?: string; content?: { parts?
 
 @Injectable()
 export class GeminiEditorService {
+  static lastAiError: string | null = null;
   private readonly logger = new Logger(GeminiEditorService.name);
   private readonly prompt = readFileSync(join(__dirname, 'editorial-prompt.md'), 'utf8');
   private readonly model = process.env.GEMINI_MODEL?.trim() || 'gemini-2.0-flash-lite';
@@ -45,42 +46,21 @@ export class GeminiEditorService {
 
   async edit(source: SourceDto, item: ArticleDto, fingerprint: string): Promise<ArticleDto> {
     try {
-      const candidate = await retryWithBackoff(
-        async () => {
-          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.model)}:generateContent`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.key! },
-            signal: AbortSignal.timeout(65_000),
-            body: JSON.stringify({
-              systemInstruction: { parts: [{ text: this.prompt }] },
-              contents: [{ role: 'user', parts: [{ text: JSON.stringify(this.input(source, item)) }] }],
-              tools: this.research ? [{ googleSearch: {} }, { urlContext: {} }] : undefined,
-              generationConfig: { responseMimeType: 'application/json', responseJsonSchema: schema, maxOutputTokens: 12000 },
-            }),
-          });
-          if (!response.ok) {
-            await response.body?.cancel();
-            const err = new Error(`Gemini HTTP ${response.status}`);
-            (err as Error & { status?: number }).status = response.status;
-            throw err;
-          }
-          const parsed = (await response.json() as GeminiResponse).candidates?.[0];
-          if (parsed?.finishReason !== 'STOP') throw new Error(`Gemini did not finish the article (${parsed?.finishReason || 'unknown'})`);
-          return parsed;
+      const { data, modelUsed } = await postGeminiGenerateContent({
+        apiKey: this.key!,
+        preferredModel: this.model,
+        timeoutMs: 65_000,
+        body: {
+          systemInstruction: { parts: [{ text: this.prompt }] },
+          contents: [{ role: 'user', parts: [{ text: JSON.stringify(this.input(source, item)) }] }],
+          tools: this.research ? [{ googleSearch: {} }, { urlContext: {} }] : undefined,
+          generationConfig: { responseMimeType: 'application/json', responseJsonSchema: schema, maxOutputTokens: 12000 },
         },
-        {
-          maxAttempts: 3,
-          baseDelayMs: 1500,
-          shouldRetry: (error) => {
-            const status = (error as { status?: number })?.status;
-            if (typeof status === 'number') return isTransientHttpStatus(status);
-            return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError' || /fetch failed|ECONNRESET|ETIMEDOUT/i.test(error.message));
-          },
-          onRetry: (attempt, error, delayMs) => {
-            this.logger.warn(`Gemini retry #${attempt} for "${item.originalTitle.slice(0, 60)}" in ${delayMs}ms: ${error instanceof Error ? error.message : error}`);
-          },
-        },
-      );
+      });
+      const candidate = (data as GeminiResponse).candidates?.[0];
+      if (candidate?.finishReason !== 'STOP') {
+        throw new Error(`Gemini did not finish the article (${candidate?.finishReason || 'unknown'})`);
+      }
 
       const output = candidate.content?.parts?.filter(part => !part.thought).map(part => part.text ?? '').join('');
       const article = validateArticle(JSON.parse(output ?? ''), item.url);
@@ -88,13 +68,15 @@ export class GeminiEditorService {
         const url = httpsUrl(chunk.web?.uri);
         return url ? [{ url, title: (chunk.web?.title || '').slice(0, 200) }] : [];
       }).slice(0, 20);
+      GeminiEditorService.lastAiError = null;
       return { ...item, titleUk: article.title, summaryUk: article.summary, whyItMatters: article.importance_reason,
         category: article.category, importance: article.important ? 'high' : 'low', freeAccess: 'unknown',
-        aiMetadata: { editorial_fingerprint: fingerprint, model: this.model, researched: grounding.length > 0, grounding, article } };
+        aiMetadata: { editorial_fingerprint: fingerprint, model: modelUsed, researched: grounding.length > 0, grounding, article } };
     } catch (error) {
       const rawMessage = error instanceof Error ? error.message : String(error);
+      GeminiEditorService.lastAiError = rawMessage;
       this.logger.warn(`Gemini editorial failed for ${source.slug}/${item.externalId}: ${rawMessage}`);
-      const message = /^Gemini HTTP \d+$/.test(rawMessage) ? rawMessage : 'Gemini editorial response unavailable or invalid';
+      const message = /^Gemini HTTP \d+/.test(rawMessage) ? rawMessage : 'Gemini editorial response unavailable or invalid';
       throw new ServiceUnavailableException(message);
     }
   }

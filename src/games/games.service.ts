@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { isTransientHttpStatus, retryWithBackoff } from '../common/url-utils';
+import { postGeminiGenerateContent } from '../common/gemini-client';
 import { DatabaseService } from '../database/database.service';
 
 export type GameOfferType = 'giveaway' | 'demo' | 'beta' | 'dlc' | 'discount';
@@ -449,43 +449,25 @@ ${JSON.stringify(batch.map(b => ({
   instructions: b.rawInstructions.slice(0, 300),
 })))}`;
 
-      return await retryWithBackoff(
-        async () => {
-          const resp = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.geminiModel)}:generateContent`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.geminiKey! },
-              signal: AbortSignal.timeout(45_000),
-              body: JSON.stringify({
-                contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                generationConfig: {
-                  responseMimeType: 'application/json',
-                  responseJsonSchema: enrichmentSchema,
-                  maxOutputTokens: 3000,
-                },
-              }),
-            },
-          );
-          if (!resp.ok) {
-            await resp.body?.cancel();
-            const err = new Error(`Gemini HTTP ${resp.status}`);
-            (err as Error & { status?: number }).status = resp.status;
-            throw err;
-          }
-          const raw = (await resp.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-          const text = raw.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (!text) return [];
-          const parsed = JSON.parse(text) as { items?: Array<{ externalId: string; titleUk: string; descriptionUk: string; howToClaimUk: string }> };
-          GamesService.lastAiError = null;
-          return Array.isArray(parsed.items) ? parsed.items : [];
+      const { data } = await postGeminiGenerateContent({
+        apiKey: this.geminiKey!,
+        preferredModel: this.geminiModel,
+        timeoutMs: 45_000,
+        body: {
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: {
+            responseMimeType: 'application/json',
+            responseJsonSchema: enrichmentSchema,
+            maxOutputTokens: 3000,
+          },
         },
-        {
-          maxAttempts: 2,
-          baseDelayMs: 1200,
-          shouldRetry: err => isTransientHttpStatus((err as { status?: number })?.status ?? 0),
-        },
-      );
+      });
+      const raw = data as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+      const text = raw.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) return [];
+      const parsed = JSON.parse(text) as { items?: Array<{ externalId: string; titleUk: string; descriptionUk: string; howToClaimUk: string }> };
+      GamesService.lastAiError = null;
+      return Array.isArray(parsed.items) ? parsed.items : [];
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       GamesService.lastAiError = msg;
