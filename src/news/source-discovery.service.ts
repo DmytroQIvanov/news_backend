@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { isTransientHttpStatus, retryWithBackoff } from '../common/url-utils';
+import { postGeminiGenerateContent } from '../common/gemini-client';
 import { DatabaseService } from '../database/database.service';
 import { CompanyFeedsService, type FeedDefinition, fetchAndParseFeedUrl } from './company-feeds.service';
 
@@ -114,42 +114,25 @@ Rules:
 
     let candidates: CandidateFeed[] = [];
     try {
-      candidates = await retryWithBackoff(
-        async () => {
-          const resp = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.geminiModel)}:generateContent`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.geminiKey! },
-              signal: AbortSignal.timeout(45_000),
-              body: JSON.stringify({
-                contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                generationConfig: {
-                  responseMimeType: 'application/json',
-                  responseJsonSchema: discoverySchema,
-                  maxOutputTokens: 2000,
-                },
-              }),
-            },
-          );
-          if (!resp.ok) {
-            await resp.body?.cancel();
-            const err = new Error(`Gemini HTTP ${resp.status}`);
-            (err as Error & { status?: number }).status = resp.status;
-            throw err;
-          }
-          const raw = (await resp.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-          const text = raw.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (!text) return [];
-          const parsed = JSON.parse(text) as { candidates?: CandidateFeed[] };
-          return Array.isArray(parsed.candidates) ? parsed.candidates : [];
+      const { data } = await postGeminiGenerateContent({
+        apiKey: this.geminiKey!,
+        preferredModel: this.geminiModel,
+        timeoutMs: 45_000,
+        body: {
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: {
+            responseMimeType: 'application/json',
+            responseJsonSchema: discoverySchema,
+            maxOutputTokens: 2000,
+          },
         },
-        {
-          maxAttempts: 2,
-          baseDelayMs: 1200,
-          shouldRetry: err => isTransientHttpStatus((err as { status?: number })?.status ?? 0),
-        },
-      );
+      });
+      const raw = data as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+      const text = raw.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (text) {
+        const parsed = JSON.parse(text) as { candidates?: CandidateFeed[] };
+        candidates = Array.isArray(parsed.candidates) ? parsed.candidates : [];
+      }
     } catch (error) {
       this.logger.warn(`Gemini source discovery request failed: ${error instanceof Error ? error.message : error}`);
       return { proposed: 0, verified: 0, added, rejected };

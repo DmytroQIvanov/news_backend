@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { isTransientHttpStatus, retryWithBackoff } from '../common/url-utils';
+import { postGeminiGenerateContent } from '../common/gemini-client';
 import { DatabaseService } from '../database/database.service';
 import {
   type AiCatalogItem,
@@ -535,49 +535,23 @@ ${JSON.stringify({
 
 Поверни валідний JSON українською мовою за схемою. Для тимчасових акцій вказуй expires у форматі YYYY-MM-DD якщо дата відома.`;
 
-      const parsed = await retryWithBackoff(
-        async () => {
-          const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.geminiModel)}:generateContent`,
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'x-goog-api-key': this.geminiKey!,
-              },
-              signal: AbortSignal.timeout(65_000),
-              body: JSON.stringify({
-                contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                generationConfig: {
-                  responseMimeType: 'application/json',
-                  responseJsonSchema: catalogItemSchema,
-                  maxOutputTokens: 6000,
-                },
-              }),
-            },
-          );
-
-          if (!response.ok) {
-            await response.body?.cancel();
-            const err = new Error(`Gemini HTTP ${response.status}`);
-            (err as Error & { status?: number }).status = response.status;
-            throw err;
-          }
-
-          const raw = (await response.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-          const textPart = raw.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (!textPart) throw new Error('Empty Gemini response');
-          return JSON.parse(textPart);
-        },
-        {
-          maxAttempts: 2,
-          baseDelayMs: 1500,
-          shouldRetry: (err) => {
-            const status = (err as { status?: number })?.status;
-            return typeof status === 'number' ? isTransientHttpStatus(status) : false;
+      const { data } = await postGeminiGenerateContent({
+        apiKey: this.geminiKey!,
+        preferredModel: this.geminiModel,
+        timeoutMs: 65_000,
+        body: {
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: {
+            responseMimeType: 'application/json',
+            responseJsonSchema: catalogItemSchema,
+            maxOutputTokens: 6000,
           },
         },
-      );
+      });
+      const raw = data as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+      const textPart = raw.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!textPart) throw new Error('Empty Gemini response');
+      const parsed = JSON.parse(textPart);
 
       if (!parsed || typeof parsed.title !== 'string' || !Array.isArray(parsed.models)) {
         throw new Error('Invalid Gemini catalog structure');
