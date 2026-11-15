@@ -5,17 +5,25 @@ import { CATEGORIES } from '../ingest/ingest.dto';
 import { CompanyFeedsService, isPublishedWithinHours, maxFeedArticles } from './company-feeds.service';
 import { EXPERT_DIRECTORY } from './expert-directory';
 import { ExpertOpinionsService } from './expert-opinions.service';
+import { ClusterableArticle, ClusterSource, NewsClusteringService } from './news-clustering.service';
 import { NewsMemesService } from './news-memes.service';
 import { NEWS_AUDIO_STYLES, NEWS_DEPTHS, NewsTtsService } from './news-tts.service';
+import { SourceDiscoveryService } from './source-discovery.service';
 @Controller('news')
 export class NewsController {
+  private readonly clustering: NewsClusteringService;
+
   constructor(
     private readonly db: DatabaseService,
     private readonly companyFeeds: CompanyFeedsService,
     @Optional() private readonly newsTts?: NewsTtsService,
     @Optional() private readonly expertOpinions?: ExpertOpinionsService,
     @Optional() private readonly newsMemes?: NewsMemesService,
-  ) {}
+    @Optional() clustering?: NewsClusteringService,
+    @Optional() private readonly discovery?: SourceDiscoveryService,
+  ) {
+    this.clustering = clustering ?? new NewsClusteringService();
+  }
 
   @Get('test-notification')
   testNotification() {
@@ -80,9 +88,10 @@ export class NewsController {
     }
     const onlyDatabase = !!category || important === 'true';
     const sqlLimit =
-      onlyDatabase && topics.length === 0 && effectiveMaxAgeHours === null ? limit : offset + limit + maxFeedArticles;
-    const sqlOffset = onlyDatabase && topics.length === 0 && effectiveMaxAgeHours === null ? offset : 0;
-    const published = this.db.query<{
+      onlyDatabase && topics.length === 0 && effectiveMaxAgeHours === null ? offset + limit + 50 : offset + limit + maxFeedArticles;
+    const sqlOffset = 0;
+
+    type NewsRow = {
       id: string;
       url: string;
       published_at: Date | string | null;
@@ -92,29 +101,17 @@ export class NewsController {
       title_uk?: string | null;
       original_title?: string;
       summary_uk?: string | null;
+      original_summary?: string | null;
       important?: boolean;
       importance?: string;
       hydrogen_deep_analysis?: boolean;
-    }>(`
-      SELECT n.id,n.url,n.title_uk,n.summary_uk,n.original_title,n.category,n.importance,
-             COALESCE(n.ai_metadata->'article'->'important' = 'true'::jsonb, false) AS important,
-             n.free_access,n.credibility_tier,n.is_retracted,n.correction_note,n.corrected_at,
-             n.published_at,n.updated_at,s.name AS source_name,s.slug AS source_slug,
-             n.ai_metadata->>'model' AS ai_model,
-             COALESCE((n.ai_metadata->>'hydrogen_polished')::boolean, false) AS hydrogen_polished,
-             COALESCE((n.ai_metadata->>'hydrogen_deep_analysis')::boolean, false) AS hydrogen_deep_analysis,
-             n.ai_metadata->>'hydrogen_insight' AS hydrogen_insight
-      FROM news_items n JOIN sources s ON s.id=n.source_id
-      WHERE n.status='published' AND ($1::text IS NULL OR n.category=$1)
-        AND ($4::text[] IS NULL OR s.slug = ANY($4::text[]))
-        AND (NOT $5::boolean OR n.ai_metadata->'article'->'important' = 'true'::jsonb)
-        AND ($6::int IS NULL OR n.published_at >= now() - ($6::int * interval '1 hour'))
-      ORDER BY
-        CASE WHEN $7::text = 'oldest' THEN n.published_at END ASC NULLS LAST,
-        n.published_at DESC NULLS LAST,
-        n.id DESC
-      LIMIT $2 OFFSET $3`,
-    [
+      cluster_id?: string | null;
+      cluster_sources?: ClusterSource[] | null;
+      ai_generated?: boolean;
+      [key: string]: unknown;
+    };
+
+    const queryParams = [
       category || null,
       sqlLimit,
       sqlOffset,
@@ -122,7 +119,58 @@ export class NewsController {
       important === 'true',
       effectiveMaxAgeHours,
       sortOrder,
-    ]);
+    ];
+
+    const published = this.db
+      .query<NewsRow>(
+        `SELECT n.id,n.url,n.title_uk,n.summary_uk,n.original_title,n.original_summary,n.category,n.importance,
+                COALESCE(n.ai_metadata->'article'->'important' = 'true'::jsonb, false) AS important,
+                n.free_access,n.credibility_tier,n.is_retracted,n.correction_note,n.corrected_at,
+                n.published_at,n.updated_at,s.name AS source_name,s.slug AS source_slug,
+                s.unofficial AS source_is_unofficial,
+                n.ai_metadata->>'model' AS ai_model,
+                COALESCE((n.ai_metadata->>'hydrogen_polished')::boolean, false) AS hydrogen_polished,
+                COALESCE((n.ai_metadata->>'hydrogen_deep_analysis')::boolean, false) AS hydrogen_deep_analysis,
+                n.ai_metadata->>'hydrogen_insight' AS hydrogen_insight,
+                n.cluster_id,
+                COALESCE(n.cluster_sources, '[]'::jsonb) AS cluster_sources,
+                COALESCE(n.ai_generated, n.ai_metadata ? 'editorial_fingerprint') AS ai_generated
+         FROM news_items n JOIN sources s ON s.id=n.source_id
+         WHERE n.status='published' AND ($1::text IS NULL OR n.category=$1)
+           AND ($4::text[] IS NULL OR s.slug = ANY($4::text[]))
+           AND (NOT $5::boolean OR n.ai_metadata->'article'->'important' = 'true'::jsonb)
+           AND ($6::int IS NULL OR n.published_at >= now() - ($6::int * interval '1 hour'))
+         ORDER BY
+           CASE WHEN $7::text = 'oldest' THEN n.published_at END ASC NULLS LAST,
+           n.published_at DESC NULLS LAST,
+           n.id DESC
+         LIMIT $2 OFFSET $3`,
+        queryParams,
+      )
+      .catch(() =>
+        // Pre-migration 013 fallback
+        this.db.query<NewsRow>(
+          `SELECT n.id,n.url,n.title_uk,n.summary_uk,n.original_title,n.category,n.importance,
+                  COALESCE(n.ai_metadata->'article'->'important' = 'true'::jsonb, false) AS important,
+                  n.free_access,n.credibility_tier,n.is_retracted,n.correction_note,n.corrected_at,
+                  n.published_at,n.updated_at,s.name AS source_name,s.slug AS source_slug,
+                  n.ai_metadata->>'model' AS ai_model,
+                  COALESCE((n.ai_metadata->>'hydrogen_polished')::boolean, false) AS hydrogen_polished,
+                  COALESCE((n.ai_metadata->>'hydrogen_deep_analysis')::boolean, false) AS hydrogen_deep_analysis,
+                  n.ai_metadata->>'hydrogen_insight' AS hydrogen_insight
+           FROM news_items n JOIN sources s ON s.id=n.source_id
+           WHERE n.status='published' AND ($1::text IS NULL OR n.category=$1)
+             AND ($4::text[] IS NULL OR s.slug = ANY($4::text[]))
+             AND (NOT $5::boolean OR n.ai_metadata->'article'->'important' = 'true'::jsonb)
+             AND ($6::int IS NULL OR n.published_at >= now() - ($6::int * interval '1 hour'))
+           ORDER BY
+             CASE WHEN $7::text = 'oldest' THEN n.published_at END ASC NULLS LAST,
+             n.published_at DESC NULLS LAST,
+             n.id DESC
+           LIMIT $2 OFFSET $3`,
+          queryParams,
+        ),
+      );
 
     const normalizeItemFreshness = <T extends Record<string, unknown>>(item: T): T => {
       const pub = item.published_at as Date | string | null | undefined;
@@ -137,7 +185,7 @@ export class NewsController {
       return item;
     };
 
-    const filterAndSortItems = <T extends Record<string, unknown>>(rawItems: T[]): T[] => {
+    const filterClusterAndSortItems = <T extends Record<string, unknown>>(rawItems: T[]) => {
       let filtered = rawItems.map(normalizeItemFreshness);
       if (effectiveMaxAgeHours !== null) {
         filtered = filtered.filter((item) =>
@@ -147,9 +195,15 @@ export class NewsController {
       if (important === 'true') {
         filtered = filtered.filter((item) => Boolean(item.important));
       }
-      const scores = new Map<T, number>();
+
+      const clustered = this.clustering.clusterItems(
+        filtered as unknown as Array<NewsRow & { id: string; url: string; published_at?: Date | string | null }>,
+      );
+
+      let postCluster: Array<(typeof clustered)[number]> = clustered;
+      const scores = new Map<(typeof clustered)[number], number>();
       if (topics.length > 0) {
-        filtered = filtered.filter((item) => {
+        postCluster = postCluster.filter((item) => {
           const score = scoreTopicMatch(item, topics);
           if (score > 0) {
             scores.set(item, score);
@@ -158,7 +212,7 @@ export class NewsController {
           return false;
         });
       }
-      return [...filtered].sort((a, b) => {
+      return [...postCluster].sort((a, b) => {
         if (sortOrder === 'oldest') {
           return publishedTime((a.published_at as Date | string | null) ?? null) -
             publishedTime((b.published_at as Date | string | null) ?? null);
@@ -169,8 +223,8 @@ export class NewsController {
             if (diff !== 0) return diff;
           }
           if (depthRaw === 'deep_technical') {
-            const aDeep = (a.hydrogen_deep_analysis ? 2 : 0) + (a.important ? 1 : 0);
-            const bDeep = (b.hydrogen_deep_analysis ? 2 : 0) + (b.important ? 1 : 0);
+            const aDeep = (a.hydrogen_deep_analysis ? 2 : 0) + (a.important ? 1 : 0) + (a.source_count > 1 ? 1 : 0);
+            const bDeep = (b.hydrogen_deep_analysis ? 2 : 0) + (b.important ? 1 : 0) + (b.source_count > 1 ? 1 : 0);
             if (bDeep !== aDeep) return bDeep - aDeep;
           }
         }
@@ -183,28 +237,16 @@ export class NewsController {
 
     if (onlyDatabase) {
       const rows = (await published).rows;
-      if (
-        topics.length > 0 ||
-        depthRaw === 'deep_technical' ||
-        effectiveMaxAgeHours !== null ||
-        sortOrder !== 'newest'
-      ) {
-        const ranked = filterAndSortItems(rows);
-        const page = ranked.slice(offset, offset + limit);
-        return {
-          items: page,
-          limit,
-          offset,
-          hasMore: offset + page.length < ranked.length,
-          sort: sortOrder,
-          ...(depthRaw ? { depth: depthRaw } : {}),
-        };
+      const ranked = filterClusterAndSortItems(rows);
+      if (category && ranked.length < 3 && offset === 0) {
+        this.discovery?.triggerDiscoveryIfNeeded([category]);
       }
+      const page = ranked.slice(offset, offset + limit);
       return {
-        items: rows.map(normalizeItemFreshness),
+        items: page,
         limit,
         offset,
-        hasMore: rows.length === limit,
+        hasMore: offset + page.length < ranked.length,
         sort: sortOrder,
         ...(depthRaw ? { depth: depthRaw } : {}),
       };
@@ -216,20 +258,26 @@ export class NewsController {
     }
 
     const publishedUrls = new Set(result.rows.map(item => articleKey(item.url)));
+    const feedMetaBySlug = new Map((this.companyFeeds.getActiveFeeds?.() ?? []).map(f => [f.slug, f]));
     const fresh = feeds.items.filter(item => !publishedUrls.has(articleKey(item.url)))
-      .map(item => ({
-        ...item,
-        title_uk: null,
-        summary_uk: null,
-        important: false,
-        importance: 'medium',
-        ai_model: null,
-        hydrogen_polished: false,
-        hydrogen_deep_analysis: false,
-        hydrogen_insight: null,
-      }));
+      .map(item => {
+        const meta = feedMetaBySlug.get(item.source_slug);
+        return {
+          ...item,
+          title_uk: null,
+          summary_uk: null,
+          important: false,
+          importance: 'medium',
+          ai_model: null,
+          ai_generated: false,
+          hydrogen_polished: false,
+          hydrogen_deep_analysis: false,
+          hydrogen_insight: null,
+          source_is_unofficial: item.source_is_unofficial ?? Boolean(meta?.unofficial || meta?.alias),
+        };
+      });
     const combined = [...result.rows, ...fresh];
-    const items = filterAndSortItems(combined);
+    const items = filterClusterAndSortItems(combined);
     const page = items.slice(offset, offset + limit);
     return {
       items: page,
@@ -249,6 +297,62 @@ export class NewsController {
       SELECT n.*,s.name AS source_name FROM news_items n JOIN sources s ON s.id=n.source_id
       WHERE n.status='needs_review' ORDER BY n.updated_at DESC LIMIT $1`, [limit]);
     return { items: result.rows };
+  }
+
+  @Get('briefings/latest')
+  async latestBriefings(
+    @Query('limit') limitRaw?: string,
+    @Query('depth') depth?: string,
+    @Query('style') style?: string,
+    @Query('includeAudio') includeAudioRaw?: string,
+  ) {
+    if (!this.newsTts) {
+      throw new ServiceUnavailableException('TTS service is unavailable');
+    }
+    if (depth !== undefined && !(NEWS_DEPTHS as readonly string[]).includes(depth)) {
+      throw new BadRequestException('Invalid depth');
+    }
+    if (style !== undefined && !(NEWS_AUDIO_STYLES as readonly string[]).includes(style)) {
+      throw new BadRequestException('Invalid style');
+    }
+    const parsedLimit = limitRaw !== undefined ? Number(limitRaw) : undefined;
+    if (parsedLimit !== undefined && (!Number.isFinite(parsedLimit) || parsedLimit < 1)) {
+      throw new BadRequestException('Invalid limit');
+    }
+    const includeAudio = includeAudioRaw === '1' || includeAudioRaw === 'true';
+    return this.newsTts.listLatestBriefings({
+      limit: parsedLimit,
+      depth,
+      style,
+      includeAudio,
+    });
+  }
+
+  @UseGuards(IngestKeyGuard)
+  @Post('briefings/prewarm')
+  async prewarmBriefings(
+    @Query('limit') limitRaw?: string,
+    @Query('depth') depth?: string,
+    @Query('style') style?: string,
+  ) {
+    if (!this.newsTts) {
+      throw new ServiceUnavailableException('TTS service is unavailable');
+    }
+    if (depth !== undefined && !(NEWS_DEPTHS as readonly string[]).includes(depth)) {
+      throw new BadRequestException('Invalid depth');
+    }
+    if (style !== undefined && !(NEWS_AUDIO_STYLES as readonly string[]).includes(style)) {
+      throw new BadRequestException('Invalid style');
+    }
+    const parsedLimit = limitRaw !== undefined ? Number(limitRaw) : undefined;
+    if (parsedLimit !== undefined && (!Number.isFinite(parsedLimit) || parsedLimit < 1)) {
+      throw new BadRequestException('Invalid limit');
+    }
+    return this.newsTts.prewarmImportantBriefings({
+      limit: parsedLimit,
+      depth,
+      style,
+    });
   }
 
   @Get(':id/tts')
@@ -368,43 +472,125 @@ export class NewsController {
 
   @Get(':id')
   async detail(@Param('id') id: string, @Query('source') source?: string) {
+    let resolved: Record<string, unknown> | null = null;
     if (/^rss-[a-f0-9]{24}$/.test(id)) {
-      const result = await this.db.query(`
-        SELECT n.id,n.url,n.original_title,n.original_summary,n.title_uk,n.summary_uk,n.published_at,
-               n.category,n.importance,n.why_it_matters,n.free_access,
-               n.credibility_tier,n.is_retracted,n.correction_note,n.corrected_at,n.fact_claims,
-               n.ai_metadata,n.ai_metadata->'article' AS article,
-               s.name AS source_name,s.slug AS source_slug,s.homepage_url,s.unofficial AS source_is_unofficial
-        FROM news_items n JOIN sources s ON s.id=n.source_id
-        WHERE n.external_id=$1 AND n.status='published' LIMIT 1`, [id]);
-      if (result.rows[0]) return result.rows[0];
-      const feeds = await this.companyFeeds.list(source ? [source] : []);
-      const item = feeds.items.find(article => article.id === id);
-      if (item) {
-        return {
-          ...item,
-          category: item.category || 'other',
-          importance: 'unknown',
-          why_it_matters: null,
-          free_access: 'unknown',
-          article: null,
-          ai_metadata: null,
-          source_is_unofficial: false,
-        };
+      const result = await this.db
+        .query<Record<string, unknown>>(
+          `SELECT n.id,n.url,n.original_title,n.original_summary,n.title_uk,n.summary_uk,n.published_at,
+                  n.category,n.importance,n.why_it_matters,n.free_access,
+                  n.credibility_tier,n.is_retracted,n.correction_note,n.corrected_at,n.fact_claims,
+                  n.ai_metadata,n.ai_metadata->'article' AS article,
+                  s.name AS source_name,s.slug AS source_slug,s.homepage_url,s.unofficial AS source_is_unofficial,
+                  n.cluster_id,COALESCE(n.cluster_sources, '[]'::jsonb) AS cluster_sources,
+                  COALESCE(n.ai_generated, n.ai_metadata ? 'editorial_fingerprint') AS ai_generated
+           FROM news_items n JOIN sources s ON s.id=n.source_id
+           WHERE n.external_id=$1 AND n.status='published' LIMIT 1`,
+          [id],
+        )
+        .catch(() =>
+          this.db.query<Record<string, unknown>>(
+            `SELECT n.id,n.url,n.original_title,n.original_summary,n.title_uk,n.summary_uk,n.published_at,
+                    n.category,n.importance,n.why_it_matters,n.free_access,
+                    n.credibility_tier,n.is_retracted,n.correction_note,n.corrected_at,n.fact_claims,
+                    n.ai_metadata,n.ai_metadata->'article' AS article,
+                    s.name AS source_name,s.slug AS source_slug,s.homepage_url,s.unofficial AS source_is_unofficial
+             FROM news_items n JOIN sources s ON s.id=n.source_id
+             WHERE n.external_id=$1 AND n.status='published' LIMIT 1`,
+            [id],
+          ),
+        );
+      if (result.rows[0]) {
+        resolved = result.rows[0];
+      } else {
+        const feeds = await this.companyFeeds.list(source ? [source] : []);
+        const item = feeds.items.find(article => article.id === id);
+        if (item) {
+          const activeFeed = (this.companyFeeds.getActiveFeeds?.() ?? []).find(f => f.slug === item.source_slug);
+          resolved = {
+            ...item,
+            category: item.category || 'other',
+            importance: 'unknown',
+            why_it_matters: null,
+            free_access: 'unknown',
+            article: null,
+            ai_metadata: null,
+            ai_generated: false,
+            source_is_unofficial: item.source_is_unofficial ?? Boolean(activeFeed?.unofficial || activeFeed?.alias),
+          };
+        } else if (feeds.unavailable) {
+          throw new ServiceUnavailableException('Company feeds are temporarily unavailable');
+        }
       }
-      if (feeds.unavailable) throw new ServiceUnavailableException('Company feeds are temporarily unavailable');
     } else if (/^\d{1,18}$/.test(id)) {
-      const { rows } = await this.db.query(`
-        SELECT n.id,n.url,n.original_title,n.original_summary,n.title_uk,n.summary_uk,n.published_at,
-               n.category,n.importance,n.why_it_matters,n.free_access,
-               n.credibility_tier,n.is_retracted,n.correction_note,n.corrected_at,n.fact_claims,
-               n.ai_metadata,n.ai_metadata->'article' AS article,
-               s.name AS source_name,s.slug AS source_slug,s.homepage_url,s.unofficial AS source_is_unofficial
-        FROM news_items n JOIN sources s ON s.id=n.source_id
-        WHERE n.id=$1 AND n.status='published'`, [id]);
-      if (rows[0]) return rows[0];
+      const { rows } = await this.db
+        .query<Record<string, unknown>>(
+          `SELECT n.id,n.url,n.original_title,n.original_summary,n.title_uk,n.summary_uk,n.published_at,
+                  n.category,n.importance,n.why_it_matters,n.free_access,
+                  n.credibility_tier,n.is_retracted,n.correction_note,n.corrected_at,n.fact_claims,
+                  n.ai_metadata,n.ai_metadata->'article' AS article,
+                  s.name AS source_name,s.slug AS source_slug,s.homepage_url,s.unofficial AS source_is_unofficial,
+                  n.cluster_id,COALESCE(n.cluster_sources, '[]'::jsonb) AS cluster_sources,
+                  COALESCE(n.ai_generated, n.ai_metadata ? 'editorial_fingerprint') AS ai_generated
+           FROM news_items n JOIN sources s ON s.id=n.source_id
+           WHERE n.id=$1 AND n.status='published'`,
+          [id],
+        )
+        .catch(() =>
+          this.db.query<Record<string, unknown>>(
+            `SELECT n.id,n.url,n.original_title,n.original_summary,n.title_uk,n.summary_uk,n.published_at,
+                    n.category,n.importance,n.why_it_matters,n.free_access,
+                    n.credibility_tier,n.is_retracted,n.correction_note,n.corrected_at,n.fact_claims,
+                    n.ai_metadata,n.ai_metadata->'article' AS article,
+                    s.name AS source_name,s.slug AS source_slug,s.homepage_url,s.unofficial AS source_is_unofficial
+             FROM news_items n JOIN sources s ON s.id=n.source_id
+             WHERE n.id=$1 AND n.status='published'`,
+            [id],
+          ),
+        );
+      if (rows[0]) resolved = rows[0];
     }
-    throw new NotFoundException('Article not found');
+    if (!resolved) throw new NotFoundException('Article not found');
+
+    const storedClusterSources = Array.isArray(resolved.cluster_sources)
+      ? (resolved.cluster_sources as ClusterSource[])
+      : [];
+    if (storedClusterSources.length <= 1) {
+      const [feeds, recentDb] = await Promise.all([
+        this.companyFeeds.list([]).catch(() => ({ items: [] as ClusterableArticle[] })),
+        this.db
+          .query<ClusterableArticle>(
+            `SELECT n.id::text AS id, n.url, n.canonical_url AS "canonicalUrl",
+                    n.original_title, n.title_uk, n.summary_uk, n.published_at,
+                    s.name AS source_name, s.slug AS source_slug, s.unofficial AS source_is_unofficial,
+                    n.cluster_id, COALESCE(n.cluster_sources, '[]'::jsonb) AS cluster_sources
+             FROM news_items n JOIN sources s ON s.id = n.source_id
+             WHERE n.status = 'published'
+               AND COALESCE(n.published_at, n.created_at) >= now() - interval '48 hours'
+             ORDER BY n.published_at DESC NULLS LAST
+             LIMIT 150`,
+          )
+          .catch(() => ({ rows: [] as ClusterableArticle[] })),
+      ]);
+      const candidates = [
+        ...(Array.isArray(recentDb?.rows) ? recentDb.rows : []),
+        ...(Array.isArray(feeds?.items) ? feeds.items : []),
+      ];
+      const matched = this.clustering.findRelatedSourcesForArticle(
+        resolved as { id: string; url: string },
+        candidates,
+      );
+      return {
+        ...resolved,
+        cluster_id: (resolved.cluster_id as string | null) ?? matched.clusterId ?? null,
+        cluster_sources: matched.clusterSources,
+        source_count: matched.clusterSources.length,
+      };
+    }
+
+    return {
+      ...resolved,
+      source_count: storedClusterSources.length,
+    };
   }
 
   @Get(':id/related')
@@ -452,6 +638,15 @@ export class NewsController {
     const result = await this.db.query(`UPDATE news_items SET status='published',updated_at=now()
       WHERE id=$1 AND status='needs_review' RETURNING id,status`,[id]);
     if (!result.rowCount) throw new BadRequestException('Unknown id or not awaiting review');
+    return result.rows[0];
+  }
+
+  @Patch(':id/reject')
+  @UseGuards(IngestKeyGuard)
+  async reject(@Param('id', ParseIntPipe) id: number) {
+    const result = await this.db.query(`UPDATE news_items SET status='rejected',updated_at=now()
+      WHERE id=$1 AND status IN ('needs_review','published') RETURNING id,status`,[id]);
+    if (!result.rowCount) throw new BadRequestException('Unknown id or cannot reject');
     return result.rows[0];
   }
 }
@@ -510,7 +705,24 @@ const TOPIC_ALIAS_MAP: Record<string, { categories: string[]; keywords: string[]
   global_tech: { categories: ['global_tech'], keywords: ['global', 'tech', 'itc', 'dou', 'dev.ua'] },
 };
 
-function scoreTopicMatch(item: Record<string, unknown>, topics: string[]): number {
+const EXACT_BOUNDARY_TOKENS = new Set([
+  'ai', 'ml', 'api', 'sdk', 'llm', 'gpt', 'gpu', 'cpu', 'cve', 'ev', '5g', '6g',
+  'uk', 'eu', 'ua', 'us', 'bbc', 'nasa', 'nato', 'сон', 'зсу', 'бпла', 'єс',
+  'нбу', 'фоп', 'дія', 'нато',
+]);
+
+function matchesTopicKeyword(text: string, keyword: string): boolean {
+  const kw = keyword.trim().toLowerCase();
+  if (!kw) return false;
+  const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const exactOnly = EXACT_BOUNDARY_TOKENS.has(kw) || kw.length <= 2 || /[\s.-]/.test(kw);
+  const pattern = exactOnly
+    ? new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu')
+    : new RegExp(`(?<![\\p{L}\\p{N}])${escaped}\\p{L}*`, 'iu');
+  return pattern.test(text);
+}
+
+export function scoreTopicMatch(item: Record<string, unknown>, topics: string[]): number {
   const category = String(item.category || '').toLowerCase();
   const sourceSlug = String(item.source_slug || '').toLowerCase();
   const sourceName = String(item.source_name || '').toLowerCase();
@@ -530,10 +742,10 @@ function scoreTopicMatch(item: Record<string, unknown>, topics: string[]): numbe
       if (alias.categories.includes(category)) {
         score += 3;
       }
-      if (alias.keywords.some((kw) => text.includes(kw))) {
+      if (alias.keywords.some((kw) => matchesTopicKeyword(text, kw))) {
         score += 2;
       }
-    } else if (text.includes(token)) {
+    } else if (matchesTopicKeyword(text, token)) {
       score += 2;
     }
   }

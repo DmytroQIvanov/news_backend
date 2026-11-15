@@ -9,7 +9,15 @@ import {
   postGeminiGenerateContent,
   supportsSearchTools,
 } from '../common/gemini-client';
+import {
+  checkHtmlRobotsAndTdmMeta,
+  checkHttpRobotsAndTdmHeaders,
+  checkRobotsTxtPermission,
+  getHonestUserAgent,
+  LicenseMode,
+} from '../common/source-compliance';
 import { DatabaseService } from '../database/database.service';
+import { ClusterSource } from '../news/news-clustering.service';
 import { ArticleDto, CATEGORIES, SourceDto } from './ingest.dto';
 
 const textSchema = { type: 'string' };
@@ -38,8 +46,9 @@ export const EDITORIAL_ARTICLE_SCHEMA = objectSchema(
     body: textSchema,
     editorial: objectSchema({ angles: arraySchema(textSchema), style: textSchema, limitations: textSchema }),
     hydrogen_insight: textSchema,
+    briefing_script: textSchema,
   },
-  ['hydrogen_insight'],
+  ['hydrogen_insight', 'briefing_script'],
 );
 
 const DAILY_DIRECTIVE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -55,6 +64,8 @@ export interface BatchAngleHint {
 export interface EditArticleOptions {
   angleHint?: BatchAngleHint;
   contextSnippet?: string;
+  licenseMode?: LicenseMode;
+  clusterSources?: ClusterSource[];
 }
 
 export interface PolishBatchItemResult {
@@ -63,6 +74,7 @@ export interface PolishBatchItemResult {
   summaryUk: string;
   whyItMatters: string;
   hydrogenInsightUk: string;
+  briefingScriptUk?: string;
 }
 
 export interface PolishBatchResult {
@@ -94,13 +106,17 @@ const batchAngleSchema = objectSchema({
 
 const batchPolishSchema = objectSchema({
   items: arraySchema(
-    objectSchema({
-      id: textSchema,
-      titleUk: textSchema,
-      summaryUk: textSchema,
-      whyItMatters: textSchema,
-      hydrogenInsightUk: textSchema,
-    }),
+    objectSchema(
+      {
+        id: textSchema,
+        titleUk: textSchema,
+        summaryUk: textSchema,
+        whyItMatters: textSchema,
+        hydrogenInsightUk: textSchema,
+        briefingScriptUk: textSchema,
+      },
+      ['briefingScriptUk'],
+    ),
   ),
 });
 
@@ -167,27 +183,65 @@ export class GeminiEditorService {
       .digest('hex');
   }
 
-  async collectArticleEvidencePack(source: SourceDto, item: ArticleDto, contextSnippet?: string): Promise<string> {
+  async collectArticleEvidencePack(
+    source: SourceDto,
+    item: ArticleDto,
+    contextSnippet?: string,
+    options?: { licenseMode?: LicenseMode; clusterSources?: ClusterSource[] },
+  ): Promise<string> {
     const sections: string[] = [];
     const safePageUrl = publicHttpsUrl(item.url);
+    const effectiveLicenseMode: LicenseMode =
+      options?.licenseMode || source.licenseMode || 'headline_link';
 
-    if (safePageUrl) {
+    if (options?.clusterSources && options.clusterSources.length > 1) {
+      const peerLines = options.clusterSources.map((src, idx) => {
+        const excerpt = (src.summary || '').replace(/\s+/g, ' ').trim().slice(0, 450);
+        return `[${idx + 1}] ${src.sourceName} (${src.url})${src.publishedAt ? ` [${src.publishedAt}]` : ''}:\n    Заголовок: ${src.titleUk || src.title}${excerpt ? `\n    Опис RSS: ${excerpt}` : ''}`;
+      });
+      sections.push(`MULTI_SOURCE_CLUSTER (${options.clusterSources.length} sources):\n${peerLines.join('\n')}`);
+    }
+
+    if (effectiveLicenseMode === 'headline_link') {
+      sections.push(
+        'SOURCE_LICENSE_POLICY: headline_link (full-page scraping disabled; use RSS title/excerpt, multi-source cluster context, and primary URL attribution only).',
+      );
+    } else if (safePageUrl) {
       try {
-        const resp = await fetch(safePageUrl, {
-          method: 'GET',
-          signal: AbortSignal.timeout(6_000),
-          headers: {
-            'User-Agent': 'OpportunityRadarBot/1.0 (+https://opportunity-radar.local)',
-            Accept: 'text/html,application/xhtml+xml,text/plain;q=0.9',
-          },
+        const robotsResult = await checkRobotsTxtPermission(safePageUrl, {
+          userAgent: getHonestUserAgent(),
         });
-        if (resp.ok) {
-          const contentType = resp.headers.get('content-type') || '';
-          if (!contentType || /(html|text|xml|json)/i.test(contentType)) {
-            const rawHtml = (await resp.text()).slice(0, 180_000);
-            const cleanText = stripHtmlToCleanText(rawHtml).slice(0, 5_500);
-            if (cleanText) {
-              sections.push(`SOURCE_PAGE_TEXT (max 5500 chars):\n${cleanText}`);
+        if (!robotsResult.allowed) {
+          sections.push(`SOURCE_PAGE_SKIPPED: ${robotsResult.reason || 'robots.txt disallow'}`);
+        } else {
+          const resp = await fetch(safePageUrl, {
+            method: 'GET',
+            signal: AbortSignal.timeout(6_000),
+            headers: {
+              'User-Agent': getHonestUserAgent(),
+              Accept: 'text/html,application/xhtml+xml,text/plain;q=0.9',
+            },
+          });
+          if (resp.ok) {
+            const headerCheck = checkHttpRobotsAndTdmHeaders(resp.headers);
+            if (!headerCheck.allowed) {
+              await resp.body?.cancel();
+              sections.push(`SOURCE_PAGE_SKIPPED: ${headerCheck.reason}`);
+            } else {
+              const contentType = resp.headers.get('content-type') || '';
+              if (!contentType || /(html|text|xml|json)/i.test(contentType)) {
+                const rawHtml = (await resp.text()).slice(0, 180_000);
+                const metaCheck = checkHtmlRobotsAndTdmMeta(rawHtml);
+                if (!metaCheck.allowed) {
+                  sections.push(`SOURCE_PAGE_SKIPPED: ${metaCheck.reason}`);
+                } else {
+                  const maxChars = effectiveLicenseMode === 'full_text_licensed' ? 5_500 : 1_800;
+                  const cleanText = stripHtmlToCleanText(rawHtml).slice(0, maxChars);
+                  if (cleanText) {
+                    sections.push(`SOURCE_PAGE_TEXT (max ${maxChars} chars):\n${cleanText}`);
+                  }
+                }
+              }
             }
           }
         }
@@ -543,7 +597,8 @@ export class GeminiEditorService {
             {
               text: [
                 'Ти шеф-редактор універсального новинного медіа (Gemini 4 Hydrogen). Вичитай і вдоскональ пакетом до 12 новинних матеріалів українською.',
-                'Зроби заголовки (titleUk) конкретними без клікбейту, summaryUk стислим і чітким, whyItMatters практичним для громадян, фінансів, здоров’я чи роботи, а в hydrogenInsightUk додай 1-2 тверезих інсайта без води.',
+                'Зроби заголовки (titleUk) конкретними без клікбейту, summaryUk стислим і чітким без повторення заголовку, whyItMatters практичним для громадян, фінансів, здоров’я чи роботи, а в hydrogenInsightUk додай 1-2 тверезих інсайта без води.',
+                'Також у полі briefingScriptUk напиши окремий цілісний дикторський текст для аудіо-брифінгу (55-85 слів) так, щоб він не повторював заголовок в описі та не містив заголовків рубрик на кшталт «Практичне значення:», «Чому це важливо:», «Факти:».',
                 'Не вигадуй нових цифр чи фактів, яких немає у вхідних даних. Поверни суворий JSON.',
               ].join('\n'),
             },
@@ -594,6 +649,7 @@ export class GeminiEditorService {
       const summaryUk = sanitizeShortText(entry.summaryUk, 2500);
       const whyItMatters = sanitizeShortText(entry.whyItMatters, 1500);
       const hydrogenInsightUk = sanitizeShortText(entry.hydrogenInsightUk, 1200);
+      const briefingScriptUk = sanitizeShortText(entry.briefingScriptUk, 2500);
 
       if (!id || !allowedIds.has(id) || !titleUk || !summaryUk || !whyItMatters || !hydrogenInsightUk) {
         skippedCount += 1;
@@ -610,13 +666,20 @@ export class GeminiEditorService {
                'hydrogen_polished_at', to_jsonb(now()::text),
                'hydrogen_polish_model', $5::text,
                'hydrogen_insight', $6::text
-             ),
+             ) || CASE WHEN $7::text IS NOT NULL THEN jsonb_build_object('briefing_script', $7::text) ELSE '{}'::jsonb END,
              updated_at = now()
          WHERE id::text = $1`,
-        [id, titleUk, summaryUk, whyItMatters, response.modelUsed, hydrogenInsightUk],
+        [id, titleUk, summaryUk, whyItMatters, response.modelUsed, hydrogenInsightUk, briefingScriptUk ?? null],
       );
 
-      polishedItems.push({ id, titleUk, summaryUk, whyItMatters, hydrogenInsightUk });
+      polishedItems.push({
+        id,
+        titleUk,
+        summaryUk,
+        whyItMatters,
+        hydrogenInsightUk,
+        ...(briefingScriptUk ? { briefingScriptUk } : {}),
+      });
     }
 
     if (candidates.length < rows.length) {
@@ -639,7 +702,10 @@ export class GeminiEditorService {
   ): Promise<ArticleDto> {
     try {
       const [evidencePack, directiveResult] = await Promise.all([
-        this.collectArticleEvidencePack(source, item, options?.contextSnippet),
+        this.collectArticleEvidencePack(source, item, options?.contextSnippet, {
+          licenseMode: options?.licenseMode || source.licenseMode,
+          clusterSources: options?.clusterSources,
+        }),
         this.refreshDailyHydrogenDirective(false).catch(() => ({
           directive: null,
           cached: false,
@@ -654,6 +720,18 @@ export class GeminiEditorService {
 
       const userPayload: Record<string, unknown> = {
         ...this.input(source, item),
+        license_mode: options?.licenseMode || source.licenseMode || 'headline_link',
+        ...(options?.clusterSources && options.clusterSources.length > 1
+          ? {
+              cluster_sources: options.clusterSources.map(cs => ({
+                source_name: cs.sourceName,
+                title: cs.titleUk || cs.title,
+                url: cs.url,
+                published_at: cs.publishedAt,
+                excerpt: cs.summary || null,
+              })),
+            }
+          : {}),
         ...(evidencePack ? { evidence_pack: evidencePack } : {}),
         ...(options?.angleHint ? { editorial_angle_hint: options.angleHint } : {}),
       };
@@ -683,8 +761,12 @@ export class GeminiEditorService {
 
       let rawOutput = extractCandidateText(result.data);
       let article: ReturnType<typeof validateArticle>;
+      const extraClusterUrls = options?.clusterSources?.map(cs => ({
+        title: `${cs.sourceName}: ${cs.title}`,
+        url: cs.url,
+      }));
       try {
-        article = validateArticle(extractJsonPayload(rawOutput), item.url);
+        article = validateArticle(extractJsonPayload(rawOutput), item.url, extraClusterUrls);
       } catch {
         if (!useToolsInitially) throw new Error('Invalid editorial payload');
         // Fallback to strict JSON schema without tools if tool-assisted response failed JSON/schema validation
@@ -700,7 +782,7 @@ export class GeminiEditorService {
           throw new Error(`Gemini did not finish the article (${candidate?.finishReason || 'unknown'})`);
         }
         rawOutput = extractCandidateText(result.data);
-        article = validateArticle(extractJsonPayload(rawOutput), item.url);
+        article = validateArticle(extractJsonPayload(rawOutput), item.url, extraClusterUrls);
       }
 
       let modelUsed = result.modelUsed;
@@ -790,6 +872,7 @@ export class GeminiEditorService {
           grounding,
           article,
           ...(hydrogenInsight ? { hydrogen_insight: hydrogenInsight } : {}),
+          ...(article.briefing_script ? { briefing_script: article.briefing_script } : {}),
           ...(hydrogenDeepAnalysis ? { hydrogen_deep_analysis: true } : {}),
           ...(options?.angleHint ? { angle_hint: options.angleHint } : {}),
         },
@@ -875,7 +958,11 @@ function publicHttpsUrl(value: unknown): string | undefined {
   return href;
 }
 
-export function validateArticle(raw: unknown, originalUrl: string) {
+export function validateArticle(
+  raw: unknown,
+  originalUrl: string,
+  extraClusterSources?: Array<{ title: string; url: string }>,
+) {
   function object(value: unknown) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected JSON object');
     return value as Record<string, unknown>;
@@ -904,6 +991,14 @@ export function validateArticle(raw: unknown, originalUrl: string) {
   const original = httpsUrl(originalUrl);
   if (!original) throw new Error('Invalid original URL');
   if (!sources.some((source) => source.url === original)) sources.unshift({ title: 'Першоджерело', url: original });
+  if (Array.isArray(extraClusterSources)) {
+    for (const extra of extraClusterSources) {
+      const safeExtraUrl = httpsUrl(extra.url);
+      if (safeExtraUrl && sources.length < 12 && !sources.some(s => s.url === safeExtraUrl)) {
+        sources.push({ title: sanitizeShortText(extra.title, 240) || 'Додаткове джерело', url: safeExtraUrl });
+      }
+    }
+  }
   const facts = list(a.facts, 16, (entry) => {
     const fact = object(entry);
     const url = httpsUrl(fact.url);
@@ -912,6 +1007,7 @@ export function validateArticle(raw: unknown, originalUrl: string) {
   });
   const editorial = object(a.editorial);
   const hydrogenInsight = sanitizeShortText(a.hydrogen_insight, 1500);
+  const briefingScript = sanitizeShortText(a.briefing_script, 2500);
   return {
     title: text(a.title, 350),
     summary: text(a.summary, 2500),
@@ -929,5 +1025,6 @@ export function validateArticle(raw: unknown, originalUrl: string) {
       limitations: text(editorial.limitations, 2000, true),
     },
     ...(hydrogenInsight ? { hydrogen_insight: hydrogenInsight } : {}),
+    ...(briefingScript ? { briefing_script: briefingScript } : {}),
   };
 }

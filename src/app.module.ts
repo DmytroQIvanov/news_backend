@@ -6,6 +6,7 @@ import { SourcesController } from './sources/sources.controller';
 import { NewsController } from './news/news.controller';
 import { CompanyFeedsService } from './news/company-feeds.service';
 import { FeedEditorialService } from './news/feed-editorial.service';
+import { NewsClusteringService } from './news/news-clustering.service';
 import { NewsTtsService } from './news/news-tts.service';
 import { ExpertOpinionsService } from './news/expert-opinions.service';
 import { NewsMemesService } from './news/news-memes.service';
@@ -40,6 +41,7 @@ import { GrantsService } from './grants/grants.service';
     IngestService,
     IngestKeyGuard,
     CompanyFeedsService,
+    NewsClusteringService,
     SourceDiscoveryService,
     GeminiEditorService,
     FeedEditorialService,

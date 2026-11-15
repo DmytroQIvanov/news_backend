@@ -167,18 +167,14 @@ export function buildOfficialEmbedInfo(
   }
   const parsed = URL.parse(safeUrl)!;
   const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
-  const cleanQuote = escapeHtml((directQuote || '').slice(0, 320));
-  const cleanHandle = escapeHtml(authorHandle || host);
+  const verifiedSnippet = typeof htmlSnippet === 'string' && htmlSnippet.trim() ? htmlSnippet.trim() : undefined;
 
   if (host === 'x.com' || host === 'twitter.com') {
     const embedUrl = `https://publish.twitter.com/oembed?url=${encodeURIComponent(safeUrl)}&omit_script=true&dnt=true&lang=uk`;
-    const fallbackHtml =
-      htmlSnippet ||
-      `<blockquote class="twitter-tweet"><p>${cleanQuote}</p>&mdash; ${cleanHandle} (<a href="${escapeHtml(safeUrl)}">${escapeHtml(safeUrl)}</a>)</blockquote>`;
     return {
       type: 'x_oembed',
       embedUrl,
-      htmlSnippet: fallbackHtml,
+      htmlSnippet: verifiedSnippet,
       providerName: 'X (Twitter)',
       interactiveSupported: true,
     };
@@ -189,7 +185,7 @@ export function buildOfficialEmbedInfo(
     return {
       type: 'facebook_plugin',
       embedUrl,
-      htmlSnippet,
+      htmlSnippet: verifiedSnippet,
       providerName: 'Facebook',
       interactiveSupported: true,
     };
@@ -197,13 +193,10 @@ export function buildOfficialEmbedInfo(
 
   if (host === 'bsky.app') {
     const embedUrl = `https://embed.bsky.app/oembed?url=${encodeURIComponent(safeUrl)}`;
-    const fallbackHtml =
-      htmlSnippet ||
-      `<blockquote class="bluesky-embed"><p>${cleanQuote}</p>&mdash; ${cleanHandle} (<a href="${escapeHtml(safeUrl)}">${escapeHtml(safeUrl)}</a>)</blockquote>`;
     return {
       type: 'bsky_oembed',
       embedUrl,
-      htmlSnippet: fallbackHtml,
+      htmlSnippet: verifiedSnippet,
       providerName: 'Bluesky',
       interactiveSupported: true,
     };
@@ -213,7 +206,7 @@ export function buildOfficialEmbedInfo(
     return {
       type: 'hn_card',
       embedUrl: safeUrl,
-      htmlSnippet,
+      htmlSnippet: verifiedSnippet,
       providerName: 'Hacker News',
       interactiveSupported: false,
     };
@@ -222,7 +215,7 @@ export function buildOfficialEmbedInfo(
   return {
     type: 'web_embed',
     embedUrl: safeUrl,
-    htmlSnippet,
+    htmlSnippet: verifiedSnippet,
     providerName: host,
     interactiveSupported: false,
   };
@@ -784,7 +777,12 @@ export class ExpertOpinionsService implements OnModuleInit, OnModuleDestroy {
         hasLiveHits = true;
       }
 
-      if (collected.length < 2 && this.activeKey && process.env.NODE_ENV !== 'test') {
+      if (
+        process.env.GEMINI_EXPERT_SEARCH_GROUNDING === 'true' &&
+        collected.length < 2 &&
+        this.activeKey &&
+        process.env.NODE_ENV !== 'test'
+      ) {
         const geminiFound = await this.discoverExpertOpinionsWithGemini(context, experts).catch(() => []);
         if (geminiFound.length > 0) {
           hasLiveHits = true;
@@ -1220,11 +1218,9 @@ export class ExpertOpinionsService implements OnModuleInit, OnModuleDestroy {
     for (const candidate of Array.isArray(parsedJson.opinions) ? parsedJson.opinions : []) {
       const safeUrl = safePublicHttpsUrl(candidate.sourceUrl);
       if (!safeUrl) continue;
+      // Strict Grounding Rule: require exact URL presence in Gemini googleSearch groundingChunks
+      if (!groundedUrls.has(safeUrl)) continue;
       const host = URL.parse(safeUrl)?.hostname.toLowerCase().replace(/^www\./, '') || '';
-      const hostAllowed =
-        groundedUrls.has(safeUrl) ||
-        ALLOWED_PUBLIC_EXPERT_HOSTS.some((d) => host === d || host.endsWith(`.${d}`));
-      if (!hostAllowed) continue;
 
       let htmlSnippet: string | undefined;
       if (host === 'x.com' || host === 'twitter.com') {
@@ -1238,8 +1234,13 @@ export class ExpertOpinionsService implements OnModuleInit, OnModuleDestroy {
             if (typeof j.html === 'string') htmlSnippet = j.html;
           }
         } catch {
-          // Use blockquote fallback
+          // Do not synthesize fake blockquote HTML
         }
+      }
+
+      // Skip x.com / twitter.com URLs that failed oEmbed verification
+      if ((host === 'x.com' || host === 'twitter.com') && !htmlSnippet) {
+        continue;
       }
 
       try {
@@ -1518,11 +1519,8 @@ export class ExpertOpinionsService implements OnModuleInit, OnModuleDestroy {
       const posObj = p as Record<string, unknown>;
       const posUrl = safePublicHttpsUrl(posObj.url);
       if (!posUrl) continue;
-      const host = URL.parse(posUrl)?.hostname.toLowerCase().replace(/^www\./, '') || '';
-      const isGrounded =
-        groundedUrls.size === 0 ||
-        groundedUrls.has(posUrl) ||
-        ALLOWED_PUBLIC_EXPERT_HOSTS.some((d) => host === d || host.endsWith(`.${d}`));
+      // Enforce presence in googleSearch groundingChunks rather than blindly trusting domain match
+      const isGrounded = groundedUrls.size > 0 && groundedUrls.has(posUrl);
       if (!isGrounded) continue;
       const thesisUk = typeof posObj.thesisUk === 'string' ? posObj.thesisUk.trim() : '';
       const quoteUk = typeof posObj.quoteUk === 'string' ? posObj.quoteUk.trim() : '';
@@ -1652,6 +1650,18 @@ export class ExpertOpinionsService implements OnModuleInit, OnModuleDestroy {
     for (const { expert, assessment } of scored) {
       const position = pickBestDocumentedPosition(expert, articleTitle, articleSummary);
       if (!position) continue;
+      // Never attribute verbatim quotes to profile homepage roots (e.g. https://x.com/karpathy)
+      const parsedPos = URL.parse(position.url);
+      if (!parsedPos) continue;
+      const posHost = parsedPos.hostname.toLowerCase().replace(/^www\./, '');
+      const posPath = parsedPos.pathname.replace(/\/+$/, '');
+      const isProfileRootOnly =
+        ((posHost === 'x.com' || posHost === 'twitter.com' || posHost === 'github.com') &&
+          /^\/[^/]+$/.test(posPath)) ||
+        (posHost === 'bsky.app' && /^\/profile\/[^/]+$/.test(posPath)) ||
+        (posHost === 'linkedin.com' && /^\/in\/[^/]+$/.test(posPath));
+      if (isProfileRootOnly) continue;
+
       try {
         out.push(
           validateExpertOpinionItem({
@@ -1669,8 +1679,8 @@ export class ExpertOpinionsService implements OnModuleInit, OnModuleDestroy {
             sourceUrl: position.url,
             domainCompetenceScore: assessment.score,
             credibilityWeight: expert.credibilityWeight,
-            potentialBiasUk: assessment.potentialBiasUk,
-            conflictOfInterestUk: assessment.conflictOfInterestUk,
+            potentialBiasUk: expert.knownAffiliationsUk || 'Публічна позиція задекларована у першоджерелі.',
+            conflictOfInterestUk: expert.conflictDisclosureUk || 'Фактичні афіліації зазначено в профілі автора.',
             verificationStatus: 'verified_expert_registry',
             embed: buildOfficialEmbedInfo(position.url, expert.handle, position.quoteUk),
           }),

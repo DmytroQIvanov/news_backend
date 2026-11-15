@@ -5,6 +5,7 @@ import { canonicalizeUrl, retryWithBackoff } from '../dist/common/url-utils.js';
 import {
   classifyFeedArticleCategory,
   COMPANY_FEED_CATALOG,
+  fetchAndParseFeedUrl,
   parseFeedXml,
 } from '../dist/news/company-feeds.service.js';
 import { CATEGORIES } from '../dist/ingest/ingest.dto.js';
@@ -18,7 +19,13 @@ import {
 import { IngestKeyGuard } from '../dist/common/ingest-key.guard.js';
 import { CatalogService, diffCatalogItems, isPromotionExpired } from '../dist/catalog/catalog.service.js';
 import { computeModelTokenPracticality, INITIAL_CATALOG } from '../dist/catalog/catalog-seed.js';
-import { slugifySource } from '../dist/news/source-discovery.service.js';
+import {
+  assessDiscoveredFeedQuality,
+  extractAlternateFeedLinksFromHtml,
+  slugifySource,
+  SourceDiscoveryService,
+} from '../dist/news/source-discovery.service.js';
+import { IngestService } from '../dist/ingest/ingest.service.js';
 import { detectStoreName } from '../dist/games/games.service.js';
 import {
   buildGeminiRequestBody,
@@ -38,6 +45,7 @@ import {
   NewsTtsService,
   pcm16ToWavBase64,
   PREFERRED_TTS_MODELS,
+  stripBriefingSectionLabels,
   stripTtsPromptDirectives,
 } from '../dist/news/news-tts.service.js';
 import { FeedEditorialService } from '../dist/news/feed-editorial.service.js';
@@ -66,6 +74,15 @@ import {
 } from '../dist/news/expert-opinions.service.js';
 import { NewsMemesService } from '../dist/news/news-memes.service.js';
 import { buildHealthUrls, parseKeepAliveArgs } from '../scripts/keep-alive.mjs';
+import {
+  checkHtmlRobotsAndTdmMeta,
+  checkHttpRobotsAndTdmHeaders,
+  checkRobotsTxtPermission,
+  isSafePublicHttpUrl,
+  resolveAndValidatePublicUrl,
+} from '../dist/common/source-compliance.js';
+import { clusterNewsItems, NewsClusteringService } from '../dist/news/news-clustering.service.js';
+import { SourcesController } from '../dist/sources/sources.controller.js';
 
 test('canonicalizeUrl strips tracking params, www, hash, and trailing slash', () => {
   const input = 'https://www.openai.com/news/gpt-5/?utm_source=rss&fbclid=123&ref=x#top';
@@ -867,7 +884,7 @@ test('Chain-of-Verification schema places evidence before prose and Hydrogen mec
     const editor = new GeminiEditorService(mockDb);
 
     const evidencePack = await editor.collectArticleEvidencePack(
-      { slug: 'openai', name: 'OpenAI', homepageUrl: 'https://openai.com' },
+      { slug: 'openai', name: 'OpenAI', homepageUrl: 'https://openai.com', licenseMode: 'summary' },
       {
         externalId: 'ext-1',
         url: 'https://openai.com/news/test-evidence',
@@ -2247,9 +2264,10 @@ test('NewsTtsService sends clean script without spoken style directives or meta 
   }
 });
 
-test('NewsMemesService searches multiple public memes and jokes, caches results, supports custom query, and skips tragic news', async () => {
+test('NewsMemesService uses public Bluesky search by default, disables unauthenticated Reddit scraping, caches results, and skips tragic news', async () => {
   const dbCache = new Map();
   let simulateMissingTable = true;
+  let redditCalled = false;
 
   const mockDb = {
     async query(sql, args = []) {
@@ -2310,42 +2328,9 @@ test('NewsMemesService searches multiple public memes and jokes, caches results,
   globalThis.fetch = async (input) => {
     fetchCalls += 1;
     const url = typeof input === 'string' ? input : input.url;
-    if (url.includes('reddit.com/search.json')) {
-      return new Response(
-        JSON.stringify({
-          data: {
-            children: [
-              {
-                data: {
-                  title: 'When the AI agent deploys directly to prod on Friday lol',
-                  selftext: '',
-                  permalink: '/r/ProgrammerHumor/comments/abc123/ai_friday/',
-                  url_overridden_by_dest: 'https://i.redd.it/friday-prod-meme.png',
-                  post_hint: 'image',
-                  subreddit: 'ProgrammerHumor',
-                  author: 'dev_joker',
-                  ups: 4200,
-                  over_18: false,
-                  created_utc: 1794700000,
-                },
-              },
-              {
-                data: {
-                  title: 'Senior dev watching junior ask AI to fix prod bug',
-                  selftext: 'It deleted the migration table.',
-                  permalink: '/r/memes/comments/xyz789/senior_dev/',
-                  subreddit: 'memes',
-                  author: 'meme_smith',
-                  ups: 1500,
-                  over_18: false,
-                  created_utc: 1794700100,
-                },
-              },
-            ],
-          },
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      );
+    if (url.includes('reddit.com')) {
+      redditCalled = true;
+      return new Response(JSON.stringify({}), { status: 403 });
     }
     if (url.includes('public.api.bsky.app')) {
       return new Response(
@@ -2373,27 +2358,26 @@ test('NewsMemesService searches multiple public memes and jokes, caches results,
     const memesService = new NewsMemesService(mockDb);
     const controller = new NewsController(mockDb, undefined, undefined, undefined, memesService);
 
-    // 1. Finds multiple memes & jokes (Reddit + Bluesky) even if cache table is missing
+    // 1. Queries Bluesky public API only (unauthenticated Reddit scraping disabled by default)
     const first = await controller.memesForArticle('ai-meme-1');
+    assert.equal(redditCalled, false);
     assert.equal(first.hasMemes, true);
-    assert.ok(first.total >= 3, `Expected >= 3 memes/jokes, got ${first.total}`);
-    assert.equal(first.items.length, first.total);
-    assert.ok(first.items.some((i) => i.platform === 'reddit' && i.imageUrl === 'https://i.redd.it/friday-prod-meme.png'));
+    assert.ok(first.total >= 1);
     assert.ok(first.items.some((i) => i.platform === 'bluesky' && i.kind === 'joke'));
     assert.equal(first.cached, false);
-    assert.equal(fetchCalls, 2);
+    assert.equal(fetchCalls, 1);
 
     // 2. Second request hits 12h memory cache
     const second = await controller.memesForArticle('ai-meme-1');
     assert.equal(second.cached, true);
-    assert.equal(fetchCalls, 2);
+    assert.equal(fetchCalls, 1);
 
-    // 3. Custom search query (?q=...) runs a distinct search & writes DB cache
+    // 3. Custom search query (?q=...) runs a distinct Bluesky search & writes DB cache
     simulateMissingTable = false;
     const custom = await controller.memesForArticle('ai-meme-1', undefined, 'copilot bugs');
     assert.equal(custom.queryUsed, 'copilot bugs');
     assert.equal(custom.cached, false);
-    assert.equal(fetchCalls, 4);
+    assert.equal(fetchCalls, 2);
     assert.ok(dbCache.size >= 1);
 
     // 4. Tragic casualty news skips memes cleanly
@@ -2403,5 +2387,967 @@ test('NewsMemesService searches multiple public memes and jokes, caches results,
     assert.deepEqual(skipped.items, []);
   } finally {
     globalThis.fetch = origFetch;
+  }
+});
+
+test('CompanyFeeds compliance: dead xai removed, RSS 1.0 + guid isPermaLink + HTML entities + windows-1251 + subdomain allowlist + word-boundary category', async () => {
+  assert.equal(
+    COMPANY_FEED_CATALOG.some((f) => f.slug === 'xai-news-community-feed'),
+    false,
+    'Dead 404 xai community feed must be removed from COMPANY_FEED_CATALOG',
+  );
+
+  // RSS 1.0 rdf:RDF + dc:date + HTML entities
+  const rss10 = `<?xml version="1.0" encoding="UTF-8"?>
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <item rdf:about="https://ai.meta.com/blog/llama-release/">
+      <title>Meta &amp; Llama &quot;4&quot; &#8230; Research</title>
+      <link>https://ai.meta.com/blog/llama-release/</link>
+      <description>&lt;p&gt;Price &amp;pound;0 open weights.&lt;/p&gt;</description>
+      <dc:date>2026-11-15T09:30:00Z</dc:date>
+    </item>
+  </rdf:RDF>`;
+
+  const metaFeed = {
+    slug: 'meta-ai',
+    name: 'Meta AI',
+    domain: 'meta.com',
+    url: 'https://ai.meta.com/feed.xml',
+    category: 'ai',
+  };
+  const parsedRss10 = parseFeedXml(rss10, metaFeed);
+  assert.equal(parsedRss10.length, 1);
+  assert.equal(parsedRss10[0].original_title, 'Meta & Llama "4" … Research');
+  assert.equal(parsedRss10[0].original_summary, 'Price £0 open weights.');
+  assert.ok(parsedRss10[0].published_at);
+
+  // guid isPermaLink="true" fallback when <link> omitted + host subdomain check
+  const rssGuid = `<?xml version="1.0" encoding="UTF-8"?>
+  <rss version="2.0"><channel>
+    <item>
+      <title>Subdomain Link Post</title>
+      <guid isPermaLink="true">https://research.meta.com/blog/post-1</guid>
+      <pubDate>Fri, 14 Nov 2026 10:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>Spoofed Lookalike Domain</title>
+      <link>https://evil-meta.com/phish</link>
+      <pubDate>Fri, 14 Nov 2026 10:00:00 GMT</pubDate>
+    </item>
+  </channel></rss>`;
+  const parsedGuid = parseFeedXml(rssGuid, metaFeed);
+  assert.equal(parsedGuid.length, 1);
+  assert.equal(parsedGuid[0].url, 'https://research.meta.com/blog/post-1');
+
+  // Word-boundary category classifier prevents substring false positives
+  assert.equal(classifyFeedArticleCategory('Документальний фільм про армію', 'Нова премʼєра кіно у прокаті'), 'culture');
+  assert.equal(classifyFeedArticleCategory('Claude Code v2.1.325', 'New CLI workflows for TypeScript refactoring'), 'coding');
+
+  // Charset windows-1251 decoding in fetchAndParseFeedUrl
+  // Encode Cyrillic bytes cleanly in windows-1251 for "Новини" -> 0xCD 0xEE 0xE2 0xE8 0xED 0xE8
+  const cp1251Head = Buffer.from('<?xml version="1.0" encoding="windows-1251"?><rss version="2.0"><channel><item><title>');
+  const cp1251Word = Buffer.from([0xcd, 0xee, 0xe2, 0xe8, 0xed, 0xe8]);
+  const cp1251Tail = Buffer.from('</title><link>https://example.com/cp1251</link><pubDate>Fri, 14 Nov 2026 10:00:00 GMT</pubDate></item></channel></rss>');
+  const cp1251Body = Buffer.concat([cp1251Head, cp1251Word, cp1251Tail]);
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(cp1251Body, {
+      status: 200,
+      headers: { 'Content-Type': 'application/rss+xml; charset=windows-1251' },
+    });
+  try {
+    const articles = await fetchAndParseFeedUrl({
+      slug: 'example-cp1251',
+      name: 'Example',
+      domain: 'example.com',
+      url: 'https://example.com/rss.xml',
+      category: 'other',
+    });
+    assert.equal(articles.length, 1);
+    assert.equal(articles[0].original_title, 'Новини');
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test('source-compliance enforces SSRF/DNS, robots.txt, TDM/noai headers, and GeminiEditorService respects headline_link', async () => {
+  assert.equal(isSafePublicHttpUrl('http://127.0.0.1/feed.xml', { allowHttp: true }), false);
+  assert.equal(isSafePublicHttpUrl('https://169.254.169.254/latest/meta-data/'), false);
+  assert.equal(isSafePublicHttpUrl('https://localhost/admin'), false);
+  assert.equal(isSafePublicHttpUrl('https://openai.com/news/rss.xml'), true);
+
+  const dnsPrivate = await resolveAndValidatePublicUrl('https://rebind.example.com/rss.xml', {
+    lookupFn: async () => [{ address: '10.0.0.5' }],
+  });
+  assert.equal(dnsPrivate.safe, false);
+
+  const dnsPublic = await resolveAndValidatePublicUrl('https://public.example.com/rss.xml', {
+    lookupFn: async () => [{ address: '93.184.216.34' }],
+  });
+  assert.equal(dnsPublic.safe, true);
+
+  const robotsRes = await checkRobotsTxtPermission('https://strict-publisher.example.com/private/article', {
+    fetchFn: async () =>
+      new Response('User-agent: *\nDisallow: /private/\nAllow: /private/open/\n', { status: 200 }),
+  });
+  assert.equal(robotsRes.allowed, false);
+
+  assert.equal(
+    checkHttpRobotsAndTdmHeaders({ 'x-robots-tag': 'noai, noimageai' }).allowed,
+    false,
+  );
+  assert.equal(
+    checkHttpRobotsAndTdmHeaders({ 'tdm-reservation': '1' }).allowed,
+    false,
+  );
+  assert.equal(
+    checkHtmlRobotsAndTdmMeta('<html><head><meta name="robots" content="noai"></head></html>').allowed,
+    false,
+  );
+
+  // headline_link mode must NOT scrape article HTML even when Gemini API key is set
+  let scrapedArticle = false;
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const url = typeof input === 'string' ? input : input.url;
+    if (url.includes('publisher.example.com')) scrapedArticle = true;
+    return new Response('', { status: 404 });
+  };
+  const prevKey = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = 'test-key';
+  try {
+    const editor = new GeminiEditorService({ query: async () => ({ rows: [] }) });
+    const pack = await editor.collectArticleEvidencePack(
+      { slug: 'pub', name: 'Publisher', homepageUrl: 'https://publisher.example.com', licenseMode: 'headline_link' },
+      {
+        externalId: 'hl-1',
+        url: 'https://publisher.example.com/story',
+        originalTitle: 'Story Headline',
+        originalSummary: 'Short RSS teaser.',
+        category: 'tech',
+        importance: 'unknown',
+        freeAccess: 'unknown',
+      },
+      undefined,
+      { licenseMode: 'headline_link' },
+    );
+    assert.equal(scrapedArticle, false);
+    assert.ok(pack.includes('headline_link'));
+  } finally {
+    globalThis.fetch = origFetch;
+    if (prevKey === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = prevKey;
+  }
+});
+
+test('NewsClusteringService + NewsController collapse multi-source events and prevent topic substring false positives', async () => {
+  const now = new Date().toISOString();
+  const clustered = clusterNewsItems([
+    {
+      id: 'item-a',
+      url: 'https://openai.com/news/gpt-5-5-launch/',
+      original_title: 'OpenAI launches GPT-5.5 coding model for developers',
+      title_uk: 'OpenAI випустила модель GPT-5.5 для розробників',
+      source_name: 'OpenAI News',
+      source_slug: 'openai',
+      published_at: now,
+      important: true,
+      article: { body: '...' },
+    },
+    {
+      id: 'item-b',
+      url: 'https://simonwillison.net/2026/Nov/15/openai-gpt-5-5/',
+      original_title: 'OpenAI releases GPT-5.5 model for developers and coding',
+      title_uk: 'OpenAI представила модель програмування GPT-5.5',
+      source_name: 'Simon Willison',
+      source_slug: 'simonwillison',
+      published_at: now,
+      important: false,
+    },
+    {
+      id: 'item-c',
+      url: 'https://science.org/news/mars-water-basin',
+      original_title: 'NASA rover finds ancient river delta signatures on Mars',
+      title_uk: 'Марсохід NASA знайшов сліди давньої дельти річки на Марсі',
+      source_name: 'Science.org',
+      source_slug: 'science',
+      published_at: now,
+      important: false,
+    },
+  ]);
+
+  assert.equal(clustered.length, 2, 'Two overlapping sources about GPT-5.5 should merge into one clustered entry');
+  const gptCluster = clustered.find((c) => c.id === 'item-a');
+  assert.ok(gptCluster?.cluster_id);
+  assert.equal(gptCluster?.source_count, 2);
+  assert.equal(gptCluster?.cluster_sources.length, 2);
+
+  // Verify NewsController.list word-boundary matching ('said' / 'Thailand' must NOT match topic 'ai')
+  const mockDb = {
+    async query(sql) {
+      if (sql.includes('FROM news_items')) {
+        return {
+          rows: [
+            {
+              id: '101',
+              url: 'https://example.com/thailand',
+              original_title: 'Ambassador said Thailand travel rules updated today',
+              title_uk: 'Уряд у Таїланді оновив правила подорожей',
+              summary_uk: 'Посол пояснив нові митні вимоги.',
+              published_at: now,
+              category: 'society',
+              importance: 'low',
+              why_it_matters: null,
+              free_access: 'free',
+              source_name: 'World News',
+              source_slug: 'world',
+              source_is_unofficial: false,
+              ai_generated: true,
+              cluster_sources: [],
+            },
+            {
+              id: '102',
+              url: 'https://openai.com/news/ai-agents',
+              original_title: 'New AI agents benchmark released',
+              title_uk: 'Вийшов новий бенчмарк для ШІ-агентів',
+              summary_uk: 'Тестування автономного ШІ у розробці.',
+              published_at: now,
+              category: 'ai',
+              importance: 'high',
+              why_it_matters: 'Важливо для команд розробки.',
+              free_access: 'free',
+              source_name: 'OpenAI',
+              source_slug: 'openai',
+              source_is_unofficial: false,
+              ai_generated: true,
+              cluster_sources: [],
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    },
+  };
+  const controller = new NewsController(mockDb, {
+    list: async () => ({ items: [], totalSources: 0, healthySources: 0 }),
+    getActiveFeeds: () => [],
+  });
+  const aiFiltered = await controller.list('20', '0', undefined, undefined, undefined, 'ai');
+  assert.equal(aiFiltered.items.length, 1);
+  assert.equal(aiFiltered.items[0].id, '102');
+});
+
+test('SourceDiscoveryService + SourcesController validate public feeds via <link rel=alternate>, block SSRF, save as pending_review, and support approve/reject', async () => {
+  const insertedSources = [];
+  const statusUpdates = [];
+  let reloadCalls = 0;
+  let capturedPrompt = '';
+  const mockDb = {
+    async query(sql, args = []) {
+      if (sql.includes('INSERT INTO sources')) {
+        insertedSources.push(args);
+        return { rows: [] };
+      }
+      if (sql.includes('FROM sources') && sql.includes('review_status')) {
+        return {
+          rows: insertedSources.map((argsRow) => ({
+            slug: argsRow[0],
+            name: argsRow[1],
+            homepage_url: argsRow[2],
+            feed_url: argsRow[3],
+            category: argsRow[5],
+            auto_discovered: true,
+            review_status: argsRow[10] ?? 'pending_review',
+            enabled: Boolean(argsRow[9]),
+          })),
+        };
+      }
+      if (sql.includes("review_status = 'approved'")) {
+        statusUpdates.push({ slug: args[0], action: 'approve', licenseMode: args[1] });
+        return {
+          rowCount: 1,
+          rows: [{ slug: args[0], enabled: true, review_status: 'approved', license_mode: args[1] }],
+        };
+      }
+      if (sql.includes("review_status = 'rejected'")) {
+        statusUpdates.push({ slug: args[0], action: 'reject' });
+        return {
+          rowCount: 1,
+          rows: [{ slug: args[0], enabled: false, review_status: 'rejected' }],
+        };
+      }
+      return { rowCount: 0, rows: [] };
+    },
+  };
+
+  const mockFeeds = {
+    getActiveFeeds: () => [
+      { slug: 'openai', name: 'OpenAI', domain: 'openai.com', url: 'https://openai.com/news/rss.xml', category: 'ai' },
+      { slug: 'broken-tech', name: 'Broken Tech Blog', domain: 'brokentech.example', url: 'https://brokentech.example/rss.xml', category: 'tech' },
+    ],
+    getHealthSnapshot: () => [
+      { slug: 'openai', name: 'OpenAI', category: 'ai', articleCount: 5, consecutiveFailures: 0, fetchedAt: new Date().toISOString() },
+      { slug: 'broken-tech', name: 'Broken Tech Blog', category: 'tech', articleCount: 0, lastError: 'HTTP 500', consecutiveFailures: 4, fetchedAt: new Date().toISOString() },
+    ],
+    refreshAllFeeds: async () => undefined,
+    reloadFeedsFromDatabase: async () => {
+      reloadCalls += 1;
+    },
+  };
+
+  const prevKey = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = 'test-discovery-key';
+  const origFetch = globalThis.fetch;
+
+  let round = 1;
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === 'string' ? input : input.url;
+    if (url.includes('generativelanguage.googleapis.com')) {
+      const reqBody = JSON.parse(String(init?.body || '{}'));
+      capturedPrompt = reqBody?.contents?.[0]?.parts?.[0]?.text || '';
+      const roundCandidates =
+        round === 1
+          ? [
+              {
+                name: 'SSRF Evil Target',
+                homepageUrl: 'https://169.254.169.254/',
+                feedUrl: 'https://169.254.169.254/feed.xml',
+                category: 'tech',
+                rationaleUk: 'Internal metadata leak test',
+              },
+              {
+                name: 'Reddit Tech Community',
+                homepageUrl: 'https://www.reddit.com/r/technology',
+                feedUrl: 'https://www.reddit.com/r/technology/.rss',
+                category: 'tech',
+                rationaleUk: 'Social aggregator must be blocked',
+              },
+              {
+                name: 'Ukrinform Science',
+                homepageUrl: 'https://ukrinform.ua/rubric-technology',
+                category: 'tech',
+                rationaleUk: 'Офіційне державне інформаційне агентство України з верифікованою редакцією.',
+              },
+            ]
+          : [
+              {
+                name: 'Suspilne Tech',
+                homepageUrl: 'https://suspilne.media/tech',
+                category: 'tech',
+                rationaleUk: 'Суспільний мовник України з перевіреними стандартами журналістики.',
+              },
+            ];
+      return new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({ candidates: roundCandidates }),
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    if (url.endsWith('/robots.txt')) {
+      return new Response('User-agent: *\nAllow: /\n', { status: 200 });
+    }
+    if (url.includes('ukrinform.ua')) {
+      return new Response(
+        '<html><head><link rel="alternate" type="application/rss+xml" href="/rss/technology.xml"></head></html>',
+        { status: 200, headers: { 'Content-Type': 'text/html' } },
+      );
+    }
+    if (url.includes('suspilne.media')) {
+      return new Response(
+        '<html><head><link rel="alternate" type="application/rss+xml" href="/rss/tech.xml"></head></html>',
+        { status: 200, headers: { 'Content-Type': 'text/html' } },
+      );
+    }
+    return new Response('', { status: 404 });
+  };
+
+  try {
+    const discovery = new SourceDiscoveryService(mockDb, mockFeeds);
+    const autoResult = await discovery.discoverAndVerify({
+      lookupFn: async () => [{ address: '185.199.108.153' }],
+      parseFeedFn: async (feed) => [
+        {
+          id: `${feed.slug}-1`,
+          url: `${feed.url.replace('/rss/', '/news/')}#1`,
+          original_title: 'Українські інженери запустили нову лабораторну мережу тестування',
+          original_summary: 'Короткий огляд запуску.',
+          published_at: new Date().toISOString(),
+          source_name: feed.name,
+          source_slug: feed.slug,
+          category: 'tech',
+        },
+        {
+          id: `${feed.slug}-2`,
+          url: `${feed.url.replace('/rss/', '/news/')}#2`,
+          original_title: 'Науковий центр оприлюднив відкритий звіт з телеметрії',
+          original_summary: 'Деталі звіту.',
+          published_at: new Date().toISOString(),
+          source_name: feed.name,
+          source_slug: feed.slug,
+          category: 'tech',
+        },
+      ],
+    });
+
+    assert.ok(capturedPrompt.includes('Broken Tech Blog'), 'Gap prompt should flag failing/empty feeds');
+    assert.equal(autoResult.proposed, 3);
+    assert.equal(autoResult.verified, 1);
+    assert.equal(autoResult.autoApproved.length, 1);
+    assert.equal(autoResult.pendingReview.length, 0);
+    assert.equal(autoResult.rejected.length, 2);
+    assert.equal(reloadCalls, 1, 'Auto-enabled verified source must reload active feeds immediately');
+    assert.equal(insertedSources[0][3], 'https://ukrinform.ua/rss/technology.xml');
+    assert.equal(insertedSources[0][9], true, 'Strict quality check passes -> auto-enabled in headline_link mode');
+    assert.equal(insertedSources[0][10], 'approved');
+
+    // Second run in moderation mode queues pending_review & supports approve/reject
+    round = 2;
+    const modResult = await discovery.discoverAndVerify({
+      requireModeration: true,
+      focusCategories: ['tech'],
+      lookupFn: async () => [{ address: '185.199.108.153' }],
+      parseFeedFn: async (feed) => [
+        {
+          id: 'suspilne-1',
+          url: 'https://suspilne.media/news/1',
+          original_title: 'Суспільне запустило відкриту платформу технологічної освіти',
+          original_summary: 'Деталі проєкту.',
+          published_at: new Date().toISOString(),
+          source_name: feed.name,
+          source_slug: feed.slug,
+          category: 'tech',
+        },
+        {
+          id: 'suspilne-2',
+          url: 'https://suspilne.media/news/2',
+          original_title: 'Українські університети оновили програми з інженерії систем',
+          original_summary: 'Огляд змін.',
+          published_at: new Date().toISOString(),
+          source_name: feed.name,
+          source_slug: feed.slug,
+          category: 'tech',
+        },
+      ],
+    });
+    assert.equal(modResult.verified, 1);
+    assert.equal(modResult.pendingReview.length, 1);
+    assert.equal(modResult.pendingModeration, 1);
+
+    const sourcesController = new SourcesController(mockDb, mockFeeds, discovery);
+    const approved = await sourcesController.approve(modResult.added[0], { licenseMode: 'summary' });
+    assert.equal(approved.review_status, 'approved');
+    assert.equal(approved.license_mode, 'summary');
+
+    const rejected = await sourcesController.reject(modResult.added[0]);
+    assert.equal(rejected.review_status, 'rejected');
+    assert.equal(statusUpdates.length, 2);
+
+    // Logical feed quality validator blocks stale (>30d) & link-farm feeds
+    const staleDate = new Date(Date.now() - 45 * 24 * 60 * 60_000).toISOString();
+    const staleQuality = assessDiscoveredFeedQuality(
+      [
+        { id: 's1', url: 'https://example.org/a', original_title: 'Long enough headline one here', published_at: staleDate, source_name: 'Ex', source_slug: 'ex' },
+        { id: 's2', url: 'https://example.org/b', original_title: 'Long enough headline two here', published_at: staleDate, source_name: 'Ex', source_slug: 'ex' },
+      ],
+      'example.org',
+      'example.org',
+    );
+    assert.equal(staleQuality.ok, false);
+
+    const linkFarmQuality = assessDiscoveredFeedQuality(
+      [
+        { id: 'l1', url: 'https://other-site.net/1', original_title: 'External aggregated article one', published_at: new Date().toISOString(), source_name: 'Ex', source_slug: 'ex' },
+        { id: 'l2', url: 'https://another-site.net/2', original_title: 'External aggregated article two', published_at: new Date().toISOString(), source_name: 'Ex', source_slug: 'ex' },
+      ],
+      'example.org',
+      'example.org',
+    );
+    assert.equal(linkFarmQuality.ok, false);
+
+    // On-demand trigger cooldown check
+    assert.equal(discovery.triggerDiscoveryIfNeeded(['science_space'], { cooldownMs: 60_000 }), true);
+    assert.equal(discovery.triggerDiscoveryIfNeeded(['science_space'], { cooldownMs: 60_000 }), false);
+
+    // HTML alternate link extraction helper check
+    const links = extractAlternateFeedLinksFromHtml(
+      '<link rel="alternate" type="application/atom+xml" href="/atom.xml">',
+      'https://example.org/news',
+    );
+    assert.deepEqual(links, ['https://example.org/atom.xml']);
+  } finally {
+    await new Promise((r) => setTimeout(r, 25));
+    globalThis.fetch = origFetch;
+    if (prevKey === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = prevKey;
+  }
+});
+
+test('ExpertOpinionsService never synthesizes fake oEmbed HTML, validates HTTPS sourceUrl, and does not fabricate quotes when grounding is disabled', async () => {
+  const xEmbed = buildOfficialEmbedInfo('https://x.com/karpathy/status/1234567890', '@karpathy', 'Quote text');
+  assert.equal(xEmbed.htmlSnippet, undefined);
+  assert.equal(xEmbed.interactiveSupported, true);
+
+  assert.throws(
+    () =>
+      validateExpertOpinionItem({
+        expertName: 'Andrej Karpathy',
+        handle: '@karpathy',
+        platform: 'x',
+        roleUk: 'Дослідник ШІ',
+        sourceUrl: 'http://127.0.0.1/bad',
+        publishedAt: '2026-11-15T08:00:00Z',
+        directQuote: 'Test quote with enough characters',
+        stanceSummaryUk: 'Аналітичний коментар',
+        contextUk: 'Контекст публікації',
+        potentialBiasUk: 'Опис ролі',
+        conflictOfInterestUk: 'Eureka Labs',
+        keyArgumentsUk: ['Аргумент перший'],
+      }),
+    /Invalid or non-HTTPS expert sourceUrl/,
+  );
+
+  // Without live search grounding or real post URLs in expert_opinions/documentedPositions,
+  // ExpertOpinionsService must not fabricate placeholder quotes from profile URLs.
+  const prevGrounding = process.env.GEMINI_EXPERT_SEARCH_GROUNDING;
+  delete process.env.GEMINI_EXPERT_SEARCH_GROUNDING;
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({}), { status: 404 });
+  try {
+    const mockDb = {
+      query: async (sql) => {
+        if (sql.includes('FROM news_items')) {
+          return {
+            rows: [
+              {
+                id: 'news-exp-1',
+                url: 'https://openai.com/news/test-model',
+                original_title: 'OpenAI releases new reasoning model',
+                title_uk: 'OpenAI випустила нову модель міркувань',
+                summary_uk: 'Короткий огляд релізу.',
+                category: 'ai',
+                importance: 'high',
+                source_name: 'OpenAI',
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      },
+    };
+    const svc = new ExpertOpinionsService(mockDb);
+    svc.clearCacheForTests();
+    const controller = new NewsController(mockDb, undefined, undefined, svc);
+    const res = await controller.expertsForArticle('news-exp-1');
+    assert.equal(res.opinions.length, 0);
+  } finally {
+    globalThis.fetch = origFetch;
+    if (prevGrounding !== undefined) process.env.GEMINI_EXPERT_SEARCH_GROUNDING = prevGrounding;
+  }
+});
+
+test('FeedEditorialService clusters RSS items before spending Gemini quota and stops cleanly on Gemini HTTP 429', async () => {
+  const now = new Date().toISOString();
+  const ingestCalls = [];
+  const mockFeeds = {
+    getActiveFeeds: () => [
+      { slug: 'openai', name: 'OpenAI News', domain: 'openai.com', url: 'https://openai.com/news/rss.xml', category: 'ai', licenseMode: 'summary' },
+      { slug: 'simonw', name: 'Simon Willison', domain: 'simonwillison.net', url: 'https://simonwillison.net/atom.xml', category: 'ai', licenseMode: 'summary' },
+    ],
+    list: async () => ({
+      items: [
+        {
+          id: 'oa-1',
+          url: 'https://openai.com/news/gpt-5-5-launch',
+          canonical_url: 'https://openai.com/news/gpt-5-5-launch',
+          original_title: 'OpenAI launches GPT-5.5 coding model for developers',
+          original_summary: 'Official release notes.',
+          published_at: now,
+          source_name: 'OpenAI News',
+          source_slug: 'openai',
+          category: 'ai',
+        },
+        {
+          id: 'sw-1',
+          url: 'https://simonwillison.net/2026/Nov/15/gpt-5-5-launch/',
+          canonical_url: 'https://simonwillison.net/2026/Nov/15/gpt-5-5-launch',
+          original_title: 'OpenAI launches GPT-5.5 coding model notes',
+          original_summary: 'Independent developer commentary.',
+          published_at: now,
+          source_name: 'Simon Willison',
+          source_slug: 'simonw',
+          category: 'ai',
+        },
+      ],
+    }),
+  };
+  const mockEditor = {
+    enabled: true,
+    planBatchAnglesWithHydrogen: async () => ({}),
+    polishArticlesBatchWithHydrogen: async () => ({ checked: 0, polished: 0, failed: 0, skipped: 0 }),
+  };
+  const mockIngest = {
+    ingest: async (dto, _useEditor, options) => {
+      ingestCalls.push({ dto, options });
+      throw new Error('Gemini HTTP 429 Too Many Requests');
+    },
+  };
+  const mockDb = { query: async () => ({ rows: [] }) };
+  const mockCatalog = { notifyArticlePublished: async () => undefined };
+
+  const editorialService = new FeedEditorialService(
+    mockFeeds,
+    mockEditor,
+    mockIngest,
+    mockDb,
+    mockCatalog,
+    new NewsClusteringService(),
+  );
+  const summary = await editorialService.runOnce();
+  assert.equal(ingestCalls.length, 1, 'Overlapping event across 2 feeds must trigger only 1 clustered ingest attempt');
+  assert.equal(ingestCalls[0].options.clusterSources.length, 2);
+  assert.equal(summary.errors, 1);
+});
+
+test('Multi-source DB persistence: FeedEditorialService, IngestService, and NewsController.detail attach overlapping 48h sources cleanly', async () => {
+  const now = new Date().toISOString();
+  const persistedRows = [
+    {
+      id: '101',
+      url: 'https://openai.com/news/gpt-5-5-launch/',
+      canonicalUrl: 'https://openai.com/news/gpt-5-5-launch',
+      original_title: 'OpenAI launches GPT-5.5 coding model for developers',
+      title_uk: 'OpenAI випустила модель GPT-5.5 для розробників',
+      summary_uk: 'Офіційний анонс моделі GPT-5.5.',
+      published_at: now,
+      category: 'ai',
+      importance: 'high',
+      article: { body: '...' },
+      source_name: 'OpenAI News',
+      source_slug: 'openai',
+      source_is_unofficial: false,
+      cluster_id: null,
+      cluster_sources: [],
+    },
+  ];
+  const clusterUpdates = [];
+
+  const mockDb = {
+    async query(sql, args = []) {
+      if (sql.includes('UPDATE news_items') && sql.includes('SET cluster_id')) {
+        const target = persistedRows.find(r => r.id === String(args[0]));
+        const parsedSources = JSON.parse(String(args[2] || '[]'));
+        if (target) {
+          target.cluster_id = args[1];
+          target.cluster_sources = parsedSources;
+        }
+        clusterUpdates.push({ id: args[0], clusterId: args[1], sources: parsedSources });
+        return { rowCount: 1, rows: [] };
+      }
+      if (sql.includes("n.status = 'published'") && sql.includes("48 hours")) {
+        return { rows: persistedRows };
+      }
+      if (sql.includes('WHERE n.id=$1')) {
+        const found = persistedRows.find(r => r.id === String(args[0]));
+        return { rows: found ? [{ ...found, cluster_sources: [] }] : [] };
+      }
+      return { rows: [] };
+    },
+    async connect() {
+      return {
+        async query(sql, args = []) {
+          return mockDb.query(sql, args);
+        },
+        release() {},
+      };
+    },
+  };
+
+  // 1. FeedEditorialService detects existing DB story and attaches secondary RSS without calling Gemini ingest
+  const ingestCalls = [];
+  const mockFeeds = {
+    getActiveFeeds: () => [
+      { slug: 'simonw', name: 'Simon Willison', domain: 'simonwillison.net', url: 'https://simonwillison.net/atom.xml', category: 'ai', licenseMode: 'summary' },
+    ],
+    list: async () => ({
+      items: [
+        {
+          id: 'sw-later',
+          url: 'https://simonwillison.net/2026/Nov/15/gpt-5-5-launch/',
+          canonical_url: 'https://simonwillison.net/2026/Nov/15/gpt-5-5-launch',
+          original_title: 'OpenAI launches GPT-5.5 coding model notes',
+          original_summary: 'Independent developer commentary.',
+          published_at: now,
+          source_name: 'Simon Willison',
+          source_slug: 'simonw',
+          category: 'ai',
+        },
+      ],
+    }),
+  };
+  const editorial = new FeedEditorialService(
+    mockFeeds,
+    { enabled: true, planBatchAnglesWithHydrogen: async () => ({}), polishArticlesBatchWithHydrogen: async () => ({ checked: 0, polished: 0, failed: 0, skipped: 0 }) },
+    { ingest: async (dto) => { ingestCalls.push(dto); return { written: 1, unchanged: 0 }; } },
+    mockDb,
+    { notifyArticlePublished: async () => undefined },
+    new NewsClusteringService(),
+  );
+  const cycle = await editorial.runOnce();
+  assert.equal(ingestCalls.length, 0, 'Secondary source matching 48h DB item must NOT re-run Gemini ingest');
+  assert.equal(cycle.skipped, 1);
+  assert.equal(clusterUpdates.length, 1);
+  assert.equal(persistedRows[0].cluster_sources.length, 2);
+
+  // 2. IngestService attaches third feed source into the same persisted cluster
+  let editorEditCalled = false;
+  const ingestService = new IngestService(
+    mockDb,
+    {
+      enabled: true,
+      fingerprint: () => 'fp',
+      edit: async () => {
+        editorEditCalled = true;
+        throw new Error('Must not call Gemini editor when 48h DB cluster already matched');
+      },
+    },
+    new NewsClusteringService(),
+  );
+  const ingestRes = await ingestService.ingest(
+    {
+      source: { slug: 'arstechnica', name: 'Ars Technica', homepageUrl: 'https://arstechnica.com', licenseMode: 'headline_link' },
+      items: [
+        {
+          externalId: 'ars-1',
+          url: 'https://arstechnica.com/ai/2026/11/openai-gpt-5-5-coding-model/',
+          originalTitle: 'OpenAI releases GPT-5.5 coding model for developers',
+          originalSummary: 'Coverage by Ars Technica.',
+          publishedAt: now,
+          category: 'ai',
+          importance: 'unknown',
+          freeAccess: 'unknown',
+        },
+      ],
+    },
+    true,
+  );
+  assert.equal(editorEditCalled, false);
+  assert.equal(ingestRes.written, 0);
+  assert.equal(ingestRes.unchanged, 1);
+  assert.equal(persistedRows[0].cluster_sources.length, 3);
+
+  // 3. NewsController.detail enriches even if stored cluster_sources on the single row was empty
+  // Provide clean sync list mock with additional RSS match
+  const controllerWithRss = new NewsController(
+    mockDb,
+    {
+      list: async () => ({
+        items: [
+          {
+            id: 'rss-techcrunch',
+            url: 'https://techcrunch.com/2026/11/15/openai-gpt-5-5-coding-model/',
+            original_title: 'OpenAI launches GPT-5.5 coding model',
+            published_at: now,
+            source_name: 'TechCrunch',
+            source_slug: 'techcrunch',
+          },
+        ],
+      }),
+      getActiveFeeds: () => [],
+    },
+    undefined,
+    undefined,
+    undefined,
+    new NewsClusteringService(),
+  );
+  const detail = await controllerWithRss.detail('101');
+  assert.ok(detail.cluster_id);
+  assert.ok(detail.source_count >= 2, `Expected >=2 clustered sources in detail(), got ${detail.source_count}`);
+  assert.ok(detail.cluster_sources.some(s => s.sourceSlug === 'techcrunch'));
+});
+
+test('Briefing script removes "Практичне значення" / section labels, uses dedicated briefingScript, and deduplicates title in description', () => {
+  assert.equal(
+    stripBriefingSectionLabels('Практичне значення: Компанія знизила ціну. Чому це важливо: це економить час.'),
+    'Компанія знизила ціну. це економить час.',
+  );
+
+  // Without dedicated briefingScript, repetitive summary overlapping with title is suppressed
+  const deduped = buildBroadcastScriptUk({
+    titleUk: 'OpenAI випустила нову швидку модель GPT-5 Mini для розробників',
+    summaryUk: 'OpenAI випустила нову швидку модель GPT-5 Mini для розробників зі зниженою вартістю API.',
+    whyItMatters: 'Практичне значення: Це зменшує витрати команд на інтеграцію ШІ.',
+    sourceName: 'OpenAI',
+    facts: ['Підтверджені факти: Затримка скоротилася на 35 відсотків.'],
+    comparisons: ['Контекст порівняння: Попередня версія коштувала вдвічі дорожче.'],
+    depth: 'balanced_feed',
+    style: 'podcast_story',
+  });
+  assert.ok(!/Практичне значення/i.test(deduped), `Must not contain "Практичне значення": ${deduped}`);
+  assert.ok(!/Чому це важливо/i.test(deduped), `Must not contain "Чому це важливо": ${deduped}`);
+  assert.ok(!/Підтверджені факти/i.test(deduped), `Must not contain "Підтверджені факти": ${deduped}`);
+  assert.ok(!/Контекст порівняння/i.test(deduped), `Must not contain "Контекст порівняння": ${deduped}`);
+  const titleMatches = deduped.match(/GPT-5 Mini/gi) ?? [];
+  assert.equal(titleMatches.length, 1, `Title should not repeat in description script: ${deduped}`);
+
+  // When dedicated briefingScript is supplied, it drives the script cleanly without redundant headings
+  const dedicated = buildBroadcastScriptUk({
+    titleUk: 'Anthropic оновила Claude Code',
+    summaryUk: 'Anthropic оновила Claude Code для команд.',
+    whyItMatters: 'Практичне значення: Швидший пошук багів.',
+    briefingScript: 'Інженери Anthropic запустили автономний цикл перевірки pull request у Claude Code. Практичне значення: Це прискорює ревʼю коду вдвічі.',
+    depth: 'balanced_feed',
+    style: 'podcast_story',
+  });
+  assert.ok(dedicated.includes('автономний цикл перевірки pull request'));
+  assert.ok(!/Практичне значення/i.test(dedicated));
+  assert.ok(!dedicated.startsWith('Anthropic оновила Claude Code.'), 'Dedicated briefingScript avoids mechanical title prefixing');
+});
+
+test('NewsTtsService DB persistence, prewarmImportantBriefings, listLatestBriefings, and NewsController endpoints', async () => {
+  resetGeminiClientStateForTests();
+  const prevKey = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = 'test-tts-prewarm-key';
+  const prevFetch = globalThis.fetch;
+
+  const cacheRows = new Map();
+  const nowIso = new Date().toISOString();
+  const fakeArticle = {
+    id: '501',
+    external_id: 'ext-501',
+    title_uk: 'Google DeepMind представила нову модель для науки',
+    original_title: 'Google DeepMind unveils new science model',
+    summary_uk: 'Опис оновлення.',
+    original_summary: 'Summary.',
+    why_it_matters: 'Практичне значення: Прискорює відкриття матеріалів.',
+    importance: 'high',
+    important_flag: true,
+    category: 'ai',
+    published_at: nowIso,
+    source_name: 'DeepMind Blog',
+    source_slug: 'deepmind',
+    hydrogen_insight: null,
+    briefing_script: 'Дослідники DeepMind презентували систему моделювання нових каталізаторів без дорогих лабораторних циклів.',
+    comparisons: [],
+    facts: ['Тести підтвердили точність 94 відсотки.'],
+  };
+
+  let geminiTtsCalls = 0;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('-tts:generateContent')) {
+      geminiTtsCalls += 1;
+    }
+    const pcm = Buffer.alloc(1600, 1);
+    return new Response(
+      JSON.stringify({
+        candidates: [
+          {
+            finishReason: 'STOP',
+            content: {
+              parts: [
+                {
+                  inlineData: {
+                    mimeType: 'audio/L16;rate=24000',
+                    data: pcm.toString('base64'),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  };
+
+  const mockDb = {
+    async query(sql, args = []) {
+      if (sql.includes('INSERT INTO news_tts_cache')) {
+        cacheRows.set(args[0], {
+          cache_key: args[0],
+          news_id: args[1],
+          external_id: args[2],
+          depth: args[3],
+          style: args[4],
+          voice_name: args[5],
+          status: args[6],
+          model_used: args[7],
+          mime_type: args[8],
+          audio_base64: args[9],
+          script_uk: args[10],
+          duration_estimate_sec: args[11],
+          updated_at: new Date(),
+        });
+        return { rowCount: 1, rows: [] };
+      }
+      if (sql.includes('FROM news_tts_cache') && sql.includes('WHERE cache_key = $1')) {
+        const row = cacheRows.get(args[0]);
+        return { rows: row ? [row] : [] };
+      }
+      if (sql.includes('FROM news_items n') && sql.includes('LIMIT $1')) {
+        return { rows: [fakeArticle] };
+      }
+      if (sql.includes('FROM news_items n') && sql.includes('n.id::text = $1')) {
+        return { rows: [fakeArticle] };
+      }
+      return { rows: [] };
+    },
+  };
+
+  try {
+    // 1. Prewarm populates DB cache cleanly
+    const ttsWriter = new NewsTtsService(mockDb);
+    const prewarmSummary = await ttsWriter.prewarmImportantBriefings({ limit: 5 });
+    assert.equal(prewarmSummary.checked, 1);
+    assert.equal(prewarmSummary.generated, 1);
+    assert.equal(prewarmSummary.cached, 0);
+    assert.equal(geminiTtsCalls, 1);
+    assert.equal(cacheRows.size, 1);
+
+    // 2. Fresh NewsTtsService instance reads from news_tts_cache without calling Gemini again
+    const ttsReader = new NewsTtsService(mockDb);
+    const list = await ttsReader.listLatestBriefings({ limit: 5, includeAudio: true });
+    assert.equal(list.total, 1);
+    assert.equal(list.preloadedCount, 1);
+    assert.equal(list.items[0].audioReady, true);
+    assert.ok(list.items[0].audioBase64);
+    assert.ok(!/Практичне значення/i.test(list.items[0].scriptUk));
+
+    const detailAudio = await ttsReader.generateImportantNewsBriefing('501');
+    assert.equal(detailAudio.cached, true);
+    assert.equal(geminiTtsCalls, 1, 'Fresh service instance must reuse persisted news_tts_cache entry');
+
+    // 3. NewsController endpoints expose briefings/latest and briefings/prewarm cleanly
+    const controller = new NewsController(
+      mockDb,
+      { list: async () => ({ items: [] }), getActiveFeeds: () => [] },
+      ttsReader,
+    );
+    const latestResp = await controller.latestBriefings('5', undefined, undefined, 'false');
+    assert.equal(latestResp.total, 1);
+    assert.equal(latestResp.items[0].audioReady, true);
+    assert.equal(latestResp.items[0].audioBase64, undefined);
+
+    const prewarmResp = await controller.prewarmBriefings('5');
+    assert.equal(prewarmResp.checked, 1);
+    assert.equal(prewarmResp.cached, 1);
+    assert.equal(geminiTtsCalls, 1);
+
+    await assert.rejects(() => controller.latestBriefings('0'), BadRequestException);
+    await assert.rejects(() => controller.latestBriefings('5', 'bad_depth'), BadRequestException);
+  } finally {
+    globalThis.fetch = prevFetch;
+    if (prevKey === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = prevKey;
   }
 });

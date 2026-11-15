@@ -14,6 +14,11 @@ async function bootstrap(): Promise<void> {
     throw new Error('Set a real INGEST_API_KEY at least 32 characters long');
   }
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  // Trust Render / reverse-proxy X-Forwarded-For so per-client rate limiting works across real users
+  const expressInstance = app.getHttpAdapter()?.getInstance?.();
+  if (typeof expressInstance?.set === 'function') {
+    expressInstance.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 1));
+  }
   app.enableShutdownHooks();
   app.use(json({ limit: '2mb' }));
   app.use((req: { method?: string; url?: string; path?: string }, res: { setHeader: (k: string, v: string) => void }, next: () => void) => {
@@ -25,7 +30,7 @@ async function bootstrap(): Promise<void> {
     }
     next();
   });
-  app.use(createRateLimiter({ windowMs: 60_000, maxRequests: 30, paths: [/^\/api\/v1\/(ingest|catalog\/refresh|grants\/refresh|news\/[^/]+\/publish)/] }));
+  app.use(createRateLimiter({ windowMs: 60_000, maxRequests: 30, paths: [/^\/api\/v1\/(ingest|catalog\/refresh|grants\/refresh|news\/[^/]+\/(publish|reject)|sources\/discover|sources\/[^/]+\/(approve|reject))/] }));
   app.use(createRateLimiter({ windowMs: 60_000, maxRequests: 180 }));
   app.setGlobalPrefix('api/v1', { exclude: ['health', 'health/db', 'health/summary'] });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true, transformOptions: { enableImplicitConversion: false } }));

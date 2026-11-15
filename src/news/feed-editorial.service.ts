@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { CatalogService } from '../catalog/catalog.service';
 import { canUseHydrogenQuota } from '../common/gemini-client';
 import { DatabaseService } from '../database/database.service';
@@ -6,6 +6,9 @@ import { BatchAngleHint, GeminiEditorService, PolishBatchResult } from '../inges
 import { CATEGORIES } from '../ingest/ingest.dto';
 import { IngestService } from '../ingest/ingest.service';
 import { CompanyFeedsService, isPublishedWithinHours } from './company-feeds.service';
+import { ClusterableArticle, NewsClusteringService } from './news-clustering.service';
+import { NewsTtsService } from './news-tts.service';
+import { SourceDiscoveryService } from './source-discovery.service';
 
 @Injectable()
 export class FeedEditorialService implements OnModuleInit, OnModuleDestroy {
@@ -13,6 +16,7 @@ export class FeedEditorialService implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout;
   private stopped = false;
   private runningPromise?: Promise<{ checked: number; processed: number; skipped: number; errors: number }>;
+  private readonly clustering: NewsClusteringService;
 
   constructor(
     private readonly feeds: CompanyFeedsService,
@@ -20,7 +24,12 @@ export class FeedEditorialService implements OnModuleInit, OnModuleDestroy {
     private readonly ingest: IngestService,
     private readonly db: DatabaseService,
     private readonly catalog: CatalogService,
-  ) {}
+    @Optional() clustering?: NewsClusteringService,
+    @Optional() private readonly discovery?: SourceDiscoveryService,
+    @Optional() private readonly newsTts?: NewsTtsService,
+  ) {
+    this.clustering = clustering ?? new NewsClusteringService();
+  }
 
   onModuleInit() {
     if (this.editor.enabled) {
@@ -74,28 +83,102 @@ export class FeedEditorialService implements OnModuleInit, OnModuleDestroy {
       const known = new Set(rows.flatMap(row => [row.external_id, row.url, row.canonical_url].filter((v): v is string => !!v)));
 
       const activeFeeds = this.feeds.getActiveFeeds();
-      const maxPerCycle = 4;
-      const pendingCandidates: Array<{ feed: (typeof activeFeeds)[number]; item: (typeof items)[number] }> = [];
-      for (const feed of activeFeeds) {
-        const freshForFeed = items
-          .filter(
-            entry =>
-              entry.source_slug === feed.slug &&
-              isPublishedWithinHours(entry.published_at, 24) &&
-              !known.has(entry.id) &&
-              !known.has(entry.url) &&
-              !known.has(entry.canonical_url),
-          )
-          .sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at));
-        const item = freshForFeed[0];
-        if (!item) {
-          skipped += 1;
-          continue;
+      const feedBySlug = new Map(activeFeeds.map(f => [f.slug, f]));
+      const categoryArticleCounts = new Map<string, number>();
+      for (const cat of CATEGORIES) {
+        if (cat !== 'other') categoryArticleCounts.set(cat, 0);
+      }
+      for (const entry of items) {
+        const cat = entry.category || feedBySlug.get(entry.source_slug)?.category || 'other';
+        if (cat !== 'other') {
+          categoryArticleCounts.set(cat, (categoryArticleCounts.get(cat) || 0) + 1);
         }
-        pendingCandidates.push({ feed, item });
+      }
+      const sparseCategories = [...categoryArticleCounts.entries()]
+        .filter(([, count]) => count < 2)
+        .map(([cat]) => cat);
+      if (sparseCategories.length > 0) {
+        this.discovery?.triggerDiscoveryIfNeeded(sparseCategories);
       }
 
-      pendingCandidates.sort((a, b) => Date.parse(b.item.published_at) - Date.parse(a.item.published_at));
+      const maxPerCycle = 6;
+      const freshUnprocessed = items.filter(
+        entry =>
+          feedBySlug.has(entry.source_slug) &&
+          isPublishedWithinHours(entry.published_at, 24) &&
+          !known.has(entry.id) &&
+          !known.has(entry.url) &&
+          !known.has(entry.canonical_url),
+      );
+      if (freshUnprocessed.length === 0) {
+        return { checked, processed, skipped: items.length, errors };
+      }
+
+      // Cluster overlapping events across feeds BEFORE spending Gemini quota
+      const clustered = this.clustering.clusterItems(freshUnprocessed);
+      skipped += Math.max(0, freshUnprocessed.length - clustered.length);
+
+      // Cross-check fresh RSS clusters against already-published 48h DB items so later reports attach cleanly
+      const recentDbRes = await this.db
+        .query<ClusterableArticle>(
+          `SELECT n.id::text AS id, n.url, n.canonical_url AS "canonicalUrl",
+                  n.original_title, n.title_uk, n.summary_uk, n.published_at,
+                  n.category, n.importance,
+                  (n.ai_metadata->'article' IS NOT NULL) AS article,
+                  s.name AS source_name, s.slug AS source_slug, s.unofficial AS source_is_unofficial,
+                  n.cluster_id, COALESCE(n.cluster_sources, '[]'::jsonb) AS cluster_sources
+           FROM news_items n JOIN sources s ON s.id = n.source_id
+           WHERE n.status = 'published'
+             AND COALESCE(n.published_at, n.created_at) >= now() - interval '48 hours'
+           ORDER BY n.published_at DESC NULLS LAST
+           LIMIT 250`,
+        )
+        .catch(() => ({ rows: [] as ClusterableArticle[] }));
+      const recentDbItems = Array.isArray(recentDbRes?.rows) ? recentDbRes.rows : [];
+
+      const nonDuplicateClusters: typeof clustered = [];
+      for (const story of clustered) {
+        const dbMatch =
+          recentDbItems.length > 0
+            ? this.clustering.matchArticleToClusterCandidates(story, recentDbItems)
+            : null;
+        if (dbMatch && dbMatch.matchedItem.id !== story.id) {
+          dbMatch.matchedItem.cluster_id = dbMatch.clusterId;
+          dbMatch.matchedItem.cluster_sources = dbMatch.clusterSources;
+          await this.db
+            .query(
+              `UPDATE news_items
+               SET cluster_id = $2, cluster_sources = $3::jsonb, updated_at = now()
+               WHERE id::text = $1`,
+              [dbMatch.matchedItem.id, dbMatch.clusterId, JSON.stringify(dbMatch.clusterSources)],
+            )
+            .catch(() => undefined);
+          skipped += 1;
+          this.logger.debug(
+            `Attached ${story.source_slug} coverage to existing cluster ${dbMatch.clusterId} (${dbMatch.clusterSources.length} sources)`,
+          );
+          continue;
+        }
+        nonDuplicateClusters.push(story);
+      }
+
+      // Keep top-per-feed / multi-source stories prioritized first
+      const selectedByPrimary = new Map<string, (typeof nonDuplicateClusters)[number]>();
+      for (const story of nonDuplicateClusters) {
+        if (!selectedByPrimary.has(story.source_slug) || story.source_count > 1) {
+          selectedByPrimary.set(story.id, story);
+        }
+      }
+      const pendingCandidates = [...selectedByPrimary.values()]
+        .map(item => ({ feed: feedBySlug.get(item.source_slug)!, item }))
+        .filter(c => Boolean(c.feed));
+
+      pendingCandidates.sort((a, b) => {
+        if (b.item.source_count !== a.item.source_count) {
+          return b.item.source_count - a.item.source_count;
+        }
+        return Date.parse(b.item.published_at) - Date.parse(a.item.published_at);
+      });
 
       const plannerBatch = pendingCandidates.slice(0, 10);
       let angleHints: Record<string, BatchAngleHint> = {};
@@ -103,7 +186,10 @@ export class FeedEditorialService implements OnModuleInit, OnModuleDestroy {
         angleHints = await this.editor.planBatchAnglesWithHydrogen(
           plannerBatch.map(({ feed, item }) => ({
             externalId: item.id,
-            sourceName: feed.name,
+            sourceName:
+              item.source_count > 1
+                ? `${feed.name} (+${item.source_count - 1} джерел)`
+                : feed.name,
             originalTitle: item.original_title,
             originalSummary: item.original_summary,
             url: item.url,
@@ -112,11 +198,13 @@ export class FeedEditorialService implements OnModuleInit, OnModuleDestroy {
       }
 
       const prioritizedCandidates = [...pendingCandidates].sort((a, b) => {
-        const timeDiff = Date.parse(b.item.published_at) - Date.parse(a.item.published_at);
+        const bMulti = b.item.source_count > 1 ? 1 : 0;
+        const aMulti = a.item.source_count > 1 ? 1 : 0;
+        if (bMulti !== aMulti) return bMulti - aMulti;
         const aBoost = angleHints[a.item.id]?.boostImportant ? 1 : 0;
         const bBoost = angleHints[b.item.id]?.boostImportant ? 1 : 0;
         if (bBoost !== aBoost) return bBoost - aBoost;
-        return timeDiff;
+        return Date.parse(b.item.published_at) - Date.parse(a.item.published_at);
       });
 
       for (const { feed, item } of prioritizedCandidates) {
@@ -126,6 +214,7 @@ export class FeedEditorialService implements OnModuleInit, OnModuleDestroy {
           ? (candidateCategory as typeof CATEGORIES[number])
           : 'other';
         try {
+          const boostMultiSource = item.source_count >= 2;
           const result = await this.ingest.ingest(
             {
               source: {
@@ -134,6 +223,7 @@ export class FeedEditorialService implements OnModuleInit, OnModuleDestroy {
                 homepageUrl: `https://${feed.domain}`,
                 feedUrl: feed.url,
                 unofficial: Boolean(feed.unofficial || feed.alias),
+                licenseMode: feed.licenseMode || 'headline_link',
               },
               items: [{
                 externalId: item.id,
@@ -144,10 +234,24 @@ export class FeedEditorialService implements OnModuleInit, OnModuleDestroy {
                 category: safeCategory,
                 importance: 'unknown',
                 freeAccess: 'unknown',
+                clusterId: item.cluster_id || undefined,
+                clusterSources: item.cluster_sources as unknown as Array<Record<string, unknown>>,
               }],
             },
             true,
-            { angleHint: angleHints[item.id] },
+            {
+              angleHint: boostMultiSource
+                ? {
+                    externalId: item.id,
+                    angleUk: angleHints[item.id]?.angleUk || `Крос-перевірка події за ${item.source_count} джерелами`,
+                    skepticQuestionUk: angleHints[item.id]?.skepticQuestionUk || 'У чому сходяться і чим відрізняються деталі різних видань?',
+                    compareWithUk: angleHints[item.id]?.compareWithUk || '',
+                    boostImportant: true,
+                  }
+                : angleHints[item.id],
+              licenseMode: feed.licenseMode || 'headline_link',
+              clusterSources: item.cluster_sources,
+            },
           );
 
           if (result.written > 0) {
@@ -165,13 +269,19 @@ export class FeedEditorialService implements OnModuleInit, OnModuleDestroy {
         } catch (error) {
           errors += 1;
           this.logger.warn(`${feed.name}: ${error instanceof Error ? error.message : 'Editorial processing failed'}`);
-          if (error instanceof Error && /^Gemini HTTP (401|403|429)$/.test(error.message)) break;
+          if (error instanceof Error && /Gemini HTTP (401|403|429)\b/.test(error.message)) break;
         }
       }
 
       if (!this.stopped && canUseHydrogenQuota()) {
         await this.polishPendingWithHydrogen(12).catch((err) =>
           this.logger.warn(`Hydrogen batch polish failed: ${err instanceof Error ? err.message : err}`),
+        );
+      }
+
+      if (!this.stopped && this.newsTts) {
+        await this.newsTts.prewarmImportantBriefings({ limit: 5 }).catch((err) =>
+          this.logger.warn(`TTS briefing prewarm failed: ${err instanceof Error ? err.message : err}`),
         );
       }
     } catch (error) {

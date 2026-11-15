@@ -241,15 +241,25 @@ export class NewsMemesService {
     const collected: NewsMemeItem[] = [];
 
     if (!options.skipLiveFetch && queryUsed) {
-      const [redditRes, bskyRes] = await Promise.allSettled([
-        this.fetchRedditMemes(queryUsed, context),
-        this.fetchBlueskyJokes(queryUsed, context),
-      ]);
+      const redditOAuthEnabled =
+        process.env.ENABLE_REDDIT_MEMES === 'true' &&
+        Boolean(process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET);
 
-      if (redditRes.status === 'fulfilled') collected.push(...redditRes.value);
-      if (bskyRes.status === 'fulfilled') collected.push(...bskyRes.value);
+      const tasks: Array<Promise<NewsMemeItem[]>> = [this.fetchBlueskyJokes(queryUsed, context)];
+      if (redditOAuthEnabled) {
+        tasks.unshift(this.fetchRedditMemes(queryUsed, context));
+      }
 
-      if (this.activeKey && process.env.NODE_ENV !== 'test') {
+      const settled = await Promise.allSettled(tasks);
+      for (const r of settled) {
+        if (r.status === 'fulfilled') collected.push(...r.value);
+      }
+
+      if (
+        process.env.GEMINI_MEME_SEARCH_GROUNDING === 'true' &&
+        this.activeKey &&
+        process.env.NODE_ENV !== 'test'
+      ) {
         const geminiItems = await this.discoverMemesWithGemini(queryUsed, context).catch(() => []);
         collected.push(...geminiItems);
       }
