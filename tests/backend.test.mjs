@@ -38,7 +38,9 @@ import {
   NewsTtsService,
   pcm16ToWavBase64,
   PREFERRED_TTS_MODELS,
+  stripTtsPromptDirectives,
 } from '../dist/news/news-tts.service.js';
+import { FeedEditorialService } from '../dist/news/feed-editorial.service.js';
 import {
   classifyCredibilityTier,
   extractEntitySlugs,
@@ -788,7 +790,7 @@ test('Chain-of-Verification schema places evidence before prose and Hydrogen mec
     }
     const body = JSON.parse(String(init?.body || '{}'));
     const userText = body?.contents?.[0]?.parts?.[0]?.text || '';
-    if (userText.includes('Проаналізуй 5 останніх новин')) {
+    if (userText.includes('Проаналізуй останні новини')) {
       directiveFetchCount += 1;
       return new Response(
         JSON.stringify({
@@ -939,7 +941,7 @@ test('GeminiEditorService.edit runs Chain-of-Verification editorial and Hydrogen
     }
     const body = JSON.parse(String(init?.body || '{}'));
     const userText = body?.contents?.[0]?.parts?.[0]?.text || '';
-    if (userText.includes('Проаналізуй 5 останніх новин')) {
+    if (userText.includes('Проаналізуй останні новини')) {
       return new Response(
         JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'Тримай фокус на вартості інференсу.' }] } }] }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -1202,12 +1204,14 @@ test('keep-alive helpers build health URLs and parse CLI args cleanly', () => {
 
 test('Multi-topic categories, expanded COMPANY_FEED_CATALOG, keyword classifier, and NewsController topics/depth work seamlessly', async () => {
   const expectedCategories = [
-    'model',
-    'api',
-    'coding',
-    'open_source',
-    'research',
-    'business',
+    'politics',
+    'law',
+    'economy',
+    'finance',
+    'career',
+    'health',
+    'psychology',
+    'culture',
     'defense',
     'cybersecurity',
     'science_space',
@@ -1215,6 +1219,12 @@ test('Multi-topic categories, expanded COMPANY_FEED_CATALOG, keyword classifier,
     'startups_fintech',
     'education_grants',
     'global_tech',
+    'model',
+    'api',
+    'coding',
+    'open_source',
+    'research',
+    'business',
     'other',
   ];
   assert.deepEqual([...CATEGORIES], expectedCategories);
@@ -1713,12 +1723,12 @@ test('ExpertOpinionsService handles live fetch, 24h caching, DB missing-table fa
     const controller = new NewsController(mockDb, undefined, undefined, opinionsService);
 
     // 1. Directory endpoint filters by domain and alias
-    const secDir = controller.expertsDirectory('cybersecurity');
+    const secDir = await controller.expertsDirectory('cybersecurity');
     assert.equal(secDir.domain, 'cybersecurity');
     assert.ok(secDir.total >= 3);
     assert.ok(secDir.items.some((e) => e.slug === 'troy-hunt'));
 
-    const aiDir = controller.expertsDirectory('ai');
+    const aiDir = await controller.expertsDirectory('ai');
     assert.ok(aiDir.total >= 4);
     assert.ok(aiDir.items.some((e) => e.slug === 'andrej-karpathy'));
 
@@ -1763,5 +1773,473 @@ test('ExpertOpinionsService handles live fetch, 24h caching, DB missing-table fa
     assert.deepEqual(skipped.opinions, []);
   } finally {
     globalThis.fetch = origFetch;
+  }
+});
+
+test('ExpertOpinionsService loads experts from PostgreSQL and Gemini automatically adds and edits experts', async () => {
+  const expertRows = new Map([
+    [
+      'andrej-karpathy',
+      {
+        slug: 'andrej-karpathy',
+        full_name: 'Andrej Karpathy',
+        handle: '@karpathy',
+        platform: 'x',
+        role_uk: 'Дослідник ШІ, співзасновник OpenAI',
+        organization: 'Eureka Labs',
+        primary_domains: ['model', 'coding'],
+        specializations: ['llm', 'coding'],
+        profile_url: 'https://x.com/karpathy',
+        public_feed_url: null,
+        known_affiliations_uk: 'Колишній директор з ШІ у Tesla та співзасновник OpenAI.',
+        credibility_weight: 97,
+        bias_keywords: ['openai'],
+        conflict_disclosure_uk: 'Потенційний інтерес до Eureka Labs.',
+        documented_positions: [],
+        source_mode: 'seed',
+        last_ai_reviewed_at: null,
+      },
+    ],
+  ]);
+
+  const mockDb = {
+    async query(sql, args = []) {
+      if (sql.includes('FROM expert_profiles')) {
+        return { rows: Array.from(expertRows.values()) };
+      }
+      if (sql.includes('INSERT INTO expert_profiles')) {
+        const [
+          slug,
+          fullName,
+          handle,
+          platform,
+          roleUk,
+          organization,
+          primaryDomains,
+          specializations,
+          profileUrl,
+          knownAffiliationsUk,
+          credibilityWeight,
+          conflictDisclosureUk,
+          documentedPositionsJson,
+          sourceMode,
+        ] = args;
+        const existing = expertRows.get(slug);
+        expertRows.set(slug, {
+          slug,
+          full_name: fullName,
+          handle,
+          platform,
+          role_uk: roleUk,
+          organization,
+          primary_domains: primaryDomains,
+          specializations,
+          profile_url: profileUrl,
+          public_feed_url: null,
+          known_affiliations_uk: knownAffiliationsUk,
+          credibility_weight: credibilityWeight,
+          bias_keywords: existing?.bias_keywords ?? [],
+          conflict_disclosure_uk: conflictDisclosureUk ?? existing?.conflict_disclosure_uk ?? null,
+          documented_positions: JSON.parse(documentedPositionsJson),
+          source_mode: existing ? (existing.source_mode === 'ai_discovered' ? 'ai_discovered' : 'ai_enriched') : sourceMode,
+          last_ai_reviewed_at: new Date().toISOString(),
+        });
+        return { rows: [] };
+      }
+      return { rows: [] };
+    },
+  };
+
+  const origFetch = globalThis.fetch;
+  const prevKey = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = 'test-gemini-key';
+
+  globalThis.fetch = async (input) => {
+    const url = typeof input === 'string' ? input : input.url;
+    if (url.includes('generativelanguage.googleapis.com')) {
+      return new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      addExperts: [
+                        {
+                          fullName: 'Dario Amodei',
+                          handle: '@DarioAmodei',
+                          platform: 'x',
+                          roleUk: 'CEO та співзасновник Anthropic, дослідник безпеки ШІ',
+                          organization: 'Anthropic',
+                          primaryDomains: ['model', 'research'],
+                          specializations: ['safety', 'scaling', 'alignment'],
+                          profileUrl: 'https://x.com/DarioAmodei',
+                          knownAffiliationsUk: 'Співзасновник і CEO Anthropic; раніше VP of Research в OpenAI.',
+                          conflictDisclosureUk: 'Прямий інтерес до екосистеми Claude та Anthropic.',
+                          credibilityWeight: 94,
+                          documentedPosition: {
+                            topicKeywords: ['safety', 'scaling', 'model'],
+                            thesisUk: 'Масштабування моделей має супроводжуватися інтерпретованістю та тестуванням на небезпечні можливості.',
+                            quoteUk: 'Безпека передового ШІ потребує вимірюваних стандартів до релізу.',
+                            keyArgumentsUk: ['Потрібні незалежні оцінки ризиків перед розгортанням.'],
+                            url: 'https://www.anthropic.com/news',
+                            publishedAt: '2026-11-10T10:00:00Z',
+                          },
+                        },
+                      ],
+                      updateExperts: [
+                        {
+                          slug: 'andrej-karpathy',
+                          fullName: 'Andrej Karpathy',
+                          handle: '@karpathy',
+                          platform: 'x',
+                          roleUk: 'Засновник Eureka Labs, дослідник LLM та ШІ-освіти',
+                          organization: 'Eureka Labs',
+                          primaryDomains: ['model', 'coding', 'education_grants'],
+                          specializations: ['llm', 'coding', 'education'],
+                          profileUrl: 'https://x.com/karpathy',
+                          knownAffiliationsUk: 'Засновник Eureka Labs; ex-OpenAI / Tesla.',
+                          credibilityWeight: 97,
+                          documentedPosition: {
+                            topicKeywords: ['agent', 'coding', 'verification'],
+                            thesisUk: 'Агентні цикли в кодингу ефективні лише за наявності автоматичних тестів.',
+                            quoteUk: 'Найкращий підсилювач якості LLM-коду — швидкий цикл верифікації.',
+                            keyArgumentsUk: ['Тести важливіші за довжину промпта.'],
+                            url: 'https://x.com/karpathy/status/123456',
+                            publishedAt: '2026-11-12T10:00:00Z',
+                          },
+                        },
+                      ],
+                    }),
+                  },
+                ],
+              },
+              groundingMetadata: {
+                groundingChunks: [
+                  { web: { uri: 'https://www.anthropic.com/news' } },
+                  { web: { uri: 'https://x.com/karpathy/status/123456' } },
+                ],
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    return new Response(JSON.stringify({}), { status: 404 });
+  };
+
+  try {
+    const service = new ExpertOpinionsService(mockDb);
+    const result = await service.curateExpertsWithGemini({ category: 'model' });
+    assert.equal(result.added, 1);
+    assert.equal(result.updated, 1);
+    assert.equal(result.rejected, 0);
+
+    const directory = await service.listDirectory('model');
+    assert.equal(directory.total, 2);
+
+    const dario = directory.items.find((e) => e.slug === 'dario-amodei');
+    assert.ok(dario, 'Expected Gemini to add Dario Amodei to DB directory');
+    assert.equal(dario.sourceMode, 'ai_discovered');
+    assert.equal(dario.documentedPositionsCount, 1);
+
+    const karpathy = directory.items.find((e) => e.slug === 'andrej-karpathy');
+    assert.ok(karpathy);
+    assert.equal(karpathy.sourceMode, 'ai_enriched');
+    assert.match(karpathy.roleUk, /Eureka Labs/);
+    assert.equal(karpathy.documentedPositionsCount, 2);
+  } finally {
+    globalThis.fetch = origFetch;
+    if (prevKey === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = prevKey;
+  }
+});
+
+test('NewsController.list sorts chronologically by published_at and enforces 24h cutoff for important & maxAgeHours', async () => {
+  const now = Date.now();
+  const isoHoursAgo = (h) => new Date(now - h * 60 * 60 * 1000).toISOString();
+
+  const dbRows = [
+    {
+      id: '10',
+      external_id: 'ext-10',
+      url: 'https://www.pravda.com.ua/news/10',
+      original_title: 'Older important politics item',
+      title_uk: 'Тижнева політична новина про податки та бюджет',
+      summary_uk: 'Детальний огляд тижневої давності.',
+      why_it_matters: 'Важливо для контексту.',
+      category: 'politics',
+      importance: 'high',
+      important: true,
+      published_at: isoHoursAgo(96),
+      updated_at: isoHoursAgo(96),
+      source_name: 'Українська правда',
+      source_slug: 'pravda-ua',
+      hydrogen_deep_analysis: true,
+    },
+    {
+      id: '20',
+      external_id: 'ext-20',
+      url: 'https://www.epravda.com.ua/news/20',
+      original_title: 'Fresh economy & currency rates update',
+      title_uk: 'Сьогоднішній курс валют, інфляція та ставки депозитів',
+      summary_uk: 'Свіжі дані фінансового ринку за сьогодні.',
+      why_it_matters: 'Впливає на особисті фінанси та кредити.',
+      category: 'finance',
+      importance: 'high',
+      important: true,
+      published_at: isoHoursAgo(2),
+      updated_at: isoHoursAgo(2),
+      source_name: 'Економічна правда',
+      source_slug: 'epravda-ua',
+      hydrogen_deep_analysis: false,
+    },
+    {
+      id: '30',
+      external_id: 'ext-30',
+      url: 'https://suspilne.media/news/30',
+      original_title: 'Middle-age law update',
+      title_uk: 'Вчорашні зміни правил перетину кордону і документів у Дії',
+      summary_uk: 'Корисне уточнення вчорашнього дня.',
+      why_it_matters: 'Практичні правила для поїздок.',
+      category: 'law',
+      importance: 'medium',
+      important: false,
+      published_at: isoHoursAgo(12),
+      updated_at: isoHoursAgo(12),
+      source_name: 'Суспільне Новини',
+      source_slug: 'suspilne-news',
+      hydrogen_deep_analysis: false,
+    },
+  ];
+
+  const mockDb = {
+    query: async () => ({ rows: dbRows.map((r) => ({ ...r })) }),
+  };
+  const mockFeeds = {
+    list: async () => ({ items: [] }),
+  };
+
+  const controller = new NewsController(mockDb, mockFeeds);
+
+  // 1. Default sort (newest) even with topics passed must order newest -> oldest and demote stale (>24h) important flag
+  // Signature: list(limit, offset, category, sources, important, topics, depth, sort, maxAgeHours)
+  const newestRes = await controller.list(
+    '30',
+    '0',
+    undefined,
+    undefined,
+    undefined,
+    'politics,finance,law',
+    'balanced',
+  );
+  assert.deepEqual(
+    newestRes.items.map((i) => i.id),
+    ['20', '30', '10'],
+  );
+  const staleInGeneral = newestRes.items.find((i) => i.id === '10');
+  assert.equal(staleInGeneral.important, false);
+
+  // 2. Oldest sort reverses chronological order
+  const oldestRes = await controller.list(
+    '30',
+    '0',
+    undefined,
+    undefined,
+    undefined,
+    'politics,finance,law',
+    'balanced',
+    'oldest',
+  );
+  assert.deepEqual(
+    oldestRes.items.map((i) => i.id),
+    ['10', '30', '20'],
+  );
+
+  // 3. important=true defaults to 24h cutoff and excludes week-old important items
+  const importantRes = await controller.list(undefined, undefined, undefined, undefined, 'true');
+  assert.deepEqual(
+    importantRes.items.map((i) => i.id),
+    ['20'],
+  );
+
+  // 4. maxAgeHours=24 excludes 96h-old entry
+  const dayRes = await controller.list(
+    '30',
+    '0',
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    'newest',
+    '24',
+  );
+  assert.deepEqual(
+    dayRes.items.map((i) => i.id),
+    ['20', '30'],
+  );
+
+  await assert.rejects(
+    () => controller.list(undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'invalid_sort'),
+    BadRequestException,
+  );
+  await assert.rejects(
+    () => controller.list(undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'newest', '0'),
+    BadRequestException,
+  );
+});
+
+test('FeedEditorialService skips RSS entries older than 24 hours and processes only recent articles', async () => {
+  const now = Date.now();
+  const ingestedUrls = [];
+
+  const mockFeeds = {
+    list: async () => ({
+      items: [
+        {
+          id: 'feed-stale-48h',
+          url: 'https://www.pravda.com.ua/news/stale',
+          original_title: 'Old article 48h ago',
+          original_summary: 'Should be skipped by 24h gate',
+          source_name: 'Українська правда',
+          source_slug: 'pravda-ua',
+          published_at: new Date(now - 48 * 60 * 60 * 1000).toISOString(),
+          category: 'politics',
+        },
+        {
+          id: 'feed-fresh-2h',
+          url: 'https://www.bbc.com/news/health/fresh',
+          original_title: 'Fresh sleep longevity study published today',
+          original_summary: 'New evidence on sleep and exercise.',
+          source_name: 'BBC Health',
+          source_slug: 'bbc-health',
+          published_at: new Date(now - 2 * 60 * 60 * 1000).toISOString(),
+          category: 'health',
+        },
+      ],
+    }),
+    getActiveFeeds: () => [
+      { slug: 'pravda-ua', name: 'Українська правда', domain: 'pravda.com.ua', url: 'https://www.pravda.com.ua/rss/', category: 'politics' },
+      { slug: 'bbc-health', name: 'BBC Health', domain: 'bbc.com', url: 'https://feeds.bbci.co.uk/news/health/rss.xml', category: 'health' },
+    ],
+  };
+
+  const mockEditor = {
+    enabled: true,
+    planBatchAnglesWithHydrogen: async () => new Map(),
+    polishArticlesBatchWithHydrogen: async () => ({ polishedCount: 0, modelUsed: null }),
+  };
+
+  const mockIngest = {
+    ingest: async (dto) => {
+      for (const entry of dto.items ?? []) {
+        ingestedUrls.push(entry.url);
+      }
+      return { ok: true, written: 1, skipped: 0, duplicate: false, item: { id: 'new-1', status: 'published' } };
+    },
+  };
+
+  const mockDb = {
+    query: async () => ({ rows: [] }),
+  };
+
+  const mockCatalog = {
+    notifyArticlePublished: async () => undefined,
+  };
+
+  const service = new FeedEditorialService(mockFeeds, mockEditor, mockIngest, mockDb, mockCatalog);
+  const summary = await service.runOnce();
+  assert.equal(summary.processed, 1);
+  assert.deepEqual(ingestedUrls, ['https://www.bbc.com/news/health/fresh']);
+});
+
+test('NewsTtsService sends clean script without spoken style directives or meta filler', async () => {
+  resetGeminiClientStateForTests();
+
+  const dirty = 'Озвуч українською виразно та спокійно. У цьому аудіоогляді: Ключове рішення бюджету ухвалено сьогодні.';
+  const cleaned = stripTtsPromptDirectives(dirty);
+  assert.ok(!/озвуч/i.test(cleaned));
+  assert.ok(!/у цьому аудіоогляді/i.test(cleaned));
+  assert.ok(cleaned.includes('Ключове рішення бюджету ухвалено сьогодні.'));
+
+  const script = buildBroadcastScriptUk(
+    {
+      titleUk: 'Нацбанк оновив орієнтири інфляції та ставок за депозитами',
+      summaryUk: 'Регулятор зафіксував зниження інфляційних очікувань і стабільність валютного ринку.',
+      whyItMatters: 'Це впливає на дохідність гривневих заощаджень та вартість кредитів для родин.',
+      sourceName: 'Економічна правда',
+    },
+    { depth: 'balanced', style: 'podcast_story' },
+  );
+  assert.ok(!/у цьому аудіоогляді|головне зі світу технологій|почнемо з головного/i.test(script));
+
+  const mockDb = {
+    query: async () => ({
+      rows: [
+        {
+          id: '501',
+          external_id: 'finance-501',
+          title_uk: 'Нацбанк оновив орієнтири інфляції та ставок за депозитами',
+          original_title: 'NBU inflation and deposit outlook',
+          summary_uk: 'Регулятор зафіксував зниження інфляційних очікувань і стабільність валютного ринку.',
+          original_summary: null,
+          why_it_matters: 'Це впливає на дохідність гривневих заощаджень та вартість кредитів для родин.',
+          importance: 'high',
+          important_flag: true,
+          source_name: 'Економічна правда',
+          hydrogen_insight: null,
+          comparisons: [],
+          facts: [],
+        },
+      ],
+    }),
+  };
+
+  let sentTtsText = '';
+  const prevKey = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = 'test-tts-clean';
+  const pcm = Buffer.from([1, 2, 3, 4]);
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    const parsed = JSON.parse(String(init?.body ?? '{}'));
+    sentTtsText = String(parsed?.contents?.[0]?.parts?.[0]?.text ?? '');
+    return new Response(
+      JSON.stringify({
+        candidates: [
+          {
+            finishReason: 'STOP',
+            content: {
+              parts: [
+                {
+                  inlineData: {
+                    mimeType: 'audio/L16;rate=24000',
+                    data: pcm.toString('base64'),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  };
+
+  try {
+    const svc = new NewsTtsService(mockDb);
+    const res = await svc.generateImportantNewsBriefing('finance-501', undefined, {
+      depth: 'balanced',
+      style: 'podcast_story',
+    });
+    assert.ok(sentTtsText.length > 20);
+    assert.ok(!/озвуч|інтонац|передай новину|у цьому аудіоогляді|читай виключно/i.test(sentTtsText));
+    assert.equal(sentTtsText, res.scriptUk);
+  } finally {
+    globalThis.fetch = origFetch;
+    if (prevKey === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = prevKey;
   }
 });

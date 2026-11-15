@@ -103,13 +103,14 @@ export class SourceDiscoveryService implements OnModuleInit, OnModuleDestroy {
     const existingUrls = new Set(existing.map(f => f.url.toLowerCase()));
     const existingSlugs = new Set(existing.map(f => f.slug.toLowerCase()));
 
-    const prompt = `You are an AI developer ecosystem curator.
+    const prompt = `You are a multi-domain Ukrainian and global news curator covering politics, legislation, economy & personal finance, labor market, science & space, evidence-based medicine & psychology, culture/cinema/games, defense, cybersecurity, and technology.
 Already monitored feeds:
 ${existing.map(f => `- ${f.name}: ${f.url}`).join('\n')}
 
-Suggest up to 6 additional real, publicly accessible HTTPS RSS or Atom feed URLs for official AI provider blogs, API changelogs, or official GitHub SDK/tool releases (e.g. LangChain, LlamaIndex, Vercel AI SDK, Perplexity, Groq, Together AI, Cohere, Google Gemini SDK, Anthropic SDK, Hugging Face).
+Suggest up to 6 additional real, publicly accessible HTTPS RSS or Atom feed URLs from reputable Ukrainian or international newsrooms across politics, law/economy, science/space, medicine/psychology, culture/cinema/gaming, or technology.
 Rules:
-- Only return real HTTPS RSS (.xml, /rss, /feed) or GitHub releases.atom URLs.
+- Only return real HTTPS RSS (.xml, /rss, /feed) or Atom URLs.
+- Prioritize reputable general news, economics, science, health, psychology, and culture feeds over niche developer libraries.
 - Do NOT repeat any URL from the already monitored list above.
 - Do NOT invent URLs if unsure.`;
 

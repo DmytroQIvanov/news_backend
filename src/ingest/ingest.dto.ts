@@ -1,12 +1,14 @@
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsISO8601, IsNotEmpty, IsObject, IsOptional, IsString, Matches, MaxLength, ValidateNested } from 'class-validator';
 export const CATEGORIES = [
-  'model',
-  'api',
-  'coding',
-  'open_source',
-  'research',
-  'business',
+  'politics',
+  'law',
+  'economy',
+  'finance',
+  'career',
+  'health',
+  'psychology',
+  'culture',
   'defense',
   'cybersecurity',
   'science_space',
@@ -14,6 +16,12 @@ export const CATEGORIES = [
   'startups_fintech',
   'education_grants',
   'global_tech',
+  'model',
+  'api',
+  'coding',
+  'open_source',
+  'research',
+  'business',
   'other',
 ] as const;
 export type NewsCategory = (typeof CATEGORIES)[number];

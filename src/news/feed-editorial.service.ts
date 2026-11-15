@@ -5,7 +5,7 @@ import { DatabaseService } from '../database/database.service';
 import { BatchAngleHint, GeminiEditorService, PolishBatchResult } from '../ingest/gemini-editor.service';
 import { CATEGORIES } from '../ingest/ingest.dto';
 import { IngestService } from '../ingest/ingest.service';
-import { CompanyFeedsService } from './company-feeds.service';
+import { CompanyFeedsService, isPublishedWithinHours } from './company-feeds.service';
 
 @Injectable()
 export class FeedEditorialService implements OnModuleInit, OnModuleDestroy {
@@ -74,22 +74,28 @@ export class FeedEditorialService implements OnModuleInit, OnModuleDestroy {
       const known = new Set(rows.flatMap(row => [row.external_id, row.url, row.canonical_url].filter((v): v is string => !!v)));
 
       const activeFeeds = this.feeds.getActiveFeeds();
-      const maxPerCycle = 3;
+      const maxPerCycle = 4;
       const pendingCandidates: Array<{ feed: (typeof activeFeeds)[number]; item: (typeof items)[number] }> = [];
       for (const feed of activeFeeds) {
-        const item = items.find(
-          entry =>
-            entry.source_slug === feed.slug &&
-            !known.has(entry.id) &&
-            !known.has(entry.url) &&
-            !known.has(entry.canonical_url),
-        );
+        const freshForFeed = items
+          .filter(
+            entry =>
+              entry.source_slug === feed.slug &&
+              isPublishedWithinHours(entry.published_at, 24) &&
+              !known.has(entry.id) &&
+              !known.has(entry.url) &&
+              !known.has(entry.canonical_url),
+          )
+          .sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at));
+        const item = freshForFeed[0];
         if (!item) {
           skipped += 1;
           continue;
         }
         pendingCandidates.push({ feed, item });
       }
+
+      pendingCandidates.sort((a, b) => Date.parse(b.item.published_at) - Date.parse(a.item.published_at));
 
       const plannerBatch = pendingCandidates.slice(0, 10);
       let angleHints: Record<string, BatchAngleHint> = {};
@@ -106,9 +112,11 @@ export class FeedEditorialService implements OnModuleInit, OnModuleDestroy {
       }
 
       const prioritizedCandidates = [...pendingCandidates].sort((a, b) => {
+        const timeDiff = Date.parse(b.item.published_at) - Date.parse(a.item.published_at);
         const aBoost = angleHints[a.item.id]?.boostImportant ? 1 : 0;
         const bBoost = angleHints[b.item.id]?.boostImportant ? 1 : 0;
-        return bBoost - aBoost;
+        if (bBoost !== aBoost) return bBoost - aBoost;
+        return timeDiff;
       });
 
       for (const { feed, item } of prioritizedCandidates) {

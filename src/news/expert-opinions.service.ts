@@ -1,8 +1,15 @@
-import { Injectable, Logger, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { canUseHydrogenQuota, DEFAULT_GEMINI_MODEL, DEFAULT_HYDROGEN_MODEL, postGeminiGenerateContent } from '../common/gemini-client';
 import { DatabaseService } from '../database/database.service';
+import { CATEGORIES, NewsCategory } from '../ingest/ingest.dto';
 import { CompanyFeedsService } from './company-feeds.service';
-import { EXPERT_DIRECTORY, ExpertProfile, scoreExpertCompetenceForTopic } from './expert-directory';
+import {
+  DocumentedExpertPosition,
+  EXPERT_DIRECTORY,
+  ExpertPlatform,
+  ExpertProfile,
+  scoreExpertCompetenceForTopic,
+} from './expert-directory';
 
 export type EmbedType = 'x_oembed' | 'facebook_plugin' | 'bsky_oembed' | 'hn_card' | 'web_embed';
 
@@ -99,6 +106,7 @@ const ALLOWED_PUBLIC_EXPERT_HOSTS = [
   'arxiv.org',
   'huggingface.co',
   'nature.com',
+  'calnewport.com',
 ];
 
 function safePublicHttpsUrl(raw: unknown): string | null {
@@ -248,7 +256,7 @@ export function evaluateShouldDisplayExpertBlock(input: {
   let score = 56;
   if (importance === 'high' || importance === 'critical') score += 26;
   if (
-    /\b(release|launch|breakthrough|cve-\d+|zero-day|vulnerability|regulation|acquisition|series [a-d]|funding|drone|defense|open[- ]source|open[- ]weight|benchmark|architecture|quantum|space|nasa|fintech)\b|реліз|прорив|оборон|дрон|вразлив|регуляц|інвестиц|досліджен|запуск/i.test(
+    /\b(release|launch|breakthrough|cve-\d+|zero-day|vulnerability|regulation|acquisition|series [a-d]|funding|drone|defense|open[- ]source|open[- ]weight|benchmark|architecture|quantum|space|nasa|fintech|election|treaty|summit|tax|tariff|inflation|central bank|currency|clinical|longevity|sleep|psychology|burnout|festival|film|premiere)\b|реліз|прорив|оборон|дрон|вразлив|регуляц|інвестиц|досліджен|запуск|закон|подат|кордон|виплат|курс|інфляц|валют|депозит|політик|безпек|сон|здоров|стрес|вигоран|кіно|серіал|фестивал/i.test(
       combined,
     )
   ) {
@@ -387,11 +395,22 @@ export function validateExpertOpinionItem(raw: unknown): ExpertOpinionItem {
   };
 }
 
+export interface ManagedExpertProfile extends ExpertProfile {
+  sourceMode?: 'seed' | 'ai_discovered' | 'ai_enriched';
+  lastAiReviewedAt?: string | null;
+}
+
+const DIRECTORY_CACHE_TTL_MS = 60_000;
+
 @Injectable()
-export class ExpertOpinionsService implements OnModuleInit {
+export class ExpertOpinionsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ExpertOpinionsService.name);
   private readonly memoryCache = new Map<string, { expiresAt: number; payload: ExpertOpinionsResponse }>();
   private readonly key = process.env.GEMINI_API_KEY?.trim();
+  private directoryCache: { expiresAt: number; items: ManagedExpertProfile[] } | null = null;
+  private curateTimer?: NodeJS.Timeout;
+  private isDestroyed = false;
+  private activeCuration?: Promise<{ added: number; updated: number; rejected: number }>;
 
   constructor(
     @Optional() private readonly db?: DatabaseService,
@@ -404,56 +423,299 @@ export class ExpertOpinionsService implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     await this.seedExpertDirectory().catch(() => undefined);
+    if (this.activeKey && process.env.NODE_ENV !== 'test') {
+      const intervalMs = 24 * 60 * 60_000;
+      const scheduleNext = () => {
+        this.curateTimer = setTimeout(async () => {
+          if (this.isDestroyed) return;
+          try {
+            await this.curateExpertsWithGemini();
+          } catch (err) {
+            this.logger.warn(`Scheduled expert curation failed: ${err instanceof Error ? err.message : err}`);
+          } finally {
+            if (!this.isDestroyed) scheduleNext();
+          }
+        }, intervalMs);
+      };
+      this.curateTimer = setTimeout(async () => {
+        if (this.isDestroyed) return;
+        try {
+          await this.curateExpertsWithGemini();
+        } catch (err) {
+          this.logger.warn(`Initial expert curation failed: ${err instanceof Error ? err.message : err}`);
+        } finally {
+          if (!this.isDestroyed) scheduleNext();
+        }
+      }, 120_000);
+    }
+  }
+
+  onModuleDestroy(): void {
+    this.isDestroyed = true;
+    if (this.curateTimer) clearTimeout(this.curateTimer);
   }
 
   clearCacheForTests(): void {
     this.memoryCache.clear();
+    this.directoryCache = null;
   }
 
   async seedExpertDirectory(): Promise<void> {
     if (!this.db) return;
     try {
       for (const expert of EXPERT_DIRECTORY) {
-        await this.db.query(
-          `INSERT INTO expert_profiles (
-             slug, full_name, handle, platform, role_uk, organization,
-             primary_domains, specializations, profile_url, public_feed_url,
-             known_affiliations_uk, credibility_weight, updated_at
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7::text[],$8::text[],$9,$10,$11,$12,now())
-           ON CONFLICT (slug) DO UPDATE SET
-             full_name = EXCLUDED.full_name,
-             handle = EXCLUDED.handle,
-             platform = EXCLUDED.platform,
-             role_uk = EXCLUDED.role_uk,
-             organization = EXCLUDED.organization,
-             primary_domains = EXCLUDED.primary_domains,
-             specializations = EXCLUDED.specializations,
-             profile_url = EXCLUDED.profile_url,
-             public_feed_url = EXCLUDED.public_feed_url,
-             known_affiliations_uk = EXCLUDED.known_affiliations_uk,
-             credibility_weight = EXCLUDED.credibility_weight,
-             updated_at = now()`,
-          [
-            expert.slug,
-            expert.fullName,
-            expert.handle,
-            expert.platform,
-            expert.roleUk,
-            expert.organization,
-            expert.primaryDomains,
-            expert.specializations,
-            expert.profileUrl,
-            expert.publicFeedUrl ?? null,
-            expert.knownAffiliationsUk,
-            expert.credibilityWeight,
-          ],
-        );
+        try {
+          await this.db.query(
+            `INSERT INTO expert_profiles (
+               slug, full_name, handle, platform, role_uk, organization,
+               primary_domains, specializations, profile_url, public_feed_url,
+               known_affiliations_uk, credibility_weight,
+               bias_keywords, conflict_disclosure_uk, documented_positions, source_mode, updated_at
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7::text[],$8::text[],$9,$10,$11,$12,$13::text[],$14,$15::jsonb,'seed',now())
+             ON CONFLICT (slug) DO UPDATE SET
+               full_name = EXCLUDED.full_name,
+               handle = EXCLUDED.handle,
+               platform = EXCLUDED.platform,
+               role_uk = EXCLUDED.role_uk,
+               organization = EXCLUDED.organization,
+               primary_domains = EXCLUDED.primary_domains,
+               specializations = EXCLUDED.specializations,
+               profile_url = EXCLUDED.profile_url,
+               public_feed_url = EXCLUDED.public_feed_url,
+               known_affiliations_uk = EXCLUDED.known_affiliations_uk,
+               credibility_weight = EXCLUDED.credibility_weight,
+               bias_keywords = EXCLUDED.bias_keywords,
+               conflict_disclosure_uk = EXCLUDED.conflict_disclosure_uk,
+               documented_positions = CASE
+                 WHEN jsonb_array_length(COALESCE(expert_profiles.documented_positions, '[]'::jsonb)) = 0
+                 THEN EXCLUDED.documented_positions
+                 ELSE expert_profiles.documented_positions
+               END,
+               updated_at = now()
+             WHERE expert_profiles.source_mode = 'seed' AND expert_profiles.last_ai_reviewed_at IS NULL`,
+            [
+              expert.slug,
+              expert.fullName,
+              expert.handle,
+              expert.platform,
+              expert.roleUk,
+              expert.organization,
+              expert.primaryDomains,
+              expert.specializations,
+              expert.profileUrl,
+              expert.publicFeedUrl ?? null,
+              expert.knownAffiliationsUk,
+              expert.credibilityWeight,
+              expert.biasKeywords ?? [],
+              expert.conflictDisclosureUk ?? null,
+              JSON.stringify(expert.documentedPositions),
+            ],
+          );
+        } catch {
+          await this.db.query(
+            `INSERT INTO expert_profiles (
+               slug, full_name, handle, platform, role_uk, organization,
+               primary_domains, specializations, profile_url, public_feed_url,
+               known_affiliations_uk, credibility_weight, updated_at
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7::text[],$8::text[],$9,$10,$11,$12,now())
+             ON CONFLICT (slug) DO NOTHING`,
+            [
+              expert.slug,
+              expert.fullName,
+              expert.handle,
+              expert.platform,
+              expert.roleUk,
+              expert.organization,
+              expert.primaryDomains,
+              expert.specializations,
+              expert.profileUrl,
+              expert.publicFeedUrl ?? null,
+              expert.knownAffiliationsUk,
+              expert.credibilityWeight,
+            ],
+          );
+        }
       }
+      this.directoryCache = null;
     } catch (error) {
       this.logger.debug(
         `Skipped seeding expert_profiles (migration 010 may not be applied yet): ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+  }
+
+  async loadExpertProfilesFromDb(): Promise<ManagedExpertProfile[]> {
+    if (this.directoryCache && this.directoryCache.expiresAt > Date.now()) {
+      return this.directoryCache.items;
+    }
+    if (!this.db) {
+      return EXPERT_DIRECTORY.map((e) => ({ ...e, sourceMode: 'seed', lastAiReviewedAt: null }));
+    }
+
+    const seedBySlug = new Map(EXPERT_DIRECTORY.map((e) => [e.slug, e]));
+
+    try {
+      const { rows } = await this.db.query<{
+        slug: string;
+        full_name: string;
+        handle: string;
+        platform: string;
+        role_uk: string;
+        organization: string | null;
+        primary_domains: string[] | null;
+        specializations: string[] | null;
+        profile_url: string;
+        public_feed_url: string | null;
+        known_affiliations_uk: string | null;
+        credibility_weight: number;
+        bias_keywords?: string[] | null;
+        conflict_disclosure_uk?: string | null;
+        documented_positions?: unknown;
+        source_mode?: string | null;
+        last_ai_reviewed_at?: string | Date | null;
+      }>(
+        `SELECT slug, full_name, handle, platform, role_uk, organization,
+                primary_domains, specializations, profile_url, public_feed_url,
+                known_affiliations_uk, credibility_weight,
+                bias_keywords, conflict_disclosure_uk, documented_positions,
+                source_mode, last_ai_reviewed_at
+         FROM expert_profiles
+         ORDER BY credibility_weight DESC, slug ASC`,
+      );
+
+      if (rows.length > 0) {
+        const mapped: ManagedExpertProfile[] = rows.map((row) => {
+          const seed = seedBySlug.get(row.slug);
+          const dbPositions = normalizeDocumentedPositions(row.documented_positions);
+          return {
+            slug: row.slug,
+            fullName: row.full_name,
+            handle: row.handle,
+            platform: normalizePlatform(row.platform),
+            roleUk: row.role_uk,
+            organization: row.organization || seed?.organization || 'Незалежний експерт',
+            primaryDomains: normalizeDomains(row.primary_domains, seed?.primaryDomains),
+            specializations: Array.isArray(row.specializations) && row.specializations.length > 0
+              ? row.specializations
+              : seed?.specializations ?? [],
+            profileUrl: row.profile_url,
+            publicFeedUrl: row.public_feed_url ?? seed?.publicFeedUrl,
+            knownAffiliationsUk: row.known_affiliations_uk || seed?.knownAffiliationsUk || 'Незалежна публічна діяльність.',
+            biasKeywords: Array.isArray(row.bias_keywords) && row.bias_keywords.length > 0
+              ? row.bias_keywords
+              : seed?.biasKeywords,
+            conflictDisclosureUk: row.conflict_disclosure_uk ?? seed?.conflictDisclosureUk,
+            credibilityWeight: Number(row.credibility_weight) || seed?.credibilityWeight || 80,
+            documentedPositions: dbPositions.length > 0 ? dbPositions : (seed?.documentedPositions ?? []),
+            sourceMode: normalizeSourceMode(row.source_mode),
+            lastAiReviewedAt: row.last_ai_reviewed_at
+              ? new Date(row.last_ai_reviewed_at).toISOString()
+              : null,
+          };
+        });
+        this.directoryCache = { expiresAt: Date.now() + DIRECTORY_CACHE_TTL_MS, items: mapped };
+        return mapped;
+      }
+    } catch {
+      try {
+        const { rows } = await this.db.query<{
+          slug: string;
+          full_name: string;
+          handle: string;
+          platform: string;
+          role_uk: string;
+          organization: string | null;
+          primary_domains: string[] | null;
+          specializations: string[] | null;
+          profile_url: string;
+          public_feed_url: string | null;
+          known_affiliations_uk: string | null;
+          credibility_weight: number;
+        }>(
+          `SELECT slug, full_name, handle, platform, role_uk, organization,
+                  primary_domains, specializations, profile_url, public_feed_url,
+                  known_affiliations_uk, credibility_weight
+           FROM expert_profiles
+           ORDER BY credibility_weight DESC, slug ASC`,
+        );
+        if (rows.length > 0) {
+          const mapped: ManagedExpertProfile[] = rows.map((row) => {
+            const seed = seedBySlug.get(row.slug);
+            return {
+              slug: row.slug,
+              fullName: row.full_name,
+              handle: row.handle,
+              platform: normalizePlatform(row.platform),
+              roleUk: row.role_uk,
+              organization: row.organization || seed?.organization || 'Незалежний експерт',
+              primaryDomains: normalizeDomains(row.primary_domains, seed?.primaryDomains),
+              specializations: Array.isArray(row.specializations) && row.specializations.length > 0
+                ? row.specializations
+                : seed?.specializations ?? [],
+              profileUrl: row.profile_url,
+              publicFeedUrl: row.public_feed_url ?? seed?.publicFeedUrl,
+              knownAffiliationsUk: row.known_affiliations_uk || seed?.knownAffiliationsUk || 'Незалежна публічна діяльність.',
+              biasKeywords: seed?.biasKeywords,
+              conflictDisclosureUk: seed?.conflictDisclosureUk,
+              credibilityWeight: Number(row.credibility_weight) || seed?.credibilityWeight || 80,
+              documentedPositions: seed?.documentedPositions ?? [],
+              sourceMode: 'seed',
+              lastAiReviewedAt: null,
+            };
+          });
+          this.directoryCache = { expiresAt: Date.now() + DIRECTORY_CACHE_TTL_MS, items: mapped };
+          return mapped;
+        }
+      } catch {
+        // Table may not exist in test/bootstrap mode; fall back to seed list cleanly
+      }
+    }
+
+    return EXPERT_DIRECTORY.map((e) => ({ ...e, sourceMode: 'seed', lastAiReviewedAt: null }));
+  }
+
+  async listDirectory(domain?: string, targetCategories: string[] = []) {
+    const cleanDomain = domain?.trim().toLowerCase() || '';
+    const effectiveCategories = targetCategories.length > 0
+      ? targetCategories
+      : cleanDomain
+        ? [cleanDomain]
+        : [];
+    const experts = await this.loadExpertProfilesFromDb();
+
+    const filtered = cleanDomain
+      ? experts.filter(
+          (expert) =>
+            expert.primaryDomains.some((d) => effectiveCategories.includes(d)) ||
+            expert.specializations.some((spec) => spec.toLowerCase().includes(cleanDomain)),
+        )
+      : experts;
+
+    const sorted = [...filtered].sort((a, b) => b.credibilityWeight - a.credibilityWeight);
+    const items = sorted.map((expert) => ({
+      slug: expert.slug,
+      fullName: expert.fullName,
+      handle: expert.handle,
+      platform: expert.platform,
+      roleUk: expert.roleUk,
+      organization: expert.organization,
+      primaryDomains: expert.primaryDomains,
+      specializations: expert.specializations,
+      profileUrl: expert.profileUrl,
+      publicFeedUrl: expert.publicFeedUrl ?? null,
+      knownAffiliationsUk: expert.knownAffiliationsUk,
+      conflictDisclosureUk: expert.conflictDisclosureUk ?? null,
+      credibilityWeight: expert.credibilityWeight,
+      documentedPositionsCount: expert.documentedPositions.length,
+      sourceMode: expert.sourceMode ?? 'seed',
+      lastAiReviewedAt: expert.lastAiReviewedAt ?? null,
+    }));
+
+    return {
+      domain: cleanDomain || 'all',
+      total: items.length,
+      items,
+    };
   }
 
   async getOpinionsForNews(id: string, options: GetExpertOpinionsOptions = {}): Promise<ExpertOpinionsResponse> {
@@ -504,14 +766,15 @@ export class ExpertOpinionsService implements OnModuleInit {
       return skippedPayload;
     }
 
+    const experts = await this.loadExpertProfilesFromDb();
     let collected: ExpertOpinionItem[] = [];
     let hasLiveHits = false;
 
     if (!options.skipLiveFetch) {
       const searchQuery = extractSearchTerms(context.title);
       const [hnResult, bskyResult] = await Promise.allSettled([
-        this.fetchHackerNewsOpinions(searchQuery, context),
-        this.fetchBlueskyOpinions(searchQuery, context),
+        this.fetchHackerNewsOpinions(searchQuery, context, experts),
+        this.fetchBlueskyOpinions(searchQuery, context, experts),
       ]);
 
       if (hnResult.status === 'fulfilled') collected.push(...hnResult.value);
@@ -522,7 +785,7 @@ export class ExpertOpinionsService implements OnModuleInit {
       }
 
       if (collected.length < 2 && this.activeKey && process.env.NODE_ENV !== 'test') {
-        const geminiFound = await this.discoverExpertOpinionsWithGemini(context).catch(() => []);
+        const geminiFound = await this.discoverExpertOpinionsWithGemini(context, experts).catch(() => []);
         if (geminiFound.length > 0) {
           hasLiveHits = true;
           collected.push(...geminiFound);
@@ -531,6 +794,7 @@ export class ExpertOpinionsService implements OnModuleInit {
     }
 
     const registryOpinions = this.buildRegistryExpertOpinions(
+      experts,
       context.category,
       context.title,
       context.summary,
@@ -739,6 +1003,7 @@ export class ExpertOpinionsService implements OnModuleInit {
   private async fetchHackerNewsOpinions(
     query: string,
     context: NewsContextRecord,
+    experts: ExpertProfile[] = EXPERT_DIRECTORY,
   ): Promise<ExpertOpinionItem[]> {
     if (!query) return [];
     try {
@@ -767,7 +1032,7 @@ export class ExpertOpinionsService implements OnModuleInit {
         if (!objectId || !hit.author || rawText.length < 30) continue;
 
         const hnUrl = `https://news.ycombinator.com/item?id=${encodeURIComponent(objectId)}`;
-        const matchedExpert = findExpertByAuthor(hit.author);
+        const matchedExpert = findExpertByAuthor(experts, hit.author);
         const quote = rawText.slice(0, 380);
         const competenceScore = matchedExpert
           ? scoreExpertCompetenceForTopic(matchedExpert, context.category, context.title, context.summary).score
@@ -809,6 +1074,7 @@ export class ExpertOpinionsService implements OnModuleInit {
   private async fetchBlueskyOpinions(
     query: string,
     context: NewsContextRecord,
+    experts: ExpertProfile[] = EXPERT_DIRECTORY,
   ): Promise<ExpertOpinionItem[]> {
     if (!query) return [];
     try {
@@ -836,7 +1102,7 @@ export class ExpertOpinionsService implements OnModuleInit {
         if (!handle || !rkey || text.length < 30) continue;
 
         const postUrl = `https://bsky.app/profile/${encodeURIComponent(handle)}/post/${encodeURIComponent(rkey)}`;
-        const matchedExpert = findExpertByAuthor(handle, post.author?.displayName);
+        const matchedExpert = findExpertByAuthor(experts, handle, post.author?.displayName);
         if (!matchedExpert && text.length < 60) continue;
 
         let oembedHtml: string | undefined;
@@ -891,9 +1157,12 @@ export class ExpertOpinionsService implements OnModuleInit {
 
   private async discoverExpertOpinionsWithGemini(
     context: NewsContextRecord,
+    experts: ManagedExpertProfile[] = [],
   ): Promise<ExpertOpinionItem[]> {
     if (!this.activeKey) return [];
-    const allowedExpertsHint = EXPERT_DIRECTORY.filter((e) => e.primaryDomains.includes(context.category as never))
+    const pool = experts.length > 0 ? experts : await this.loadExpertProfilesFromDb();
+    const allowedExpertsHint = pool
+      .filter((e) => e.primaryDomains.includes(context.category as never))
       .slice(0, 8)
       .map((e) => `${e.fullName} (${e.handle}, ${e.profileUrl})`)
       .join('; ');
@@ -906,7 +1175,7 @@ export class ExpertOpinionsService implements OnModuleInit {
         systemInstruction: {
           parts: [
             {
-              text: 'Find REAL, publicly verified statements from reputable experts on X, Facebook, Bluesky, GitHub, or official blogs about the news item. Return strict JSON array under { "opinions": [...] }. NEVER fabricate quotes or URLs; cite only URLs returned by search grounding.',
+              text: 'Find REAL, publicly verified statements from reputable domain experts (either from relevant_experts_reference or other authoritative real experts) on X, Facebook, Bluesky, GitHub, or official blogs about the news item. Return strict JSON under { "opinions": [...] } with fields: expertName, handle, platform, roleUk, organization, directQuote, stanceSummaryUk, keyArgumentsUk (string[]), contextUk, publishedAt, sourceUrl, profileUrl (optional), specializations (string[], optional). NEVER fabricate quotes or URLs; cite only URLs returned by search grounding.',
             },
           ],
         },
@@ -974,18 +1243,24 @@ export class ExpertOpinionsService implements OnModuleInit {
       }
 
       try {
-        validated.push(
-          validateExpertOpinionItem({
-            ...candidate,
-            verificationStatus: 'gemini_search_grounded',
-            embed: buildOfficialEmbedInfo(
-              safeUrl,
-              typeof candidate.handle === 'string' ? candidate.handle : undefined,
-              typeof candidate.directQuote === 'string' ? candidate.directQuote : undefined,
-              htmlSnippet,
-            ),
-          }),
-        );
+        const item = validateExpertOpinionItem({
+          ...candidate,
+          verificationStatus: 'gemini_search_grounded',
+          embed: buildOfficialEmbedInfo(
+            safeUrl,
+            typeof candidate.handle === 'string' ? candidate.handle : undefined,
+            typeof candidate.directQuote === 'string' ? candidate.directQuote : undefined,
+            htmlSnippet,
+          ),
+        });
+        validated.push(item);
+
+        // Automatically persist newly discovered experts or enrich existing ones in PostgreSQL
+        const profileUrl = safePublicHttpsUrl(candidate.profileUrl) ?? undefined;
+        const specializations = Array.isArray(candidate.specializations)
+          ? candidate.specializations.filter((s): s is string => typeof s === 'string' && s.trim().length > 1).slice(0, 10)
+          : [];
+        await this.persistDiscoveredExpertFromOpinion(item, context.category, profileUrl, specializations).catch(() => undefined);
       } catch {
         // Reject ungrounded or incomplete Gemini items
       }
@@ -993,7 +1268,368 @@ export class ExpertOpinionsService implements OnModuleInit {
     return validated;
   }
 
+  async curateExpertsWithGemini(options: { category?: string } = {}): Promise<{
+    added: number;
+    updated: number;
+    rejected: number;
+  }> {
+    if (this.activeCuration) return this.activeCuration;
+    this.activeCuration = this.runExpertCurationWithGemini(options).finally(() => {
+      this.activeCuration = undefined;
+    });
+    return this.activeCuration;
+  }
+
+  private async runExpertCurationWithGemini(options: { category?: string } = {}): Promise<{
+    added: number;
+    updated: number;
+    rejected: number;
+  }> {
+    if (!this.activeKey || !this.db) {
+      return { added: 0, updated: 0, rejected: 0 };
+    }
+
+    const existing = await this.loadExpertProfilesFromDb();
+    const categoryCounts = new Map<string, number>();
+    for (const cat of CATEGORIES) {
+      categoryCounts.set(cat, 0);
+    }
+    for (const exp of existing) {
+      for (const dom of exp.primaryDomains) {
+        categoryCounts.set(dom, (categoryCounts.get(dom) ?? 0) + 1);
+      }
+    }
+
+    const focusCategories = options.category && CATEGORIES.includes(options.category as NewsCategory)
+      ? [options.category]
+      : [...categoryCounts.entries()]
+          .sort((a, b) => a[1] - b[1])
+          .slice(0, 4)
+          .map(([cat]) => cat);
+
+    const staleExperts = existing
+      .filter((e) => !e.lastAiReviewedAt || Date.now() - Date.parse(e.lastAiReviewedAt) > 14 * 24 * 60 * 60_000)
+      .slice(0, 4)
+      .map((e) => ({
+        slug: e.slug,
+        fullName: e.fullName,
+        handle: e.handle,
+        roleUk: e.roleUk,
+        organization: e.organization,
+        primaryDomains: e.primaryDomains,
+      }));
+
+    let data: unknown;
+    try {
+      const res = await postGeminiGenerateContent({
+        apiKey: this.activeKey,
+        preferredModel: DEFAULT_GEMINI_MODEL,
+        timeoutMs: 40_000,
+        body: {
+          systemInstruction: {
+            parts: [
+              {
+                text: 'You curate a verified database of real-world domain experts for a Ukrainian news app. Using Google Search grounding, propose: (1) 1-3 NEW real, publicly active experts for the focus_categories who are NOT already in existing_handles; and (2) updates/fresh positions for stale_experts if their role, organization, or recent public position should be updated. Return strict JSON: { "addExperts": [...], "updateExperts": [...] }. Each item MUST have real, verifiable https URLs returned by search grounding. Never invent people, handles, or URLs.',
+              },
+            ],
+          },
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  text: JSON.stringify({
+                    focus_categories: focusCategories,
+                    allowed_categories: [...CATEGORIES],
+                    existing_handles: existing.map((e) => e.handle),
+                    stale_experts: staleExperts,
+                  }),
+                },
+              ],
+            },
+          ],
+          tools: [{ googleSearch: {} }],
+          generationConfig: { maxOutputTokens: 3500 },
+        },
+      });
+      data = res.data;
+    } catch (err) {
+      this.logger.warn(`Gemini expert curation call failed: ${err instanceof Error ? err.message : err}`);
+      return { added: 0, updated: 0, rejected: 0 };
+    }
+
+    const parsedData = data as {
+      candidates?: Array<{
+        content?: { parts?: Array<{ text?: string }> };
+        groundingMetadata?: { groundingChunks?: Array<{ web?: { uri?: string } }> };
+      }>;
+    };
+    const groundedUrls = new Set(
+      (parsedData.candidates?.[0]?.groundingMetadata?.groundingChunks ?? [])
+        .map((c) => safePublicHttpsUrl(c.web?.uri))
+        .filter((u): u is string => Boolean(u)),
+    );
+    const rawText = parsedData.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') || '';
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return { added: 0, updated: 0, rejected: 0 };
+
+    let parsedJson: {
+      addExperts?: Array<Record<string, unknown>>;
+      updateExperts?: Array<Record<string, unknown>>;
+    };
+    try {
+      parsedJson = JSON.parse(jsonMatch[0]) as typeof parsedJson;
+    } catch {
+      return { added: 0, updated: 0, rejected: 0 };
+    }
+
+    let added = 0;
+    let updated = 0;
+    let rejected = 0;
+
+    for (const candidate of Array.isArray(parsedJson.addExperts) ? parsedJson.addExperts : []) {
+      const result = await this.upsertAiManagedExpert(candidate, 'ai_discovered', groundedUrls);
+      if (result === 'added') added++;
+      else if (result === 'updated') updated++;
+      else rejected++;
+    }
+
+    for (const candidate of Array.isArray(parsedJson.updateExperts) ? parsedJson.updateExperts : []) {
+      const result = await this.upsertAiManagedExpert(candidate, 'ai_enriched', groundedUrls);
+      if (result === 'updated') updated++;
+      else if (result === 'added') added++;
+      else rejected++;
+    }
+
+    if (added > 0 || updated > 0) {
+      this.directoryCache = null;
+    }
+    return { added, updated, rejected };
+  }
+
+  private async persistDiscoveredExpertFromOpinion(
+    item: ExpertOpinionItem,
+    category: string,
+    profileUrlOverride?: string,
+    extraSpecializations: string[] = [],
+  ): Promise<void> {
+    if (!this.db) return;
+    const experts = await this.loadExpertProfilesFromDb();
+    const matched = findExpertByAuthor(experts, item.handle, item.expertName);
+    const validCat = CATEGORIES.includes(category as NewsCategory) ? (category as NewsCategory) : 'other';
+    const newPosition: DocumentedExpertPosition = {
+      topicKeywords: [
+        validCat,
+        ...extractSearchTerms(item.stanceSummaryUk).toLowerCase().split(/\s+/).filter((w) => w.length >= 3),
+        ...extraSpecializations.map((s) => s.toLowerCase()),
+      ].slice(0, 8),
+      thesisUk: item.stanceSummaryUk,
+      quoteUk: item.directQuote,
+      keyArgumentsUk: item.keyArgumentsUk.slice(0, 4),
+      url: item.sourceUrl,
+      publishedAt: item.publishedAt,
+    };
+
+    if (matched) {
+      const mergedPositions = mergeDocumentedPositions(matched.documentedPositions, [newPosition]);
+      const mergedDomains = Array.from(new Set([...matched.primaryDomains, validCat]));
+      const mergedSpecs = Array.from(new Set([...matched.specializations, ...extraSpecializations])).slice(0, 16);
+      const nextMode = matched.sourceMode === 'ai_discovered' ? 'ai_discovered' : 'ai_enriched';
+      await this.db.query(
+        `UPDATE expert_profiles
+         SET primary_domains = $2::text[],
+             specializations = $3::text[],
+             documented_positions = $4::jsonb,
+             source_mode = $5,
+             last_ai_reviewed_at = now(),
+             updated_at = now()
+         WHERE slug = $1`,
+        [matched.slug, mergedDomains, mergedSpecs, JSON.stringify(mergedPositions), nextMode],
+      );
+      this.directoryCache = null;
+      return;
+    }
+
+    const slug = slugifyExpertName(item.expertSlug || item.expertName || item.handle);
+    if (!slug) return;
+    const derivedProfileUrl = profileUrlOverride || deriveProfileUrl(item.sourceUrl, item.handle, item.platform);
+    await this.db.query(
+      `INSERT INTO expert_profiles (
+         slug, full_name, handle, platform, role_uk, organization,
+         primary_domains, specializations, profile_url,
+         known_affiliations_uk, credibility_weight,
+         conflict_disclosure_uk, documented_positions, source_mode, last_ai_reviewed_at, updated_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7::text[],$8::text[],$9,$10,$11,$12,$13::jsonb,'ai_discovered',now(),now())
+       ON CONFLICT (slug) DO UPDATE SET
+         primary_domains = EXCLUDED.primary_domains,
+         specializations = EXCLUDED.specializations,
+         documented_positions = EXCLUDED.documented_positions,
+         last_ai_reviewed_at = now(),
+         updated_at = now()`,
+      [
+        slug,
+        item.expertName.slice(0, 155),
+        item.handle.slice(0, 115),
+        normalizePlatform(item.platform),
+        item.roleUk.slice(0, 195),
+        (item.organization || 'Незалежний експерт').slice(0, 175),
+        [validCat],
+        extraSpecializations.length > 0 ? extraSpecializations : [validCat],
+        derivedProfileUrl,
+        item.potentialBiasUk.slice(0, 500),
+        Math.max(60, Math.min(95, Math.round(item.credibilityWeight))),
+        item.conflictOfInterestUk.slice(0, 500),
+        JSON.stringify([newPosition]),
+      ],
+    );
+    this.directoryCache = null;
+  }
+
+  private async upsertAiManagedExpert(
+    raw: Record<string, unknown>,
+    mode: 'ai_discovered' | 'ai_enriched',
+    groundedUrls: Set<string>,
+  ): Promise<'added' | 'updated' | 'rejected'> {
+    if (!this.db) return 'rejected';
+    const fullName = typeof raw.fullName === 'string' ? raw.fullName.trim() : '';
+    const handle = typeof raw.handle === 'string' ? raw.handle.trim() : '';
+    const roleUk = typeof raw.roleUk === 'string' ? raw.roleUk.trim() : '';
+    const profileUrl = safePublicHttpsUrl(raw.profileUrl);
+    if (!fullName || !handle || !roleUk || !profileUrl) return 'rejected';
+
+    const existingList = await this.loadExpertProfilesFromDb();
+    const rawSlug = typeof raw.slug === 'string' ? raw.slug.trim() : '';
+    const existing =
+      existingList.find((e) => e.slug === rawSlug) ||
+      findExpertByAuthor(existingList, handle, fullName);
+
+    const slug = existing?.slug || slugifyExpertName(rawSlug || fullName || handle);
+    if (!slug) return 'rejected';
+
+    const candidatePositions: DocumentedExpertPosition[] = [];
+    const rawPositions = Array.isArray(raw.documentedPositions)
+      ? raw.documentedPositions
+      : raw.documentedPosition && typeof raw.documentedPosition === 'object'
+        ? [raw.documentedPosition]
+        : [];
+
+    for (const p of rawPositions) {
+      if (!p || typeof p !== 'object') continue;
+      const posObj = p as Record<string, unknown>;
+      const posUrl = safePublicHttpsUrl(posObj.url);
+      if (!posUrl) continue;
+      const host = URL.parse(posUrl)?.hostname.toLowerCase().replace(/^www\./, '') || '';
+      const isGrounded =
+        groundedUrls.size === 0 ||
+        groundedUrls.has(posUrl) ||
+        ALLOWED_PUBLIC_EXPERT_HOSTS.some((d) => host === d || host.endsWith(`.${d}`));
+      if (!isGrounded) continue;
+      const thesisUk = typeof posObj.thesisUk === 'string' ? posObj.thesisUk.trim() : '';
+      const quoteUk = typeof posObj.quoteUk === 'string' ? posObj.quoteUk.trim() : '';
+      if (thesisUk.length < 15 || quoteUk.length < 15) continue;
+      candidatePositions.push({
+        topicKeywords: Array.isArray(posObj.topicKeywords)
+          ? posObj.topicKeywords.filter((k): k is string => typeof k === 'string' && k.trim().length > 1).slice(0, 8)
+          : ['analysis'],
+        thesisUk: thesisUk.slice(0, 400),
+        quoteUk: quoteUk.slice(0, 400),
+        keyArgumentsUk: Array.isArray(posObj.keyArgumentsUk)
+          ? posObj.keyArgumentsUk.filter((a): a is string => typeof a === 'string' && a.trim().length > 3).slice(0, 4)
+          : [thesisUk.slice(0, 200)],
+        url: posUrl,
+        publishedAt: typeof posObj.publishedAt === 'string' && !Number.isNaN(Date.parse(posObj.publishedAt))
+          ? posObj.publishedAt
+          : new Date().toISOString(),
+      });
+    }
+
+    if (!existing && candidatePositions.length === 0) {
+      return 'rejected';
+    }
+
+    const domains = normalizeDomains(
+      Array.isArray(raw.primaryDomains) ? raw.primaryDomains.map(String) : null,
+      existing?.primaryDomains ?? ['other'],
+    );
+    const specs = Array.isArray(raw.specializations)
+      ? Array.from(
+          new Set([
+            ...(existing?.specializations ?? []),
+            ...raw.specializations.filter((s): s is string => typeof s === 'string' && s.trim().length > 1),
+          ]),
+        ).slice(0, 16)
+      : (existing?.specializations ?? domains);
+
+    const organization =
+      (typeof raw.organization === 'string' && raw.organization.trim()) ||
+      existing?.organization ||
+      'Незалежний експерт';
+    const knownAffiliationsUk =
+      (typeof raw.knownAffiliationsUk === 'string' && raw.knownAffiliationsUk.trim()) ||
+      existing?.knownAffiliationsUk ||
+      'Публічна професійна діяльність.';
+    const conflictDisclosureUk =
+      (typeof raw.conflictDisclosureUk === 'string' && raw.conflictDisclosureUk.trim()) ||
+      existing?.conflictDisclosureUk ||
+      null;
+    const credibilityWeight = Math.max(
+      60,
+      Math.min(97, Number(raw.credibilityWeight) || existing?.credibilityWeight || 82),
+    );
+    const mergedPositions = mergeDocumentedPositions(existing?.documentedPositions ?? [], candidatePositions);
+
+    await this.db.query(
+      `INSERT INTO expert_profiles (
+         slug, full_name, handle, platform, role_uk, organization,
+         primary_domains, specializations, profile_url,
+         known_affiliations_uk, credibility_weight,
+         conflict_disclosure_uk, documented_positions, source_mode,
+         ai_notes, last_ai_reviewed_at, updated_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7::text[],$8::text[],$9,$10,$11,$12,$13::jsonb,$14,$15,now(),now())
+       ON CONFLICT (slug) DO UPDATE SET
+         full_name = EXCLUDED.full_name,
+         handle = EXCLUDED.handle,
+         platform = EXCLUDED.platform,
+         role_uk = EXCLUDED.role_uk,
+         organization = EXCLUDED.organization,
+         primary_domains = EXCLUDED.primary_domains,
+         specializations = EXCLUDED.specializations,
+         profile_url = EXCLUDED.profile_url,
+         known_affiliations_uk = EXCLUDED.known_affiliations_uk,
+         credibility_weight = EXCLUDED.credibility_weight,
+         conflict_disclosure_uk = COALESCE(EXCLUDED.conflict_disclosure_uk, expert_profiles.conflict_disclosure_uk),
+         documented_positions = EXCLUDED.documented_positions,
+         source_mode = CASE
+           WHEN expert_profiles.source_mode = 'ai_discovered' THEN 'ai_discovered'
+           ELSE 'ai_enriched'
+         END,
+         ai_notes = EXCLUDED.ai_notes,
+         last_ai_reviewed_at = now(),
+         updated_at = now()`,
+      [
+        slug,
+        fullName.slice(0, 155),
+        handle.slice(0, 115),
+        normalizePlatform(typeof raw.platform === 'string' ? raw.platform : existing?.platform || 'web'),
+        roleUk.slice(0, 195),
+        organization.slice(0, 175),
+        domains,
+        specs,
+        profileUrl,
+        knownAffiliationsUk.slice(0, 500),
+        credibilityWeight,
+        conflictDisclosureUk,
+        JSON.stringify(mergedPositions),
+        existing ? 'ai_enriched' : mode,
+        typeof raw.aiNotes === 'string' ? raw.aiNotes.slice(0, 500) : null,
+      ],
+    );
+
+    return existing ? 'updated' : 'added';
+  }
+
   private buildRegistryExpertOpinions(
+    experts: ManagedExpertProfile[],
     articleCategory: string,
     articleTitle: string,
     articleSummary: string,
@@ -1003,10 +1639,11 @@ export class ExpertOpinionsService implements OnModuleInit {
       return [];
     }
 
-    const scored = EXPERT_DIRECTORY.map((expert) => ({
-      expert,
-      assessment: scoreExpertCompetenceForTopic(expert, articleCategory, articleTitle, articleSummary),
-    }))
+    const scored = experts
+      .map((expert) => ({
+        expert,
+        assessment: scoreExpertCompetenceForTopic(expert, articleCategory, articleTitle, articleSummary),
+      }))
       .filter((entry) => entry.assessment.score >= 75)
       .sort((a, b) => b.assessment.score * 100 + b.expert.credibilityWeight - (a.assessment.score * 100 + a.expert.credibilityWeight))
       .slice(0, 4);
@@ -1151,10 +1788,14 @@ function extractSearchTerms(title: string): string {
     .join(' ');
 }
 
-function findExpertByAuthor(handle: string, displayName?: string): ExpertProfile | undefined {
+function findExpertByAuthor(
+  experts: ManagedExpertProfile[],
+  handle: string,
+  displayName?: string,
+): ManagedExpertProfile | undefined {
   const cleanHandle = handle.toLowerCase().replace(/^@/, '');
   const cleanName = (displayName || '').toLowerCase();
-  return EXPERT_DIRECTORY.find((expert) => {
+  return experts.find((expert) => {
     const expHandle = expert.handle.toLowerCase().replace(/^@/, '');
     return (
       expHandle === cleanHandle ||
@@ -1162,6 +1803,83 @@ function findExpertByAuthor(handle: string, displayName?: string): ExpertProfile
       (cleanName && expert.fullName.toLowerCase() === cleanName)
     );
   });
+}
+
+function normalizePlatform(raw: string): ExpertPlatform {
+  const clean = (raw || '').trim().toLowerCase();
+  if (clean === 'x' || clean === 'twitter') return 'x';
+  if (clean === 'facebook') return 'facebook';
+  if (clean === 'bluesky' || clean === 'bsky') return 'bluesky';
+  if (clean === 'github') return 'github';
+  return 'web';
+}
+
+function normalizeSourceMode(raw: string | null | undefined): 'seed' | 'ai_discovered' | 'ai_enriched' {
+  if (raw === 'ai_discovered' || raw === 'ai_enriched') return raw;
+  return 'seed';
+}
+
+function normalizeDomains(raw: string[] | null | undefined, fallback: NewsCategory[] = ['other']): NewsCategory[] {
+  if (!Array.isArray(raw) || raw.length === 0) return fallback;
+  const valid = raw.filter((d): d is NewsCategory => CATEGORIES.includes(d as NewsCategory));
+  return valid.length > 0 ? Array.from(new Set(valid)) : fallback;
+}
+
+function normalizeDocumentedPositions(raw: unknown): DocumentedExpertPosition[] {
+  if (!Array.isArray(raw)) return [];
+  const out: DocumentedExpertPosition[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const obj = entry as Record<string, unknown>;
+    const url = safePublicHttpsUrl(obj.url);
+    const thesisUk = typeof obj.thesisUk === 'string' ? obj.thesisUk.trim() : '';
+    const quoteUk = typeof obj.quoteUk === 'string' ? obj.quoteUk.trim() : '';
+    if (!url || !thesisUk || !quoteUk) continue;
+    out.push({
+      topicKeywords: Array.isArray(obj.topicKeywords)
+        ? obj.topicKeywords.filter((k): k is string => typeof k === 'string' && k.trim().length > 0)
+        : ['analysis'],
+      thesisUk,
+      quoteUk,
+      keyArgumentsUk: Array.isArray(obj.keyArgumentsUk)
+        ? obj.keyArgumentsUk.filter((a): a is string => typeof a === 'string' && a.trim().length > 0)
+        : [thesisUk],
+      url,
+      publishedAt: typeof obj.publishedAt === 'string' ? obj.publishedAt : new Date().toISOString(),
+    });
+  }
+  return out;
+}
+
+function mergeDocumentedPositions(
+  existing: DocumentedExpertPosition[],
+  incoming: DocumentedExpertPosition[],
+): DocumentedExpertPosition[] {
+  const byUrl = new Map<string, DocumentedExpertPosition>();
+  for (const pos of [...incoming, ...existing]) {
+    const key = pos.url.toLowerCase();
+    if (!byUrl.has(key)) byUrl.set(key, pos);
+  }
+  return Array.from(byUrl.values()).slice(0, 12);
+}
+
+function slugifyExpertName(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/^@/, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 75);
+}
+
+function deriveProfileUrl(sourceUrl: string, handle: string, platform: string): string {
+  const cleanHandle = handle.replace(/^@/, '').trim();
+  const norm = normalizePlatform(platform);
+  if (norm === 'x' && cleanHandle) return `https://x.com/${encodeURIComponent(cleanHandle)}`;
+  if (norm === 'bluesky' && cleanHandle) return `https://bsky.app/profile/${encodeURIComponent(cleanHandle)}`;
+  if (norm === 'github' && cleanHandle) return `https://github.com/${encodeURIComponent(cleanHandle)}`;
+  const parsed = URL.parse(sourceUrl);
+  return parsed ? `${parsed.protocol}//${parsed.hostname}` : sourceUrl;
 }
 
 function pickBestDocumentedPosition(expert: ExpertProfile, title: string, summary: string) {

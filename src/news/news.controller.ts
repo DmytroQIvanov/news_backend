@@ -1,8 +1,8 @@
-import { Controller, Get, Optional, Param, ParseIntPipe, Patch, Query, UseGuards, BadRequestException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get, Optional, Param, ParseIntPipe, Patch, Post, Query, UseGuards, BadRequestException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { IngestKeyGuard } from '../common/ingest-key.guard';
 import { CATEGORIES } from '../ingest/ingest.dto';
-import { CompanyFeedsService, maxFeedArticles } from './company-feeds.service';
+import { CompanyFeedsService, isPublishedWithinHours, maxFeedArticles } from './company-feeds.service';
 import { EXPERT_DIRECTORY } from './expert-directory';
 import { ExpertOpinionsService } from './expert-opinions.service';
 import { NEWS_AUDIO_STYLES, NEWS_DEPTHS, NewsTtsService } from './news-tts.service';
@@ -32,6 +32,8 @@ export class NewsController {
     @Query('important') important?: string,
     @Query('topics') topicsRaw?: string,
     @Query('depth') depthRaw?: string,
+    @Query('sort') sortRaw?: string,
+    @Query('maxAgeHours') maxAgeHoursRaw?: string,
   ) {
     const limit = limitRaw === undefined ? 20 : Number(limitRaw);
     const offset = offsetRaw === undefined ? 0 : Number(offsetRaw);
@@ -44,6 +46,22 @@ export class NewsController {
     if (depthRaw !== undefined && !(NEWS_DEPTHS as readonly string[]).includes(depthRaw)) {
       throw new BadRequestException('Invalid depth');
     }
+    const sortOrder: 'newest' | 'oldest' | 'relevance' =
+      sortRaw === undefined ? 'newest' : (sortRaw as 'newest' | 'oldest' | 'relevance');
+    if (sortRaw !== undefined && sortRaw !== 'newest' && sortRaw !== 'oldest' && sortRaw !== 'relevance') {
+      throw new BadRequestException('Invalid sort');
+    }
+    let effectiveMaxAgeHours: number | null = null;
+    if (maxAgeHoursRaw !== undefined) {
+      const parsedAge = Number(maxAgeHoursRaw);
+      if (!Number.isInteger(parsedAge) || parsedAge < 1 || parsedAge > 720) {
+        throw new BadRequestException('maxAgeHours must be an integer between 1 and 720');
+      }
+      effectiveMaxAgeHours = parsedAge;
+    } else if (important === 'true') {
+      effectiveMaxAgeHours = 24;
+    }
+
     const topics = typeof topicsRaw === 'string'
       ? topicsRaw.split(',').map((entry) => entry.trim().toLowerCase()).filter(Boolean)
       : [];
@@ -59,8 +77,9 @@ export class NewsController {
       throw new BadRequestException('important must be true or false');
     }
     const onlyDatabase = !!category || important === 'true';
-    const sqlLimit = onlyDatabase && topics.length === 0 ? limit : offset + limit + maxFeedArticles;
-    const sqlOffset = onlyDatabase && topics.length === 0 ? offset : 0;
+    const sqlLimit =
+      onlyDatabase && topics.length === 0 && effectiveMaxAgeHours === null ? limit : offset + limit + maxFeedArticles;
+    const sqlOffset = onlyDatabase && topics.length === 0 && effectiveMaxAgeHours === null ? offset : 0;
     const published = this.db.query<{
       id: string;
       url: string;
@@ -72,6 +91,7 @@ export class NewsController {
       original_title?: string;
       summary_uk?: string | null;
       important?: boolean;
+      importance?: string;
       hydrogen_deep_analysis?: boolean;
     }>(`
       SELECT n.id,n.url,n.title_uk,n.summary_uk,n.original_title,n.category,n.importance,
@@ -86,15 +106,48 @@ export class NewsController {
       WHERE n.status='published' AND ($1::text IS NULL OR n.category=$1)
         AND ($4::text[] IS NULL OR s.slug = ANY($4::text[]))
         AND (NOT $5::boolean OR n.ai_metadata->'article'->'important' = 'true'::jsonb)
-      ORDER BY n.published_at DESC NULLS LAST,n.id DESC LIMIT $2 OFFSET $3`,
-    [category || null, sqlLimit, sqlOffset,
-      sources.length ? sources : null, important === 'true']);
+        AND ($6::int IS NULL OR n.published_at >= now() - ($6::int * interval '1 hour'))
+      ORDER BY
+        CASE WHEN $7::text = 'oldest' THEN n.published_at END ASC NULLS LAST,
+        n.published_at DESC NULLS LAST,
+        n.id DESC
+      LIMIT $2 OFFSET $3`,
+    [
+      category || null,
+      sqlLimit,
+      sqlOffset,
+      sources.length ? sources : null,
+      important === 'true',
+      effectiveMaxAgeHours,
+      sortOrder,
+    ]);
 
-    const applyTopicsAndDepth = <T extends Record<string, unknown>>(rawItems: T[]): T[] => {
-      let filtered = rawItems;
+    const normalizeItemFreshness = <T extends Record<string, unknown>>(item: T): T => {
+      const pub = item.published_at as Date | string | null | undefined;
+      const fresh24h = isPublishedWithinHours(pub, 24);
+      if (pub && !fresh24h && item.important) {
+        return {
+          ...item,
+          important: false,
+          ...(item.importance === 'high' ? { importance: 'medium' } : {}),
+        };
+      }
+      return item;
+    };
+
+    const filterAndSortItems = <T extends Record<string, unknown>>(rawItems: T[]): T[] => {
+      let filtered = rawItems.map(normalizeItemFreshness);
+      if (effectiveMaxAgeHours !== null) {
+        filtered = filtered.filter((item) =>
+          isPublishedWithinHours(item.published_at as Date | string | null | undefined, effectiveMaxAgeHours!),
+        );
+      }
+      if (important === 'true') {
+        filtered = filtered.filter((item) => Boolean(item.important));
+      }
       const scores = new Map<T, number>();
       if (topics.length > 0) {
-        filtered = rawItems.filter((item) => {
+        filtered = filtered.filter((item) => {
           const score = scoreTopicMatch(item, topics);
           if (score > 0) {
             scores.set(item, score);
@@ -104,37 +157,53 @@ export class NewsController {
         });
       }
       return [...filtered].sort((a, b) => {
-        if (topics.length > 0) {
-          const diff = (scores.get(b) ?? 0) - (scores.get(a) ?? 0);
-          if (diff !== 0) return diff;
+        if (sortOrder === 'oldest') {
+          return publishedTime((a.published_at as Date | string | null) ?? null) -
+            publishedTime((b.published_at as Date | string | null) ?? null);
         }
-        if (depthRaw === 'deep_technical') {
-          const aDeep = (a.hydrogen_deep_analysis ? 2 : 0) + (a.important ? 1 : 0);
-          const bDeep = (b.hydrogen_deep_analysis ? 2 : 0) + (b.important ? 1 : 0);
-          if (bDeep !== aDeep) return bDeep - aDeep;
+        if (sortOrder === 'relevance') {
+          if (topics.length > 0) {
+            const diff = (scores.get(b) ?? 0) - (scores.get(a) ?? 0);
+            if (diff !== 0) return diff;
+          }
+          if (depthRaw === 'deep_technical') {
+            const aDeep = (a.hydrogen_deep_analysis ? 2 : 0) + (a.important ? 1 : 0);
+            const bDeep = (b.hydrogen_deep_analysis ? 2 : 0) + (b.important ? 1 : 0);
+            if (bDeep !== aDeep) return bDeep - aDeep;
+          }
         }
-        return publishedTime((b.published_at as Date | string | null) ?? null) - publishedTime((a.published_at as Date | string | null) ?? null);
+        return (
+          publishedTime((b.published_at as Date | string | null) ?? null) -
+          publishedTime((a.published_at as Date | string | null) ?? null)
+        );
       });
     };
 
     if (onlyDatabase) {
       const rows = (await published).rows;
-      if (topics.length > 0 || depthRaw === 'deep_technical') {
-        const ranked = applyTopicsAndDepth(rows);
+      if (
+        topics.length > 0 ||
+        depthRaw === 'deep_technical' ||
+        effectiveMaxAgeHours !== null ||
+        sortOrder !== 'newest'
+      ) {
+        const ranked = filterAndSortItems(rows);
         const page = ranked.slice(offset, offset + limit);
         return {
           items: page,
           limit,
           offset,
           hasMore: offset + page.length < ranked.length,
+          sort: sortOrder,
           ...(depthRaw ? { depth: depthRaw } : {}),
         };
       }
       return {
-        items: rows,
+        items: rows.map(normalizeItemFreshness),
         limit,
         offset,
         hasMore: rows.length === limit,
+        sort: sortOrder,
         ...(depthRaw ? { depth: depthRaw } : {}),
       };
     }
@@ -150,22 +219,22 @@ export class NewsController {
         ...item,
         title_uk: null,
         summary_uk: null,
+        important: false,
+        importance: 'medium',
         ai_model: null,
         hydrogen_polished: false,
         hydrogen_deep_analysis: false,
         hydrogen_insight: null,
       }));
     const combined = [...result.rows, ...fresh];
-    const items =
-      topics.length > 0 || depthRaw === 'deep_technical'
-        ? applyTopicsAndDepth(combined)
-        : combined.sort((a, b) => publishedTime(b.published_at) - publishedTime(a.published_at));
+    const items = filterAndSortItems(combined);
     const page = items.slice(offset, offset + limit);
     return {
       items: page,
       limit,
       offset,
       hasMore: offset + page.length < items.length,
+      sort: sortOrder,
       ...(depthRaw ? { depth: depthRaw } : {}),
     };
   }
@@ -200,10 +269,14 @@ export class NewsController {
   }
 
   @Get('experts/directory')
-  expertsDirectory(@Query('domain') domain?: string) {
+  async expertsDirectory(@Query('domain') domain?: string) {
     const cleanDomain = domain?.trim().toLowerCase() || '';
     const alias = cleanDomain ? TOPIC_ALIAS_MAP[cleanDomain] : undefined;
     const targetCategories = alias ? alias.categories : cleanDomain ? [cleanDomain] : [];
+
+    if (this.expertOpinions) {
+      return this.expertOpinions.listDirectory(cleanDomain, targetCategories);
+    }
 
     const filtered = cleanDomain
       ? EXPERT_DIRECTORY.filter(
@@ -229,6 +302,8 @@ export class NewsController {
       conflictDisclosureUk: expert.conflictDisclosureUk ?? null,
       credibilityWeight: expert.credibilityWeight,
       documentedPositionsCount: expert.documentedPositions.length,
+      sourceMode: 'seed' as const,
+      lastAiReviewedAt: null,
     }));
 
     return {
@@ -236,6 +311,15 @@ export class NewsController {
       total: items.length,
       items,
     };
+  }
+
+  @Post('experts/curate')
+  @UseGuards(IngestKeyGuard)
+  async curateExperts(@Query('category') category?: string) {
+    if (!this.expertOpinions) {
+      throw new ServiceUnavailableException('Expert opinions service is not available.');
+    }
+    return this.expertOpinions.curateExpertsWithGemini({ category });
   }
 
   @Get(':id/experts')
@@ -275,7 +359,7 @@ export class NewsController {
       if (item) {
         return {
           ...item,
-          category: 'other',
+          category: item.category || 'other',
           importance: 'unknown',
           why_it_matters: null,
           free_access: 'unknown',
@@ -358,25 +442,47 @@ function publishedTime(date: Date | string | null): number {
 }
 
 const TOPIC_ALIAS_MAP: Record<string, { categories: string[]; keywords: string[] }> = {
+  politics: { categories: ['politics', 'law'], keywords: ['politics', 'election', 'treaty', 'summit', 'diplomacy', 'world', 'політик', 'україн', 'міжнародн', 'безпек', 'вибор'] },
+  politics_ukraine: { categories: ['politics', 'law', 'defense'], keywords: ['україн', 'політик', 'закон', 'податк', 'кордон', 'правда', 'суспільне', 'bbc', 'міжнародн', 'дипломат'] },
+  ukraine_world_events: { categories: ['politics', 'defense'], keywords: ['україн', 'світ', 'саміт', 'дипломат', 'безпек', 'міжнародн', 'єс', 'нато'] },
+  law: { categories: ['law', 'politics'], keywords: ['law', 'tax', 'border', 'passport', 'benefits', 'legislation', 'закон', 'податк', 'документ', 'кордон', 'соцвиплат', 'права'] },
+  laws_rights_citizens: { categories: ['law', 'politics'], keywords: ['закон', 'податк', 'документ', 'кордон', 'соцвиплат', 'дія', 'права', 'пенсі'] },
+  economy: { categories: ['economy', 'finance', 'business'], keywords: ['economy', 'gdp', 'budget', 'trade', 'inflation', 'економік', 'бюджет', 'інфляц', 'тариф'] },
+  economy_finance: { categories: ['economy', 'finance', 'career', 'startups_fintech', 'business'], keywords: ['курс', 'валют', 'нбу', 'інфляц', 'депозит', 'кредит', 'нерухоміст', 'зарплат', 'робот', 'бізнес', 'фоп'] },
+  finance: { categories: ['finance', 'economy', 'startups_fintech'], keywords: ['currency', 'exchange rate', 'inflation', 'deposit', 'mortgage', 'bond', 'real estate', 'курс', 'валют', 'інфляц', 'депозит', 'кредит', 'інвестиц', 'нерухоміст'] },
+  personal_finance_rates: { categories: ['finance', 'economy'], keywords: ['курс', 'валют', 'долар', 'євро', 'нбу', 'інфляц', 'депозит', 'кредит', 'інвестиц', 'нерухоміст', 'овдп'] },
+  career: { categories: ['career', 'economy', 'business'], keywords: ['career', 'salary', 'remote work', 'jobs', 'small business', 'професі', 'зарплат', 'віддален', 'ринок праці', 'малий бізнес', 'фоп'] },
+  labor_market_business: { categories: ['career', 'business', 'economy'], keywords: ['професі', 'зарплат', 'віддален', 'ринок праці', 'малий бізнес', 'вакансі', 'фоп'] },
+  health: { categories: ['health', 'psychology', 'science_space'], keywords: ['health', 'medicine', 'sleep', 'nutrition', 'longevity', 'fitness', 'медицин', 'довголітт', 'сон', 'харчуван', 'активніст', 'здоров'] },
+  health_psychology: { categories: ['health', 'psychology'], keywords: ['сон', 'харчуван', 'здоров', 'медицин', 'стрес', 'вигоран', 'звичк', 'психолог', 'продуктивніст'] },
+  medicine_longevity: { categories: ['health', 'science_space'], keywords: ['медицин', 'довголітт', 'сон', 'харчуван', 'фізичн', 'профілактик', 'клінічн', 'хвороб'] },
+  psychology: { categories: ['psychology', 'health'], keywords: ['psychology', 'stress', 'burnout', 'habits', 'productivity', 'mindfulness', 'психолог', 'стрес', 'вигоран', 'звичк', 'навчання', 'продуктивн'] },
+  psychology_productivity: { categories: ['psychology', 'career'], keywords: ['стрес', 'вигоран', 'звичк', 'психолог', 'продуктивн', 'навчання', 'ментальн'] },
+  culture: { categories: ['culture', 'hardware_gaming'], keywords: ['culture', 'cinema', 'movie', 'series', 'music', 'festival', 'book', 'podcast', 'кіно', 'серіал', 'музик', 'прем\'єр', 'рейтинг', 'фестивал', 'книг', 'подкаст'] },
+  culture_entertainment: { categories: ['culture', 'hardware_gaming'], keywords: ['кіно', 'серіал', 'музик', 'прем\'єр', 'фестивал', 'відеоігор', 'ігр', 'книг', 'подкаст', 'тренд'] },
+  cinema_series_music: { categories: ['culture'], keywords: ['кіно', 'серіал', 'музик', 'фільм', 'прем\'єр', 'рейтинг', 'фестивал', 'netflix', 'cinema'] },
+  games_pop_culture: { categories: ['culture', 'hardware_gaming'], keywords: ['ігр', 'відеоігор', 'книг', 'подкаст', 'тренд', 'eurogamer', 'gaming', 'game'] },
+  discoveries_research: { categories: ['science_space', 'research', 'health'], keywords: ['відкритт', 'досліджен', 'біотехнолог', 'клімат', 'енергетик', 'медицин', 'наук', 'science'] },
+  space_astronomy: { categories: ['science_space'], keywords: ['космос', 'космонавтик', 'nasa', 'spacex', 'затемнен', 'комет', 'магнітн', 'орбіт', 'телескоп'] },
   ai: { categories: ['model', 'api', 'coding', 'open_source', 'research'], keywords: ['ai', 'llm', 'gpt', 'claude', 'gemini', 'openai', 'anthropic', 'mistral', 'нейромереж'] },
   defense: { categories: ['defense'], keywords: ['defense', 'defence', 'drone', 'uav', 'brave1', 'military', 'дрон', 'оборон', 'зсу', 'бпла'] },
   defensetech: { categories: ['defense'], keywords: ['defense', 'defence', 'drone', 'uav', 'brave1', 'military', 'дрон', 'оборон', 'зсу'] },
-  ukraine: { categories: ['defense', 'global_tech', 'education_grants', 'startups_fintech'], keywords: ['ukraine', 'ukrainian', 'itc', 'dou', 'dev.ua', 'україн', 'київ', 'зсу'] },
+  ukraine: { categories: ['politics', 'law', 'economy', 'defense', 'global_tech', 'education_grants', 'startups_fintech'], keywords: ['ukraine', 'ukrainian', 'pravda', 'suspilne', 'itc', 'dou', 'dev.ua', 'україн', 'київ', 'зсу'] },
   cybersecurity: { categories: ['cybersecurity'], keywords: ['cyber', 'security', 'cve', 'vulnerability', 'ransomware', 'malware', 'cloudflare', 'hacker', 'кібер', 'вразлив'] },
-  security: { categories: ['cybersecurity'], keywords: ['cyber', 'security', 'cve', 'vulnerability', 'malware', 'cloudflare', 'hacker'] },
-  science: { categories: ['science_space', 'research'], keywords: ['science', 'nasa', 'space', 'quantum', 'biotech', 'nature', 'arstechnica', 'космос', 'наук'] },
-  space: { categories: ['science_space'], keywords: ['nasa', 'spacex', 'space', 'orbit', 'rocket', 'космос', 'орбіт'] },
-  science_space: { categories: ['science_space'], keywords: ['nasa', 'space', 'science', 'quantum', 'biotech', 'nature'] },
+  security: { categories: ['cybersecurity', 'politics'], keywords: ['cyber', 'security', 'cve', 'vulnerability', 'malware', 'cloudflare', 'hacker', 'безпек'] },
+  science: { categories: ['science_space', 'research'], keywords: ['science', 'nasa', 'space', 'quantum', 'biotech', 'nature', 'arstechnica', 'космос', 'наук', 'клімат', 'енергетик'] },
+  space: { categories: ['science_space'], keywords: ['nasa', 'spacex', 'space', 'orbit', 'rocket', 'comet', 'eclipse', 'космос', 'орбіт', 'бурі'] },
+  science_space: { categories: ['science_space', 'research'], keywords: ['nasa', 'space', 'science', 'quantum', 'biotech', 'nature', 'клімат', 'енергетик', 'космос'] },
   hardware: { categories: ['hardware_gaming'], keywords: ['gpu', 'cpu', 'nvidia', 'amd', 'intel', 'chip', 'hardware', 'tomshardware', 'процесор', 'відеокарт'] },
-  gaming: { categories: ['hardware_gaming'], keywords: ['gaming', 'game', 'eurogamer', 'playstation', 'xbox', 'nintendo', 'steam', 'геймінг', 'ігор'] },
-  hardware_gaming: { categories: ['hardware_gaming'], keywords: ['gpu', 'cpu', 'hardware', 'gaming', 'eurogamer', 'tomshardware'] },
-  startups: { categories: ['startups_fintech', 'business'], keywords: ['startup', 'venture', 'seed', 'funding', 'ycombinator', 'techcrunch', 'стартап', 'інвестиц'] },
-  fintech: { categories: ['startups_fintech', 'business'], keywords: ['fintech', 'payments', 'crypto', 'stripe', 'bank', 'фінтех'] },
-  startups_fintech: { categories: ['startups_fintech'], keywords: ['startup', 'fintech', 'venture', 'techcrunch', 'ycombinator'] },
-  education: { categories: ['education_grants'], keywords: ['education', 'grant', 'fellowship', 'hackathon', 'university', 'грант', 'освіт', 'хакатон'] },
+  gaming: { categories: ['hardware_gaming', 'culture'], keywords: ['gaming', 'game', 'eurogamer', 'playstation', 'xbox', 'nintendo', 'steam', 'геймінг', 'ігор', 'відеоігор'] },
+  hardware_gaming: { categories: ['hardware_gaming', 'culture'], keywords: ['gpu', 'cpu', 'hardware', 'gaming', 'eurogamer', 'tomshardware'] },
+  startups: { categories: ['startups_fintech', 'business', 'career'], keywords: ['startup', 'venture', 'seed', 'funding', 'ycombinator', 'techcrunch', 'стартап', 'інвестиц', 'малий бізнес'] },
+  fintech: { categories: ['startups_fintech', 'finance', 'business'], keywords: ['fintech', 'payments', 'crypto', 'stripe', 'bank', 'фінтех', 'валют', 'банк'] },
+  startups_fintech: { categories: ['startups_fintech', 'finance', 'career'], keywords: ['startup', 'fintech', 'venture', 'techcrunch', 'ycombinator', 'малий бізнес'] },
+  education: { categories: ['education_grants', 'psychology'], keywords: ['education', 'grant', 'fellowship', 'hackathon', 'university', 'грант', 'освіт', 'хакатон', 'навчання'] },
   grants: { categories: ['education_grants'], keywords: ['grant', 'fellowship', 'hackathon', 'accelerator', 'грант', 'стипенд'] },
   education_grants: { categories: ['education_grants'], keywords: ['grant', 'education', 'hackathon', 'fellowship'] },
-  global: { categories: ['global_tech'], keywords: ['global', 'tech', 'itc', 'dou', 'dev.ua', 'технологі'] },
+  global: { categories: ['politics', 'global_tech', 'economy'], keywords: ['global', 'world', 'tech', 'itc', 'dou', 'dev.ua', 'технологі', 'світ'] },
   global_tech: { categories: ['global_tech'], keywords: ['global', 'tech', 'itc', 'dou', 'dev.ua'] },
 };
 

@@ -74,6 +74,18 @@ function cleanBroadcastText(raw: string | null | undefined): string {
     .trim();
 }
 
+export function stripTtsPromptDirectives(text: string): string {
+  return String(text || '')
+    .replace(/^(?:озвуч|прочитай)\s+українською[^:\n]*:\s*/i, '')
+    .replace(/^інструкція\s+для\s+диктора[^:\n]*:\s*/i, '')
+    .replace(
+      /У цьому аудіоогляді коротко розбираємо суть події та те, як вона змінить щоденні робочі процеси вже найближчим часом\.?/gi,
+      '',
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function simplifyForGlobalBrief(raw: string): string {
   return raw
     .replace(/([A-Za-zА-Яа-яІіЇїЄєҐґ])-?\bv?\d+(?:\.\d+)+\b/gi, '$1')
@@ -166,6 +178,15 @@ export function buildBroadcastScriptUk(article: NewsTtsArticleInput, options?: N
   const rawSummary = cleanBroadcastText(article.summaryUk || article.summary || article.originalSummary);
   const rawWhy = cleanBroadcastText(article.whyItMatters);
   const rawSource = cleanBroadcastText(article.sourceName);
+  const insight = cleanBroadcastText(article.hydrogenInsight);
+  const factTexts = (article.facts ?? [])
+    .map((entry) => cleanBroadcastText(typeof entry === 'string' ? entry : entry?.claim))
+    .filter(Boolean)
+    .slice(0, 2);
+  const comparisonTexts = (article.comparisons ?? [])
+    .map((entry) => cleanBroadcastText(entry))
+    .filter(Boolean)
+    .slice(0, 2);
   const { depth, style } = resolveNewsBriefMode(options);
 
   if (style === 'headline_flash' || depth === 'global_brief') {
@@ -175,28 +196,28 @@ export function buildBroadcastScriptUk(article: NewsTtsArticleInput, options?: N
     const parts: string[] = [];
 
     if (title) {
-      parts.push(ensureSentenceEnding(rawSource ? `Головне зі світу технологій від ${rawSource}. ${title}` : `Головне зі світу технологій. ${title}`));
+      parts.push(ensureSentenceEnding(rawSource ? `${rawSource} повідомляє: ${title}` : title));
     } else {
-      parts.push('Головне зі світу технологій.');
+      parts.push(rawSource ? `Головна новина дня від ${rawSource}.` : 'Головна новина дня.');
     }
     if (summary && summary !== title) {
       parts.push(ensureSentenceEnding(summary));
     }
     if (why) {
-      parts.push(ensureSentenceEnding(`Для людей і суспільства це важливо тим, що ${why.charAt(0).toLowerCase()}${why.slice(1)}`));
+      parts.push(ensureSentenceEnding(why));
     }
 
-    const globalFillers = [
-      'Подія впливає на щоденні цифрові сервіси, доступність нових можливостей і безпеку користувачів у світі.',
-      'Такі зміни формують практичні стандарти для суспільства, освіти й сучасних команд.',
+    const globalContext = [
+      'Подія безпосередньо впливає на рішення громадян, економіку та повсякденні справи в Україні й світі.',
+      'Світові та українські оглядачі відстежують практичні наслідки цих змін для суспільства.',
     ];
-    return fitBroadcastWordRange(parts.join(' '), globalFillers, 30, 45);
+    return stripTtsPromptDirectives(fitBroadcastWordRange(parts.join(' '), globalContext, 30, 45));
   }
 
   if (style === 'analyst_brief' || depth === 'deep_technical') {
     const parts: string[] = [];
     if (rawTitle) {
-      parts.push(ensureSentenceEnding(rawSource ? `Аналітичний брифінг за матеріалами ${rawSource}. ${rawTitle}` : `Аналітичний брифінг. ${rawTitle}`));
+      parts.push(ensureSentenceEnding(rawSource ? `${rawSource}. ${rawTitle}` : rawTitle));
     }
     if (rawSummary && rawSummary !== rawTitle) {
       parts.push(ensureSentenceEnding(rawSummary));
@@ -205,37 +226,31 @@ export function buildBroadcastScriptUk(article: NewsTtsArticleInput, options?: N
       const hasLead = /^(чому це важливо|практичне значення)/i.test(rawWhy);
       parts.push(ensureSentenceEnding(hasLead ? rawWhy : `Практичне значення: ${rawWhy}`));
     }
-    const insight = cleanBroadcastText(article.hydrogenInsight);
     if (insight) {
-      parts.push(ensureSentenceEnding(`Аналітичний висновок: ${insight}`));
+      parts.push(ensureSentenceEnding(insight));
     }
-    const factTexts = (article.facts ?? [])
-      .map((entry) => cleanBroadcastText(typeof entry === 'string' ? entry : entry?.claim))
-      .filter(Boolean)
-      .slice(0, 2);
     if (factTexts.length > 0) {
       parts.push(ensureSentenceEnding(`Підтверджені факти: ${factTexts.join('; ')}`));
     }
-    const comparisonTexts = (article.comparisons ?? []).map((entry) => cleanBroadcastText(entry)).filter(Boolean).slice(0, 2);
     if (comparisonTexts.length > 0) {
       parts.push(ensureSentenceEnding(`Контекст порівняння: ${comparisonTexts.join('; ')}`));
     }
 
-    const analystFillers = [
-      'Для інженерних і продуктових команд критично перевірити реальні метрики затримки, вартість масштабування та технічні обмеження.',
-      'Перед впровадженням у продакшн варто звірити незалежні тести, сумісність з поточною інфраструктурою та умови безпеки даних.',
-      'Повний перелік підтверджених джерел, порівнянь і практичних кроків уже зібрано у картці події на платформі.',
-      'Рекомендуємо зафіксувати власні базові показники продуктивності до початку пілотної інтеграції рішення.',
+    const analystContext = [
+      'Матеріал охоплює ключові факти, офіційні дані першоджерела та безпосередній вплив події на громадян, економіку й суспільство.',
+      'Фахівці відзначають важливість подальших практичних рішень, правових наслідків та реалістичних строків впровадження змін.',
+      'Варто врахувати підтверджені цифри першоджерела, реакцію незалежних спостерігачів та можливі ризики на найближчі місяці.',
+      'Детальні обставини, перевірені посилання та порівняння доступні в матеріалі публікації.',
     ];
-    return fitBroadcastWordRange(parts.join(' '), analystFillers, 90, 115);
+    return stripTtsPromptDirectives(fitBroadcastWordRange(parts.join(' '), analystContext, 90, 115));
   }
 
   // Default balanced / podcast_story (65-80 words)
   const parts: string[] = [];
   if (rawTitle) {
-    parts.push(ensureSentenceEnding(rawSource ? `Важлива новина від ${rawSource}. ${rawTitle}` : `Важлива новина дня. ${rawTitle}`));
+    parts.push(ensureSentenceEnding(rawSource ? `${rawSource} повідомляє: ${rawTitle}` : rawTitle));
   } else {
-    parts.push('Важливе технологічне оновлення в огляді AI Radar.');
+    parts.push('Важлива новина дня.');
   }
   if (rawSummary && rawSummary !== rawTitle) {
     parts.push(ensureSentenceEnding(rawSummary));
@@ -244,13 +259,19 @@ export function buildBroadcastScriptUk(article: NewsTtsArticleInput, options?: N
     const hasLead = /^(чому це важливо|практичне значення)/i.test(rawWhy);
     parts.push(ensureSentenceEnding(hasLead ? rawWhy : `Чому це важливо: ${rawWhy}`));
   }
+  if (factTexts.length > 0) {
+    parts.push(ensureSentenceEnding(factTexts[0]));
+  }
+  if (insight) {
+    parts.push(ensureSentenceEnding(insight));
+  }
 
-  const podcastFillers = [
-    'У цьому аудіоогляді коротко розбираємо суть події та те, як вона змінить щоденні робочі процеси вже найближчим часом.',
-    'Для розробників і технологічних команд це сигнал звернути увагу на нові сценарії використання та реальні обмеження.',
-    'Стежте за наступними оновленнями й незалежними перевірками цієї теми в нашому дайджесті.',
+  const storyContext = [
+    'Подія привернула значну увагу в Україні та світі через безпосередній вплив на рішення людей, фінанси та повсякденне життя.',
+    'Фахівці радять звернути увагу на офіційні деталі, практичні наслідки та подальші кроки відповідальних установ.',
+    'Оновлення щодо розвитку ситуації та реакції експертів збираються з перевірених першоджерел.',
   ];
-  return fitBroadcastWordRange(parts.join(' '), podcastFillers, 65, 80);
+  return stripTtsPromptDirectives(fitBroadcastWordRange(parts.join(' '), storyContext, 65, 80));
 }
 
 export function pcm16ToWavBase64(
@@ -367,7 +388,7 @@ export class NewsTtsService {
     const canonicalId = String(row.id || trimmedId);
     const { depth, style } = resolveNewsBriefMode(options);
     const voice = (options?.voiceName || 'Kore').trim() || 'Kore';
-    const cacheKey = `${canonicalId}:${voice}:${depth}:${style}`;
+    const cacheKey = `v3:${canonicalId}:${voice}:${depth}:${style}`;
 
     const cached = this.audioCache.get(cacheKey);
     if (cached) {
@@ -376,19 +397,21 @@ export class NewsTtsService {
       return { ...cached, cached: true };
     }
 
-    const scriptUk = buildBroadcastScriptUk(
-      {
-        titleUk: row.title_uk,
-        originalTitle: row.original_title,
-        summaryUk: row.summary_uk,
-        originalSummary: row.original_summary,
-        whyItMatters: row.why_it_matters,
-        sourceName: row.source_name,
-        hydrogenInsight: row.hydrogen_insight,
-        comparisons: Array.isArray(row.comparisons) ? row.comparisons : undefined,
-        facts: Array.isArray(row.facts) ? row.facts : undefined,
-      },
-      { depth, style, voiceName: voice },
+    const scriptUk = stripTtsPromptDirectives(
+      buildBroadcastScriptUk(
+        {
+          titleUk: row.title_uk,
+          originalTitle: row.original_title,
+          summaryUk: row.summary_uk,
+          originalSummary: row.original_summary,
+          whyItMatters: row.why_it_matters,
+          sourceName: row.source_name,
+          hydrogenInsight: row.hydrogen_insight,
+          comparisons: Array.isArray(row.comparisons) ? row.comparisons : undefined,
+          facts: Array.isArray(row.facts) ? row.facts : undefined,
+        },
+        { depth, style, voiceName: voice },
+      ),
     );
 
     if (!this.activeKey) {
@@ -407,13 +430,6 @@ export class NewsTtsService {
       };
     }
 
-    const styleDirective =
-      style === 'headline_flash'
-        ? 'Озвуч українською чітко, лаконічно та доступно, як диктор світових новин (без технічного жаргону, живий темп):'
-        : style === 'analyst_brief'
-          ? 'Озвуч українською впевнено та аналітично, з акцентом на факти, цифри й висновки для інженерів:'
-          : 'Озвуч українською як професійний ведучий техно-радіо (природна, захоплива розповідь):';
-
     try {
       const ttsRes = await postGeminiGenerateContent({
         apiKey: this.activeKey,
@@ -426,7 +442,7 @@ export class NewsTtsService {
               role: 'user',
               parts: [
                 {
-                  text: `${styleDirective}\n\n${scriptUk}`,
+                  text: scriptUk,
                 },
               ],
             },
