@@ -23,6 +23,8 @@ import { KgController } from './kg/kg.controller';
 import { KgService } from './kg/kg.service';
 import { GrantsController } from './grants/grants.controller';
 import { GrantsService } from './grants/grants.service';
+import { YoutubeController } from './youtube/youtube.controller';
+import { YoutubeRadarService } from './youtube/youtube-radar.service';
 
 @Module({
   controllers: [
@@ -34,6 +36,7 @@ import { GrantsService } from './grants/grants.service';
     GamesController,
     KgController,
     GrantsController,
+    YoutubeController,
   ],
   providers: [
     DatabaseService,
@@ -52,6 +55,7 @@ import { GrantsService } from './grants/grants.service';
     GamesService,
     KgService,
     GrantsService,
+    YoutubeRadarService,
   ],
 })
 export class AppModule {}

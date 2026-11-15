@@ -11,7 +11,7 @@ import {
   scoreExpertCompetenceForTopic,
 } from './expert-directory';
 
-export type EmbedType = 'x_oembed' | 'facebook_plugin' | 'bsky_oembed' | 'hn_card' | 'web_embed';
+export type EmbedType = 'x_oembed' | 'facebook_plugin' | 'bsky_oembed' | 'youtube_oembed' | 'hn_card' | 'web_embed';
 
 export interface OfficialEmbedInfo {
   type: EmbedType;
@@ -107,6 +107,9 @@ const ALLOWED_PUBLIC_EXPERT_HOSTS = [
   'huggingface.co',
   'nature.com',
   'calnewport.com',
+  'youtube.com',
+  'm.youtube.com',
+  'youtu.be',
 ];
 
 function safePublicHttpsUrl(raw: unknown): string | null {
@@ -198,6 +201,17 @@ export function buildOfficialEmbedInfo(
       embedUrl,
       htmlSnippet: verifiedSnippet,
       providerName: 'Bluesky',
+      interactiveSupported: true,
+    };
+  }
+
+  if (host === 'youtube.com' || host === 'm.youtube.com' || host === 'youtu.be') {
+    const embedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(safeUrl)}&format=json`;
+    return {
+      type: 'youtube_oembed',
+      embedUrl,
+      htmlSnippet: verifiedSnippet,
+      providerName: 'YouTube',
       interactiveSupported: true,
     };
   }
@@ -348,7 +362,7 @@ export function validateExpertOpinionItem(raw: unknown): ExpertOpinionItem {
     throw new Error('Missing embed metadata');
   }
   const embedObj = rawEmbed as Record<string, unknown>;
-  const validEmbedTypes: EmbedType[] = ['x_oembed', 'facebook_plugin', 'bsky_oembed', 'hn_card', 'web_embed'];
+  const validEmbedTypes: EmbedType[] = ['x_oembed', 'facebook_plugin', 'bsky_oembed', 'youtube_oembed', 'hn_card', 'web_embed'];
   const embedType = validEmbedTypes.find((t) => t === embedObj.type);
   const embedUrl = safePublicHttpsUrl(embedObj.embedUrl);
   const providerName = typeof embedObj.providerName === 'string' ? embedObj.providerName.trim() : '';

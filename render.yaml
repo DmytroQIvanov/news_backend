@@ -23,6 +23,12 @@ services:
         value: "gemini-2.0-flash-lite"
       - key: GEMINI_RESEARCH
         value: "false"
+      - key: apify_token
+        sync: false
+      - key: YOUTUBE_MAX_DAILY_TRANSCRIPTIONS
+        value: "30"
+      - key: YOUTUBE_MAX_DAILY_APIFY
+        value: "5"
       - key: CORS_ORIGINS
         value: ""
       - key: DB_KEEPALIVE_INTERVAL_MS

@@ -105,6 +105,7 @@ export type FeedArticle = {
   canonical_url: string;
   original_title: string;
   original_summary: string;
+  raw_description?: string;
   published_at: string;
   source_name: string;
   source_slug: string;
@@ -112,6 +113,12 @@ export type FeedArticle = {
   provider_id?: string;
   source_is_unofficial?: boolean;
   license_mode?: LicenseMode;
+  video_id?: string;
+  channel_id?: string;
+  thumbnail_url?: string;
+  views_count?: number;
+  likes_count?: number;
+  is_youtube_short?: boolean;
 };
 
 type FeedState = {
@@ -611,6 +618,9 @@ function parseFeedXmlWithMeta(
   let fields: Record<string, string> = {};
   let mode: 'rss' | 'rdf' | 'atom' | null = null;
   let atomLink = '';
+  let atomThumbnail = '';
+  let atomViews: number | undefined;
+  let atomLikes: number | undefined;
   let rdfItemAbout = '';
   let guidIsPermaLink: string | undefined;
   let channelTtlText = '';
@@ -635,11 +645,24 @@ function parseFeedXmlWithMeta(
     } else if (mode === 'atom' && stack.length === 2 && name === 'entry') {
       fields = {};
       atomLink = '';
+      atomThumbnail = '';
+      atomViews = undefined;
+      atomLikes = undefined;
     } else if (mode === 'atom' && stack.length === 3 && stack[1] === 'entry' && name === 'link') {
       const rel = String(tag.attributes.rel || 'alternate');
       const href = String(tag.attributes.href || '');
       if (rel === 'alternate' && href) atomLink = href;
       else if (!atomLink && href) atomLink = href;
+    } else if (mode === 'atom' && stack[1] === 'entry' && stack[2] === 'group') {
+      if (stack.length === 4 && name === 'thumbnail' && tag.attributes.url && !atomThumbnail) {
+        atomThumbnail = String(tag.attributes.url);
+      } else if (stack.length === 5 && stack[3] === 'community' && name === 'statistics') {
+        const parsedViews = Number(tag.attributes.views);
+        if (Number.isFinite(parsedViews) && parsedViews >= 0) atomViews = parsedViews;
+      } else if (stack.length === 5 && stack[3] === 'community' && name === 'starRating') {
+        const parsedLikes = Number(tag.attributes.count);
+        if (Number.isFinite(parsedLikes) && parsedLikes >= 0) atomLikes = parsedLikes;
+      }
     }
   });
 
@@ -673,8 +696,20 @@ function parseFeedXmlWithMeta(
       }
     } else if (mode === 'atom' && stack[1] === 'entry') {
       const field = stack[2];
-      if (field === 'title' || field === 'published' || field === 'updated' || field === 'summary' || field === 'content' || field === 'id') {
+      if (
+        stack.length === 3 &&
+        (field === 'title' ||
+          field === 'published' ||
+          field === 'updated' ||
+          field === 'summary' ||
+          field === 'content' ||
+          field === 'id' ||
+          field === 'videoId' ||
+          field === 'channelId')
+      ) {
         fields[field] = (fields[field] || '') + part;
+      } else if (stack.length === 4 && stack[2] === 'group' && stack[3] === 'description') {
+        fields.mediaDescription = (fields.mediaDescription || '') + part;
       }
     }
   };
@@ -708,7 +743,13 @@ function parseFeedXmlWithMeta(
         title: fields.title,
         link: atomLink || fallbackAtomId,
         pubDate: fields.published || fields.updated,
-        description: fields.summary || fields.content,
+        description: fields.summary || fields.content || fields.mediaDescription,
+        videoId: fields.videoId,
+        channelId: fields.channelId,
+        thumbnailUrl: atomThumbnail,
+        viewsCount: atomViews,
+        likesCount: atomLikes,
+        preserveRawDescription: Boolean(fields.videoId || fields.mediaDescription),
       });
       if (item && !items.has(item.canonical_url)) items.set(item.canonical_url, item);
     }
@@ -733,7 +774,18 @@ function parseFeedXmlWithMeta(
 
 function normalizeArticle(
   feed: FeedDefinition,
-  raw: { title?: string; link?: string; pubDate?: string; description?: string },
+  raw: {
+    title?: string;
+    link?: string;
+    pubDate?: string;
+    description?: string;
+    videoId?: string;
+    channelId?: string;
+    thumbnailUrl?: string;
+    viewsCount?: number;
+    likesCount?: number;
+    preserveRawDescription?: boolean;
+  },
 ): FeedArticle | undefined {
   const originalTitle = decodeHtmlEntities(raw.title || '')
     .replace(/\s+/g, ' ')
@@ -771,12 +823,18 @@ function normalizeArticle(
     .trim()
     .slice(0, 2500);
   const classifiedCategory = classifyFeedArticleCategory(originalTitle, originalSummary, feed.category);
+  const videoId = (raw.videoId || '').trim() || undefined;
+  const channelId = (raw.channelId || '').trim() || undefined;
+  const thumbnailUrl = (raw.thumbnailUrl || '').trim() || undefined;
   return {
     id: `rss-${createHash('sha256').update(canonical).digest('hex').slice(0, 24)}`,
     url,
     canonical_url: canonical,
     original_title: originalTitle,
     original_summary: originalSummary,
+    ...(raw.preserveRawDescription && decodedSummary.trim()
+      ? { raw_description: decodedSummary.replace(/\r/g, '').trim().slice(0, 6000) }
+      : {}),
     published_at: new Date(publishedAt).toISOString(),
     source_name: feed.name,
     source_slug: feed.slug,
@@ -784,6 +842,12 @@ function normalizeArticle(
     provider_id: feed.providerId,
     source_is_unofficial: Boolean(feed.unofficial),
     license_mode: feed.licenseMode || 'headline_link',
+    ...(videoId ? { video_id: videoId } : {}),
+    ...(channelId ? { channel_id: channelId } : {}),
+    ...(thumbnailUrl ? { thumbnail_url: thumbnailUrl } : {}),
+    ...(typeof raw.viewsCount === 'number' ? { views_count: raw.viewsCount } : {}),
+    ...(typeof raw.likesCount === 'number' ? { likes_count: raw.likesCount } : {}),
+    ...(videoId || /\/shorts\//i.test(url) ? { is_youtube_short: /\/shorts\//i.test(url) } : {}),
   };
 }
 

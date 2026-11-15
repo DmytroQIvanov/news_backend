@@ -83,6 +83,16 @@ import {
 } from '../dist/common/source-compliance.js';
 import { clusterNewsItems, NewsClusteringService } from '../dist/news/news-clustering.service.js';
 import { SourcesController } from '../dist/sources/sources.controller.js';
+import { buildYoutubeRssUrl, extractYoutubeVideoId, YOUTUBE_RSS_CHANNELS } from '../dist/youtube/youtube-channels.js';
+import {
+  buildCompressedGeminiYoutubeBody,
+  evaluateYoutubeVideoWorthiness,
+  extractApifyTranscriptText,
+  extractChaptersFromDescription,
+  getConfiguredApifyToken,
+  YoutubeRadarService,
+} from '../dist/youtube/youtube-radar.service.js';
+import { YoutubeController } from '../dist/youtube/youtube.controller.js';
 
 test('canonicalizeUrl strips tracking params, www, hash, and trailing slash', () => {
   const input = 'https://www.openai.com/news/gpt-5/?utm_source=rss&fbclid=123&ref=x#top';
@@ -3349,5 +3359,394 @@ test('NewsTtsService DB persistence, prewarmImportantBriefings, listLatestBriefi
     globalThis.fetch = prevFetch;
     if (prevKey === undefined) delete process.env.GEMINI_API_KEY;
     else process.env.GEMINI_API_KEY = prevKey;
+  }
+});
+
+test('parseFeedXml parses YouTube Atom RSS media:description, yt:videoId, statistics, starRating, and Shorts flag', () => {
+  const nowIso = new Date().toISOString();
+  const ytAtom = `<?xml version="1.0" encoding="UTF-8"?>
+  <feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/" xmlns="http://www.w3.org/2005/Atom">
+    <title>Andrej Karpathy</title>
+    <entry>
+      <id>yt:video:EWvNQjAaOHw</id>
+      <yt:videoId>EWvNQjAaOHw</yt:videoId>
+      <yt:channelId>UCXUPKJO5MZQN11PqgIvyuvQ</yt:channelId>
+      <title>How I use LLMs</title>
+      <link rel="alternate" href="https://www.youtube.com/watch?v=EWvNQjAaOHw"/>
+      <published>${nowIso}</published>
+      <media:group>
+        <media:title>How I use LLMs</media:title>
+        <media:thumbnail url="https://i2.ytimg.com/vi/EWvNQjAaOHw/hqdefault.jpg" width="480" height="360"/>
+        <media:description>Deep walkthrough of LLM workflows.
+00:00 Intro
+02:30 Thinking models and benchmarks
+15:10 Tool use and agents</media:description>
+        <media:community>
+          <media:starRating count="70289" average="5.00" min="1" max="5"/>
+          <media:statistics views="2925719"/>
+        </media:community>
+      </media:group>
+    </entry>
+    <entry>
+      <id>yt:video:Sh0rtVid123</id>
+      <yt:videoId>Sh0rtVid123</yt:videoId>
+      <yt:channelId>UCXUPKJO5MZQN11PqgIvyuvQ</yt:channelId>
+      <title>Quick #shorts clip</title>
+      <link rel="alternate" href="https://www.youtube.com/shorts/Sh0rtVid123"/>
+      <published>${nowIso}</published>
+      <media:group>
+        <media:description>Short clip</media:description>
+      </media:group>
+    </entry>
+  </feed>`;
+
+  const items = parseFeedXml(ytAtom, {
+    slug: 'yt-andrej-karpathy',
+    name: 'Andrej Karpathy',
+    domain: 'youtube.com',
+    allowedDomains: ['youtube.com', 'm.youtube.com', 'youtu.be'],
+    url: buildYoutubeRssUrl('UCXUPKJO5MZQN11PqgIvyuvQ'),
+  });
+
+  assert.equal(items.length, 2);
+  const full = items.find((i) => i.video_id === 'EWvNQjAaOHw');
+  const short = items.find((i) => i.video_id === 'Sh0rtVid123');
+  assert.ok(full);
+  assert.equal(full.channel_id, 'UCXUPKJO5MZQN11PqgIvyuvQ');
+  assert.equal(full.views_count, 2925719);
+  assert.equal(full.likes_count, 70289);
+  assert.equal(full.thumbnail_url, 'https://i2.ytimg.com/vi/EWvNQjAaOHw/hqdefault.jpg');
+  assert.equal(full.is_youtube_short, false);
+  assert.ok(full.raw_description?.includes('02:30 Thinking models'));
+  assert.ok(short);
+  assert.equal(short.is_youtube_short, true);
+  assert.equal(extractYoutubeVideoId(full.url), 'EWvNQjAaOHw');
+});
+
+test('YouTube worthiness gate, compressed audio-first Gemini payload, and YouTube oEmbed work cleanly', () => {
+  assert.ok(YOUTUBE_RSS_CHANNELS.length >= 10);
+  const karpathy = YOUTUBE_RSS_CHANNELS[0];
+  const nowIso = new Date().toISOString();
+
+  const shortRes = evaluateYoutubeVideoWorthiness(
+    {
+      url: 'https://www.youtube.com/shorts/abc12345',
+      original_title: 'AI update #shorts',
+      original_summary: 'Short clip',
+      published_at: nowIso,
+      is_youtube_short: true,
+    },
+    karpathy,
+  );
+  assert.equal(shortRes.worthy, false);
+  assert.equal(shortRes.isShort, true);
+  assert.equal(shortRes.worthScore, 0);
+
+  const giveawayRes = evaluateYoutubeVideoWorthiness(
+    {
+      url: 'https://www.youtube.com/watch?v=giveaway123',
+      original_title: 'Channel Update & Merch Giveaway!',
+      original_summary: 'Subscribe to win merch.',
+      published_at: nowIso,
+    },
+    karpathy,
+  );
+  assert.equal(giveawayRes.worthy, false);
+
+  const deepDesc = [
+    'Practical breakdown of LLM reasoning benchmarks and agent architectures.',
+    '00:00 Intro',
+    '02:00 Benchmark methodology',
+    '12:30 Agent tool verification',
+    '28:00 Open-weight GPU inference',
+    '52:00 Summary and takeaways',
+    'https://arxiv.org/abs/2501.00001 https://github.com/example/repo',
+  ].join('\n');
+
+  const worthyRes = evaluateYoutubeVideoWorthiness(
+    {
+      url: 'https://www.youtube.com/watch?v=deepDive999',
+      original_title: 'Deep Dive into LLM Reasoning Benchmarks and GPU Inference',
+      original_summary: deepDesc,
+      raw_description: deepDesc,
+      published_at: nowIso,
+      views_count: 140_000,
+      likes_count: 6_200,
+    },
+    karpathy,
+  );
+  assert.equal(worthyRes.worthy, true);
+  assert.ok(worthyRes.worthScore >= 75);
+  assert.equal(worthyRes.chapters.length, 5);
+  assert.equal(worthyRes.preferApifyFallback, true);
+
+  const geminiBody = buildCompressedGeminiYoutubeBody('https://www.youtube.com/watch?v=deepDive999', {
+    title: 'Deep Dive into LLM Reasoning Benchmarks and GPU Inference',
+    channelName: 'Andrej Karpathy',
+    description: deepDesc,
+    chapters: worthyRes.chapters,
+    estimatedDurationSec: worthyRes.estimatedDurationSec,
+    defaultCategory: 'model',
+  });
+  const genCfg = geminiBody.generationConfig;
+  assert.equal(genCfg.mediaResolution, 'MEDIA_RESOLUTION_LOW');
+  assert.ok(genCfg.maxOutputTokens <= 1500);
+  const videoPart = geminiBody.contents[0].parts[0];
+  assert.equal(videoPart.fileData.fileUri, 'https://www.youtube.com/watch?v=deepDive999');
+  assert.equal(videoPart.videoMetadata.fps, 0.01);
+  assert.equal(videoPart.videoMetadata.startOffset.seconds, 120); // skipped 00:00 Intro
+
+  const embed = buildOfficialEmbedInfo('https://www.youtube.com/watch?v=deepDive999');
+  assert.equal(embed.type, 'youtube_oembed');
+  assert.equal(embed.providerName, 'YouTube');
+  assert.ok(embed.embedUrl.includes('youtube.com/oembed'));
+});
+
+test('YoutubeRadarService prioritizes compressed Gemini audio, uses apify_token sparingly as fallback, and enforces 30/day cap', async () => {
+  resetGeminiClientStateForTests();
+  const prevFetch = globalThis.fetch;
+  const prevGeminiKey = process.env.GEMINI_API_KEY;
+  const prevApifyToken = process.env.apify_token;
+  const prevMaxDaily = process.env.YOUTUBE_MAX_DAILY_TRANSCRIPTIONS;
+  const prevMaxApify = process.env.YOUTUBE_MAX_DAILY_APIFY;
+
+  process.env.GEMINI_API_KEY = 'test-gemini-key-youtube';
+  process.env.apify_token = 'test-render-apify-token-123';
+  process.env.YOUTUBE_MAX_DAILY_TRANSCRIPTIONS = '30';
+  process.env.YOUTUBE_MAX_DAILY_APIFY = '5';
+  assert.equal(getConfiguredApifyToken(), 'test-render-apify-token-123');
+
+  const nowIso = new Date().toISOString();
+  const rssXml = `<?xml version="1.0" encoding="UTF-8"?>
+  <feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/" xmlns="http://www.w3.org/2005/Atom">
+    <title>Digital Foundry</title>
+    <entry>
+      <id>yt:video:vidGemini1</id>
+      <yt:videoId>vidGemini1</yt:videoId>
+      <yt:channelId>UC9PBzalIcEQCsiIkq36PyUA</yt:channelId>
+      <title>Metro Upgrade GPU Benchmark and Frame-Time Analysis</title>
+      <link rel="alternate" href="https://www.youtube.com/watch?v=vidGemini1"/>
+      <published>${nowIso}</published>
+      <media:group>
+        <media:description>Full benchmark analysis of rendering and 120Hz performance.
+00:00 Intro
+02:00 Console GPU performance test
+10:00 Frame-time comparison
+18:00 Conclusion</media:description>
+        <media:community>
+          <media:starRating count="3200" average="5.00"/>
+          <media:statistics views="85000"/>
+        </media:community>
+      </media:group>
+    </entry>
+    <entry>
+      <id>yt:video:vidApifyFb2</id>
+      <yt:videoId>vidApifyFb2</yt:videoId>
+      <yt:channelId>UC9PBzalIcEQCsiIkq36PyUA</yt:channelId>
+      <title>Unreal Engine Deep Dive Interview on Next-Gen Rendering</title>
+      <link rel="alternate" href="https://www.youtube.com/watch?v=vidApifyFb2"/>
+      <published>${nowIso}</published>
+      <media:group>
+        <media:description>Long engineering interview on rendering architecture.
+00:00 Intro
+03:00 Nanite &amp; Lumen deep dive
+25:00 Shader compilation
+55:00 Future hardware</media:description>
+        <media:community>
+          <media:starRating count="4100" average="5.00"/>
+          <media:statistics views="120000"/>
+        </media:community>
+      </media:group>
+    </entry>
+  </feed>`;
+
+  const geminiAudioCalls = [];
+  const geminiTextCalls = [];
+  const apifyCalls = [];
+  const dbVideos = new Map();
+  const dbNews = [];
+
+  globalThis.fetch = async (url, init) => {
+    const u = String(url);
+    if (u.includes('youtube.com/feeds/videos.xml')) {
+      return new Response(rssXml, { status: 200, headers: { 'Content-Type': 'application/atom+xml' } });
+    }
+    if (u.includes('api.apify.com/v2/actors/')) {
+      apifyCalls.push(u);
+      assert.ok(u.includes('token=test-render-apify-token-123'));
+      return new Response(
+        JSON.stringify([
+          {
+            transcript: [
+              { start: 0, text: 'Welcome to the Unreal Engine deep dive.' },
+              { start: 185, text: 'Shader compilation pipelines improved by 40 percent.' },
+            ],
+          },
+        ]),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    if (u.includes('generativelanguage.googleapis.com')) {
+      const parsedBody = JSON.parse(String(init?.body || '{}'));
+      const firstPart = parsedBody?.contents?.[0]?.parts?.[0];
+      if (firstPart?.fileData?.fileUri) {
+        geminiAudioCalls.push(firstPart.fileData.fileUri);
+        assert.equal(parsedBody.generationConfig.mediaResolution, 'MEDIA_RESOLUTION_LOW');
+        assert.equal(firstPart.videoMetadata.fps, 0.01);
+        return new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      text: JSON.stringify({
+                        worthKeeping: true,
+                        titleUk: 'Технічний розбір 120 Гц у Metro: тест GPU та frame-time',
+                        summaryUk: 'Детальний аналіз продуктивності консолей на частоті 120 Гц.',
+                        whyItMattersUk: 'Показує реальні межі апскейлінгу на поточному поколінні GPU.',
+                        keyTakeawaysUk: ['Стабільні 120 Гц досягнуто в режимі продуктивності.'],
+                        timestampedQuotes: [
+                          {
+                            timestampSec: 120,
+                            timestampLabel: '02:00',
+                            speaker: 'Digital Foundry',
+                            insightUk: 'Порівняння затримок кадру на PS5 Pro та Xbox.',
+                          },
+                        ],
+                        category: 'hardware_gaming',
+                        importance: 'high',
+                      }),
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+
+      geminiTextCalls.push(u);
+      return new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      worthKeeping: true,
+                      titleUk: 'Інтерв’ю про рендеринг Unreal Engine наступного покоління',
+                      summaryUk: 'Інженери пояснили оптимізацію компіляції шейдерів на 40%.',
+                      whyItMattersUk: 'Важливо для розробників ігор та студій на UE.',
+                      keyTakeawaysUk: ['Компіляція шейдерів прискорена на 40%.'],
+                      timestampedQuotes: [
+                        {
+                          timestampSec: 185,
+                          timestampLabel: '03:05',
+                          speaker: 'Інженер UE',
+                          insightUk: 'Новий пайплайн знімає статери на ПК.',
+                        },
+                      ],
+                      category: 'hardware_gaming',
+                      importance: 'high',
+                    }),
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    throw new Error(`Unexpected fetch URL in test: ${u}`);
+  };
+
+  const mockDb = {
+    async query(sql, args = []) {
+      if (sql.includes('COUNT(*)::int AS total') && sql.includes('FROM youtube_videos')) {
+        let total = 0;
+        let apify_count = 0;
+        for (const row of dbVideos.values()) {
+          if (row.transcribed_at) {
+            total += 1;
+            if (row.transcription_provider === 'apify_transcript') apify_count += 1;
+          }
+        }
+        return { rows: [{ total, apify_count }] };
+      }
+      if (sql.includes('SELECT status FROM youtube_videos WHERE video_id = $1')) {
+        const row = dbVideos.get(args[0]);
+        return { rows: row ? [{ status: row.status }] : [] };
+      }
+      if (sql.includes('INSERT INTO sources')) {
+        return { rows: [{ id: '99' }] };
+      }
+      if (sql.includes('INSERT INTO news_items')) {
+        dbNews.push({ externalId: args[1], titleUk: args[6] });
+        return { rows: [{ id: String(1000 + dbNews.length) }] };
+      }
+      if (sql.includes('INSERT INTO youtube_videos')) {
+        dbVideos.set(args[0], {
+          video_id: args[0],
+          status: args[15],
+          transcription_provider: args[16],
+          transcribed_at: args[25],
+        });
+        return { rowCount: 1, rows: [] };
+      }
+      return { rows: [] };
+    },
+  };
+
+  try {
+    assert.equal(
+      extractApifyTranscriptText([{ transcript: [{ start: 0, text: 'Hello' }, { start: 35, text: 'World' }] }]),
+      '[00:00] Hello [00:35] World',
+    );
+
+    const service = new YoutubeRadarService(mockDb);
+    const controller = new YoutubeController(service);
+    const channel = YOUTUBE_RSS_CHANNELS.find((c) => c.slug === 'yt-digital-foundry');
+
+    const syncRes = await service.syncOnce({ maxTranscribe: 4, channels: [channel] });
+    assert.equal(syncRes.channelsPolled, 1);
+    assert.equal(syncRes.videosDiscovered, 2);
+    assert.equal(syncRes.transcribed, 2);
+    assert.equal(syncRes.apifyUsed, 1, 'Long 58-min high-score interview uses Apify sparingly, shorter video uses Gemini audio');
+    assert.equal(geminiAudioCalls.length, 1);
+    assert.equal(apifyCalls.length, 1);
+    assert.equal(geminiTextCalls.length, 1);
+    assert.equal(dbNews.length, 2);
+
+    const quota = await controller.quota();
+    assert.equal(quota.limitPerDay, 30);
+    assert.equal(quota.usedToday, 2);
+    assert.equal(quota.remainingToday, 28);
+    assert.equal(quota.apifyLimitPerDay, 5);
+    assert.equal(quota.apifyUsedToday, 1);
+    assert.equal(quota.apifyConfigured, true);
+
+    await assert.rejects(() => controller.listInsights('0'), BadRequestException);
+    await assert.rejects(() => controller.sync('15'), BadRequestException);
+
+    // Verify hard 30/day cap blocks further transcriptions even if more videos arrive
+    process.env.YOUTUBE_MAX_DAILY_TRANSCRIPTIONS = '2';
+    const cappedSync = await service.syncOnce({ maxTranscribe: 4, channels: [channel] });
+    assert.equal(cappedSync.quotaReached, true);
+    assert.equal(cappedSync.transcribed, 0);
+  } finally {
+    globalThis.fetch = prevFetch;
+    if (prevGeminiKey === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = prevGeminiKey;
+    if (prevApifyToken === undefined) delete process.env.apify_token;
+    else process.env.apify_token = prevApifyToken;
+    if (prevMaxDaily === undefined) delete process.env.YOUTUBE_MAX_DAILY_TRANSCRIPTIONS;
+    else process.env.YOUTUBE_MAX_DAILY_TRANSCRIPTIONS = prevMaxDaily;
+    if (prevMaxApify === undefined) delete process.env.YOUTUBE_MAX_DAILY_APIFY;
+    else process.env.YOUTUBE_MAX_DAILY_APIFY = prevMaxApify;
+    resetGeminiClientStateForTests();
   }
 });
