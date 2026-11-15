@@ -5,6 +5,7 @@ import { CATEGORIES } from '../ingest/ingest.dto';
 import { CompanyFeedsService, isPublishedWithinHours, maxFeedArticles } from './company-feeds.service';
 import { EXPERT_DIRECTORY } from './expert-directory';
 import { ExpertOpinionsService } from './expert-opinions.service';
+import { NewsMemesService } from './news-memes.service';
 import { NEWS_AUDIO_STYLES, NEWS_DEPTHS, NewsTtsService } from './news-tts.service';
 @Controller('news')
 export class NewsController {
@@ -13,6 +14,7 @@ export class NewsController {
     private readonly companyFeeds: CompanyFeedsService,
     @Optional() private readonly newsTts?: NewsTtsService,
     @Optional() private readonly expertOpinions?: ExpertOpinionsService,
+    @Optional() private readonly newsMemes?: NewsMemesService,
   ) {}
 
   @Get('test-notification')
@@ -336,6 +338,28 @@ export class NewsController {
     const refresh = refreshRaw === 'true' || refreshRaw === '1';
     return this.expertOpinions.getOpinionsForNews(id, {
       refresh,
+      title,
+      category,
+      source,
+    });
+  }
+
+  @Get(':id/memes')
+  async memesForArticle(
+    @Param('id') id: string,
+    @Query('refresh') refreshRaw?: string,
+    @Query('q') query?: string,
+    @Query('title') title?: string,
+    @Query('category') category?: string,
+    @Query('source') source?: string,
+  ) {
+    if (!this.newsMemes) {
+      throw new ServiceUnavailableException('News memes service is unavailable');
+    }
+    const refresh = refreshRaw === 'true' || refreshRaw === '1';
+    return this.newsMemes.getMemesForNews(id, {
+      refresh,
+      query,
       title,
       category,
       source,

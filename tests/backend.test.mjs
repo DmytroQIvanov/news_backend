@@ -64,6 +64,7 @@ import {
   ExpertOpinionsService,
   validateExpertOpinionItem,
 } from '../dist/news/expert-opinions.service.js';
+import { NewsMemesService } from '../dist/news/news-memes.service.js';
 import { buildHealthUrls, parseKeepAliveArgs } from '../scripts/keep-alive.mjs';
 
 test('canonicalizeUrl strips tracking params, www, hash, and trailing slash', () => {
@@ -1041,7 +1042,9 @@ test('GeminiEditorService.edit runs Chain-of-Verification editorial and Hydrogen
 test('NewsTtsService enforces importance gate, builds clean scripts, wraps PCM16 to RIFF WAVE, and caches results', async () => {
   resetGeminiClientStateForTests();
   assert.deepEqual(PREFERRED_TTS_MODELS, [
+    'gemini-3.8-flash-tts',
     'gemini-3.1-flash-tts',
+    'gemini-2.5-flash-tts',
     'gemini-3.8-flash-lite-tts',
     'gemini-2.5-flash-preview-tts',
   ]);
@@ -1126,7 +1129,7 @@ test('NewsTtsService enforces importance gate, builds clean scripts, wraps PCM16
   const origFetch = globalThis.fetch;
   globalThis.fetch = async (url) => {
     ttsFetchCalls += 1;
-    assert.ok(String(url).includes('gemini-3.1-flash-tts:generateContent'));
+    assert.ok(String(url).includes('gemini-3.8-flash-tts:generateContent'));
     return new Response(
       JSON.stringify({
         candidates: [
@@ -1152,7 +1155,7 @@ test('NewsTtsService enforces importance gate, builds clean scripts, wraps PCM16
   try {
     const firstAudio = await ttsWithKey.generateImportantNewsBriefing('major-1');
     assert.equal(firstAudio.status, 'gemini_audio');
-    assert.equal(firstAudio.modelUsed, 'gemini-3.1-flash-tts');
+    assert.equal(firstAudio.modelUsed, 'gemini-3.8-flash-tts');
     assert.equal(firstAudio.mimeType, 'audio/wav');
     assert.equal(firstAudio.cached, false);
     const decoded = Buffer.from(firstAudio.audioBase64, 'base64');
@@ -2241,5 +2244,164 @@ test('NewsTtsService sends clean script without spoken style directives or meta 
     globalThis.fetch = origFetch;
     if (prevKey === undefined) delete process.env.GEMINI_API_KEY;
     else process.env.GEMINI_API_KEY = prevKey;
+  }
+});
+
+test('NewsMemesService searches multiple public memes and jokes, caches results, supports custom query, and skips tragic news', async () => {
+  const dbCache = new Map();
+  let simulateMissingTable = true;
+
+  const mockDb = {
+    async query(sql, args = []) {
+      if (sql.includes('FROM news_items')) {
+        if (args[0] === 'tragic-1') {
+          return {
+            rows: [
+              {
+                id: 'tragic-1',
+                external_id: 'tragic-1',
+                url: 'https://example.com/tragic',
+                title_uk: 'Повідомлення про масові жертви обстрілу',
+                original_title: 'Mass casualties reported after attack',
+                summary_uk: 'Є загиблі та постраждалі серед цивільних.',
+                original_summary: null,
+                category: 'politics',
+                source_name: 'News',
+              },
+            ],
+          };
+        }
+        if (args[0] === 'ai-meme-1') {
+          return {
+            rows: [
+              {
+                id: 'ai-meme-1',
+                external_id: 'ai-meme-1',
+                url: 'https://openai.com/news/gpt-coding',
+                title_uk: 'Новий ШІ-агент для програмування переписує продакшн у пʼятницю',
+                original_title: 'New AI coding agent deploys to production on Friday',
+                summary_uk: 'Розробники обговорюють автономні деплої та тести.',
+                original_summary: null,
+                category: 'coding',
+                source_name: 'GitHub Blog',
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }
+      if (sql.includes('news_memes_cache')) {
+        if (simulateMissingTable) {
+          throw new Error('relation "news_memes_cache" does not exist');
+        }
+        if (sql.includes('INSERT INTO news_memes_cache')) {
+          dbCache.set(args[0], JSON.parse(args[4]));
+          return { rows: [] };
+        }
+        const hit = dbCache.get(args[0]);
+        return { rows: hit ? [{ payload: hit }] : [] };
+      }
+      return { rows: [] };
+    },
+  };
+
+  let fetchCalls = 0;
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    fetchCalls += 1;
+    const url = typeof input === 'string' ? input : input.url;
+    if (url.includes('reddit.com/search.json')) {
+      return new Response(
+        JSON.stringify({
+          data: {
+            children: [
+              {
+                data: {
+                  title: 'When the AI agent deploys directly to prod on Friday lol',
+                  selftext: '',
+                  permalink: '/r/ProgrammerHumor/comments/abc123/ai_friday/',
+                  url_overridden_by_dest: 'https://i.redd.it/friday-prod-meme.png',
+                  post_hint: 'image',
+                  subreddit: 'ProgrammerHumor',
+                  author: 'dev_joker',
+                  ups: 4200,
+                  over_18: false,
+                  created_utc: 1794700000,
+                },
+              },
+              {
+                data: {
+                  title: 'Senior dev watching junior ask AI to fix prod bug',
+                  selftext: 'It deleted the migration table.',
+                  permalink: '/r/memes/comments/xyz789/senior_dev/',
+                  subreddit: 'memes',
+                  author: 'meme_smith',
+                  ups: 1500,
+                  over_18: false,
+                  created_utc: 1794700100,
+                },
+              },
+            ],
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    if (url.includes('public.api.bsky.app')) {
+      return new Response(
+        JSON.stringify({
+          posts: [
+            {
+              uri: 'at://did:plc:xyz/app.bsky.feed.post/joke99',
+              likeCount: 310,
+              repostCount: 45,
+              author: { handle: 'funnydev.bsky.social', displayName: 'Funny Dev' },
+              record: {
+                text: 'My AI coding agent just opened a PR arguing with itself 😂',
+                createdAt: '2026-11-15T08:00:00Z',
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    return new Response(JSON.stringify({}), { status: 404 });
+  };
+
+  try {
+    const memesService = new NewsMemesService(mockDb);
+    const controller = new NewsController(mockDb, undefined, undefined, undefined, memesService);
+
+    // 1. Finds multiple memes & jokes (Reddit + Bluesky) even if cache table is missing
+    const first = await controller.memesForArticle('ai-meme-1');
+    assert.equal(first.hasMemes, true);
+    assert.ok(first.total >= 3, `Expected >= 3 memes/jokes, got ${first.total}`);
+    assert.equal(first.items.length, first.total);
+    assert.ok(first.items.some((i) => i.platform === 'reddit' && i.imageUrl === 'https://i.redd.it/friday-prod-meme.png'));
+    assert.ok(first.items.some((i) => i.platform === 'bluesky' && i.kind === 'joke'));
+    assert.equal(first.cached, false);
+    assert.equal(fetchCalls, 2);
+
+    // 2. Second request hits 12h memory cache
+    const second = await controller.memesForArticle('ai-meme-1');
+    assert.equal(second.cached, true);
+    assert.equal(fetchCalls, 2);
+
+    // 3. Custom search query (?q=...) runs a distinct search & writes DB cache
+    simulateMissingTable = false;
+    const custom = await controller.memesForArticle('ai-meme-1', undefined, 'copilot bugs');
+    assert.equal(custom.queryUsed, 'copilot bugs');
+    assert.equal(custom.cached, false);
+    assert.equal(fetchCalls, 4);
+    assert.ok(dbCache.size >= 1);
+
+    // 4. Tragic casualty news skips memes cleanly
+    const skipped = await controller.memesForArticle('tragic-1');
+    assert.equal(skipped.hasMemes, false);
+    assert.equal(skipped.sourceMode, 'skipped');
+    assert.deepEqual(skipped.items, []);
+  } finally {
+    globalThis.fetch = origFetch;
   }
 });

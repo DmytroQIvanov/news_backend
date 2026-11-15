@@ -4,7 +4,9 @@ import { DatabaseService } from '../database/database.service';
 import { CompanyFeedsService } from './company-feeds.service';
 
 export const PREFERRED_TTS_MODELS = [
+  'gemini-3.8-flash-tts',
   'gemini-3.1-flash-tts',
+  'gemini-2.5-flash-tts',
   'gemini-3.8-flash-lite-tts',
   'gemini-2.5-flash-preview-tts',
 ] as const;
