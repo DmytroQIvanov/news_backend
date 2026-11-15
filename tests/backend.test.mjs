@@ -1255,6 +1255,16 @@ test('Multi-topic categories, expanded COMPANY_FEED_CATALOG, keyword classifier,
     'open_source',
     'research',
     'business',
+    'climate_energy',
+    'robotics',
+    'crypto_web3',
+    'mobility_ev',
+    'biotech',
+    'ai_policy',
+    'media_social',
+    'sports',
+    'travel_lifestyle',
+    'real_estate',
     'other',
   ];
   assert.deepEqual([...CATEGORIES], expectedCategories);
@@ -1540,7 +1550,8 @@ test('EXPERT_DIRECTORY covers 32+ real domain experts and scoreExpertCompetenceF
     }
   }
 
-  const nonOtherCategories = CATEGORIES.filter((cat) => cat !== 'other');
+  // v2.1 categories get experts dynamically; the hand-verified seed covers the original domains.
+  const nonOtherCategories = [...EXPERT_SEEDED_CATEGORIES];
   for (const cat of nonOtherCategories) {
     const matching = EXPERT_DIRECTORY.filter((expert) => expert.primaryDomains.includes(cat));
     assert.ok(
@@ -3749,4 +3760,236 @@ test('YoutubeRadarService prioritizes compressed Gemini audio, uses apify_token 
     else process.env.YOUTUBE_MAX_DAILY_APIFY = prevMaxApify;
     resetGeminiClientStateForTests();
   }
+});
+
+// ---- v2.0: personal feed, stories, caricatures, R2, memes tone filter ----
+import { signR2Request, isSafeObjectKey } from '../dist/common/r2-storage.js';
+import {
+  applyEvents,
+  decayWeights,
+  pickTopStories,
+  rankForReader,
+  isValidDeviceId,
+} from '../dist/news/personalization.service.js';
+import { TRAGEDY_SENSITIVITY_RE, extractMemeSearchQuery, withMemeAttribution } from '../dist/news/news-memes.service.js';
+import { isCaricatureCandidate, sanitizeCaricatureScene } from '../dist/news/caricature.service.js';
+import { videoMatchesStory, normalizeLocalized } from '../dist/news/story-briefing.service.js';
+import { declaredTopicsToCategories } from '../dist/news/feed.controller.js';
+
+test('R2 SigV4 signing produces a path-style URL and a scoped Authorization header', () => {
+  const signed = signR2Request({
+    config: { endpoint: 'https://abc123.r2.cloudflarestorage.com', bucket: 'news-radar', accessKeyId: 'AKID', secretAccessKey: 'SECRET', publicBaseUrl: null },
+    method: 'PUT',
+    key: 'caricatures/42-abcd.jpg',
+    payloadHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    extraHeaders: { 'content-type': 'image/jpeg' },
+    now: new Date('2026-11-15T10:00:00Z'),
+  });
+  assert.equal(signed.url, 'https://abc123.r2.cloudflarestorage.com/news-radar/caricatures/42-abcd.jpg');
+  assert.match(signed.headers.Authorization, /^AWS4-HMAC-SHA256 Credential=AKID\/20261115\/auto\/s3\/aws4_request, SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date, Signature=[0-9a-f]{64}$/);
+  assert.equal(signed.headers['x-amz-date'], '20261115T100000Z');
+  assert.equal(isSafeObjectKey('caricatures/../secret'), false);
+  assert.equal(isSafeObjectKey('caricatures/1-a.jpg'), true);
+});
+
+test('Reader model: events raise topic weight, weights decay, hidden items are removed', () => {
+  const base = { deviceId: '0b7f2a5e-3c1d-4f6a-9b8c-1d2e3f4a5b6c', lang: 'uk', topicWeights: {}, sourceWeights: {}, declaredTopics: [], eventsCount: 0, updatedAt: Date.now() };
+  assert.equal(isValidDeviceId(base.deviceId), true);
+  assert.equal(isValidDeviceId('not-a-uuid'), false);
+  const p = applyEvents(base, [
+    { itemId: '1', type: 'read', category: 'model', sourceSlug: 'openai-news', dwellMs: 60_000 },
+    { itemId: '2', type: 'hide', category: 'culture' },
+  ]);
+  assert.ok(p.topicWeights.model > 2.5);
+  assert.ok(p.topicWeights.culture < 0);
+  const decayed = decayWeights({ model: 10 }, 21 * 86_400_000);
+  assert.ok(Math.abs(decayed.model - 5) < 0.01, 'half-life is 21 days');
+
+  const now = Date.now();
+  const iso = (h) => new Date(now - h * 3_600_000).toISOString();
+  const items = [
+    { id: 'a', category: 'culture', source_slug: 'bbc-culture', published_at: iso(1) },
+    { id: 'b', category: 'model', source_slug: 'openai-news', published_at: iso(3) },
+    { id: 'c', category: 'model', source_slug: 'the-decoder', published_at: iso(2) },
+    { id: 'd', category: 'model', source_slug: 'venturebeat-ai', published_at: iso(2) },
+    { id: 'e', category: 'model', source_slug: 'wired', published_at: iso(2) },
+  ];
+  const ranked = rankForReader(items, { ...p, hiddenItemIds: new Set(['e']) }, new Set());
+  assert.equal(ranked[0].category, 'model', 'liked topic first');
+  assert.ok(!ranked.some((i) => i.id === 'e'), 'hidden item filtered');
+  assert.equal(ranked.length, 4);
+});
+
+test('Top stories prefer big multi-source, important news and dedupe by cluster', () => {
+  const now = Date.now();
+  const iso = (h) => new Date(now - h * 3_600_000).toISOString();
+  const top = pickTopStories([
+    { id: '1', important: true, source_count: 5, cluster_id: 'c1', published_at: iso(2) },
+    { id: '2', important: false, source_count: 5, cluster_id: 'c1', published_at: iso(2) },
+    { id: '3', important: false, source_count: 1, published_at: iso(1) },
+    { id: '4', important: true, source_count: 1, published_at: iso(40) },
+  ], 5, now);
+  assert.deepEqual(top.map((t) => t.id), ['1']);
+});
+
+test('Tone filter blocks humour on tragedies and war, allows light tech news', () => {
+  assert.equal(TRAGEDY_SENSITIVITY_RE.test('Нічний обстріл Харкова: є загиблі'), true);
+  assert.equal(TRAGEDY_SENSITIVITY_RE.test('Earthquake hits the region, death toll rises'), true);
+  assert.equal(TRAGEDY_SENSITIVITY_RE.test('Nintendo announces a new Switch model'), false);
+  assert.equal(isCaricatureCandidate({ category: 'model', title: 'OpenAI ships GPT-5 voice mode' }), true);
+  assert.equal(isCaricatureCandidate({ category: 'politics', title: 'Parliament votes on budget' }), false);
+  assert.equal(isCaricatureCandidate({ category: 'model', title: 'AI lab office fire: two killed' }), false);
+  assert.equal(sanitizeCaricatureScene('A photorealistic portrait of Sam Altman holding a robot'), null);
+  assert.ok(sanitizeCaricatureScene('A tiny robot juggling oversized GPUs while a cloud server sweats'));
+});
+
+test('Meme search uses short entity-focused English query and adds attribution/embed', () => {
+  const q = extractMemeSearchQuery('OpenAI releases GPT-5 with a new reasoning mode for developers');
+  assert.ok(q.includes('OpenAI') && q.includes('GPT-5'), q);
+  assert.ok(q.split(' ').length <= 3);
+  const item = withMemeAttribution({ id: 'x', kind: 'meme', platform: 'bluesky', titleUk: 't', originalText: 'o', captionUk: 'c', author: '@a.bsky.social', sourceUrl: 'https://bsky.app/profile/a.bsky.social/post/1', publishedAt: new Date().toISOString(), verificationStatus: 'live_public_api' });
+  assert.equal(item.imagePolicy, 'hotlink_original');
+  assert.match(item.embedUrl, /^https:\/\/embed\.bsky\.app\/oembed\?url=/);
+  assert.match(item.attribution, /Bluesky/);
+});
+
+test('YouTube videos attach to stories by shared entities; story JSON is normalised', () => {
+  assert.equal(videoMatchesStory('Nvidia unveils RTX 5090 Ti with Blackwell refresh', 'Nvidia RTX 5090 Ti review: Blackwell refresh benchmarks'), true);
+  assert.equal(videoMatchesStory('Nvidia unveils RTX 5090 Ti', 'SpaceX Starship flight 12 recap'), false);
+  const loc = normalizeLocalized({
+    title: 'T', tldr: 'S', whatHappened: 'W', whyItMatters: 'Y', background: 'B', whatsNext: 'N',
+    timeline: [{ when: '10:00', event: 'e' }, { when: '', event: 'bad' }],
+    perspectives: [{ source: 'BBC', angle: 'a' }],
+    videoInsights: [{ videoIndex: 1, insight: 'ok' }, { videoIndex: 5, insight: 'out of range' }],
+  }, 1);
+  assert.equal(loc.timeline.length, 1);
+  assert.equal(loc.videoInsights.length, 1);
+  assert.equal(normalizeLocalized({ title: '' }, 0), null);
+});
+
+test('Declared onboarding topics map to categories for the interest prior', () => {
+  const cats = declaredTopicsToCategories(['robotics', 'model', 'ai']);
+  assert.ok(cats.has('model'));
+  assert.ok(cats.has('research'));
+});
+
+// ---- v2.0: YouTube channel discovery ----
+import {
+  channelTitleMatches,
+  credibilityFor,
+  extractChannelIdFromHtml,
+  normalizeHandle,
+  parseCandidatesJson,
+  toCandidate,
+} from '../dist/youtube/youtube-channel-discovery.service.js';
+
+test('YouTube channel discovery: handles, page parsing, title matching and candidate validation', () => {
+  assert.equal(normalizeHandle('https://www.youtube.com/@NVIDIA/videos'), '@NVIDIA');
+  assert.equal(normalizeHandle('lexfridman'), '@lexfridman');
+  assert.equal(normalizeHandle('bad handle with spaces'), null);
+
+  const html = '<html><meta property="og:title" content="NVIDIA"><script>{"externalId":"UCHuiy8bXnmK5nisYHUd1J5g"}</script></html>';
+  assert.deepEqual(extractChannelIdFromHtml(html), { channelId: 'UCHuiy8bXnmK5nisYHUd1J5g', title: 'NVIDIA' });
+  assert.equal(extractChannelIdFromHtml('<html>nothing</html>'), null);
+
+  assert.equal(channelTitleMatches('NVIDIA Official', '@NVIDIA', 'NVIDIA'), true);
+  assert.equal(channelTitleMatches('Google DeepMind', '@googledeepmind', 'Random Gaming Clips'), false);
+
+  const parsed = parseCandidatesJson('```json\n{"channels":[{"name":"NVIDIA","handle":"@NVIDIA","kind":"company","category":"hardware_gaming","language":"en","topics":["gpu"],"rationaleUk":"Офіційний канал"},{"name":"","handle":"@x"}]}\n```');
+  const candidates = parsed.map((c) => toCandidate(c)).filter(Boolean);
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].kind, 'company');
+  assert.equal(candidates[0].category, 'hardware_gaming');
+
+  assert.deepEqual(credibilityFor('company', 2_000_000), { weight: 92, tier: 'high' });
+  assert.equal(credibilityFor('media', null).tier, 'standard');
+});
+
+import { EXPERT_SEEDED_CATEGORIES } from '../dist/news/expert-directory.js';
+
+// ---- v2.1: R2 audio queue, English-first editorial, new categories ----
+import { audioCacheKey, audioPriority, buildScript, planEviction } from '../dist/news/audio-briefing.service.js';
+import { detectCanonicalLang } from '../dist/ingest/gemini-editor.service.js';
+
+test('Audio queue: LRU eviction stays under the cap, priorities favour important multi-source news', () => {
+  const MB = 1024 * 1024;
+  const objects = [
+    { key: 'old', bytes: 400 * MB, lastAccess: 1 },
+    { key: 'mid', bytes: 400 * MB, lastAccess: 2 },
+    { key: 'new', bytes: 400 * MB, lastAccess: 3 },
+  ];
+  assert.deepEqual(planEviction(objects, 1024 * MB), ['old'], 'evicts least recently played until under 90% of the cap');
+  assert.deepEqual(planEviction(objects.slice(0, 2), 1024 * MB), []);
+
+  const now = Date.now();
+  const important = audioPriority({ important: true, importance: 'high', source_count: 4, published_at: new Date(now - 3_600_000) }, now);
+  const minor = audioPriority({ important: false, importance: 'low', source_count: 1, published_at: new Date(now - 3_600_000) }, now);
+  assert.ok(important > minor);
+  assert.notEqual(audioCacheKey('1', 'en', 'balanced', 'podcast_story', 'Kore'), audioCacheKey('1', 'uk', 'balanced', 'podcast_story', 'Kore'));
+});
+
+test('Audio script follows the language: canonical English vs Ukrainian translation', () => {
+  const row = {
+    id: '7', title_uk: 'Нова модель', original_title: 'New model', summary_uk: 'Український підсумок новини про модель.',
+    original_summary: 'Original RSS summary', why_it_matters: 'Це важливо для розробників.', source_name: 'Lab',
+    article: { canonical_lang: 'en', title: 'Lab ships a new model', summary: 'The lab released a faster model for developers today.', importance_reason: 'It cuts costs.' },
+    briefing_script: 'The lab released a faster, cheaper model today, which matters for every developer.',
+    importance: 'high', important: true, source_count: 2, published_at: new Date(),
+  };
+  assert.match(buildScript(row, 'en', 'balanced', 'podcast_story'), /faster, cheaper model/);
+  assert.match(buildScript(row, 'uk', 'balanced', 'podcast_story'), /[А-Яа-яІіЇїЄє]/);
+  assert.equal(detectCanonicalLang('Lab ships a new model', 'The lab released'), 'en');
+  assert.equal(detectCanonicalLang('Лабораторія випустила модель', 'Сьогодні'), 'uk');
+});
+
+test('New v2.1 categories are recognised by the feed classifier', () => {
+  assert.equal(classifyFeedArticleCategory('Figure unveils a new humanoid robot for warehouses', ''), 'robotics');
+  assert.equal(classifyFeedArticleCategory('Bitcoin hits a record as stablecoin rules pass', ''), 'crypto_web3');
+  assert.equal(classifyFeedArticleCategory('Waymo expands robotaxi service to three cities', ''), 'mobility_ev');
+  assert.ok(CATEGORIES.includes('climate_energy'));
+});
+
+// ---- v2.1: multi-provider LLM router (Gemini, Groq, OpenRouter) ----
+import { canUse, chainFor, generateWithRouter, getTargets, parseJsonLoose, resetLlmRouterForTests } from '../dist/common/llm-router.js';
+import { buildTranslationPrompt } from '../dist/news/translation.service.js';
+
+test('LLM router: task roles, free-tier budgets and failover to the next provider', async () => {
+  resetLlmRouterForTests();
+  assert.deepEqual(chainFor('editorial'), ['gemini', 'groq', 'openrouter']);
+  assert.deepEqual(chainFor('translate'), ['groq', 'gemini', 'openrouter']);
+  assert.deepEqual(chainFor('story'), ['gemini', 'openrouter', 'groq']);
+
+  const groq = getTargets().groq[0];
+  assert.equal(canUse(groq, 7000), true);
+  assert.equal(canUse(groq, 9000), false, 'a single request above Groq free TPM is skipped');
+
+  const saved = { groq: process.env.groq_api_key, or: process.env.openrouter_api_key, gem: process.env.GEMINI_API_KEY };
+  process.env.groq_api_key = 'test-groq';
+  process.env.openrouter_api_key = 'test-or';
+  delete process.env.GEMINI_API_KEY;
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    if (String(url).includes('groq.com')) return new Response('rate limited', { status: 429, headers: { 'retry-after': '30' } });
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const res = await generateWithRouter({ task: 'translate', prompt: 'hello', maxTokens: 100 });
+    assert.equal(res.provider, 'openrouter');
+    assert.deepEqual(parseJsonLoose(res.text), { ok: true });
+    assert.ok(calls[0].includes('groq.com'));
+    // Groq is now cooling down after the 429, so the next call goes straight to OpenRouter.
+    calls.length = 0;
+    await generateWithRouter({ task: 'translate', prompt: 'again', maxTokens: 100 });
+    assert.ok(calls.every((u) => u.includes('openrouter.ai')));
+  } finally {
+    globalThis.fetch = realFetch;
+    if (saved.groq === undefined) delete process.env.groq_api_key; else process.env.groq_api_key = saved.groq;
+    if (saved.or === undefined) delete process.env.openrouter_api_key; else process.env.openrouter_api_key = saved.or;
+    if (saved.gem !== undefined) process.env.GEMINI_API_KEY = saved.gem;
+    resetLlmRouterForTests();
+  }
+  assert.match(buildTranslationPrompt('pl', [{ id: '1', title: 'T', summary: 'S', why: 'W' }]), /Polish/);
+  assert.deepEqual(parseJsonLoose('```json\n{"a":1}\n```'), { a: 1 });
 });

@@ -30,7 +30,7 @@ async function bootstrap(): Promise<void> {
     }
     next();
   });
-  app.use(createRateLimiter({ windowMs: 60_000, maxRequests: 30, paths: [/^\/api\/v1\/(ingest|catalog\/refresh|grants\/refresh|youtube\/sync|news\/[^/]+\/(publish|reject)|sources\/discover|sources\/[^/]+\/(approve|reject))/] }));
+  app.use(createRateLimiter({ windowMs: 60_000, maxRequests: 30, paths: [/^\/api\/v1\/(ingest|catalog\/refresh|grants\/refresh|youtube\/sync|youtube\/channels\/discover|news\/[^/]+\/(publish|reject)|sources\/discover|sources\/[^/]+\/(approve|reject)|stories\/refresh|caricatures\/)/] }));
   app.use(createRateLimiter({ windowMs: 60_000, maxRequests: 180 }));
   app.setGlobalPrefix('api/v1', { exclude: ['health', 'health/db', 'health/summary'] });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true, transformOptions: { enableImplicitConversion: false } }));

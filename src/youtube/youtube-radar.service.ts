@@ -11,12 +11,15 @@ import { canonicalizeUrl } from '../common/url-utils';
 import { DatabaseService } from '../database/database.service';
 import { CATEGORIES, NewsCategory } from '../ingest/ingest.dto';
 import { FeedArticle, fetchAndParseFeedUrl, isPublishedWithinHours } from '../news/company-feeds.service';
+import { buildStableClusterId, ClusterSource } from '../news/news-clustering.service';
+import { videoMatchesStory } from '../news/story-briefing.service';
 import {
   buildYoutubeRssUrl,
   extractYoutubeVideoId,
   YOUTUBE_RSS_CHANNELS,
   YoutubeChannelDefinition,
 } from './youtube-channels';
+import { YoutubeChannelDiscoveryService } from './youtube-channel-discovery.service';
 
 export const DEFAULT_MAX_DAILY_TRANSCRIPTIONS = 30;
 export const DEFAULT_MAX_DAILY_APIFY_VIDEOS = 5;
@@ -557,7 +560,10 @@ export class YoutubeRadarService implements OnModuleInit, OnModuleDestroy {
   };
   private readonly memoryVideos = new Map<string, YoutubeVideoInsight>();
 
-  constructor(@Optional() private readonly db?: DatabaseService) {}
+  constructor(
+    @Optional() private readonly db?: DatabaseService,
+    @Optional() private readonly channelDirectory?: YoutubeChannelDiscoveryService,
+  ) {}
 
   onModuleInit(): void {
     if (process.env.YOUTUBE_RADAR_ENABLED === 'false' || process.env.NODE_ENV === 'test') {
@@ -602,6 +608,33 @@ export class YoutubeRadarService implements OnModuleInit, OnModuleDestroy {
 
   getChannels(): YoutubeChannelDefinition[] {
     return YOUTUBE_RSS_CHANNELS;
+  }
+
+  /** Seed list + channels discovered and verified by YoutubeChannelDiscoveryService. */
+  async getActiveChannels(): Promise<YoutubeChannelDefinition[]> {
+    return (await this.channelDirectory?.getActiveChannels().catch(() => null)) ?? YOUTUBE_RSS_CHANNELS;
+  }
+
+  /** Channels with how many analysed videos each has (for the app's channel directory). */
+  async listChannelsWithStats() {
+    const channels = await this.getActiveChannels();
+    const stats = new Map<string, { analysed: number; lastAt: string | null }>();
+    if (this.db) {
+      const { rows } = await this.db
+        .query<{ channel_id: string; analysed: number; last_at: Date | null }>(
+          `SELECT channel_id, COUNT(*) FILTER (WHERE status = 'transcribed')::int AS analysed, MAX(published_at) AS last_at
+           FROM youtube_videos GROUP BY channel_id`,
+        )
+        .catch(() => ({ rows: [] as Array<{ channel_id: string; analysed: number; last_at: Date | null }> }));
+      for (const r of rows) stats.set(r.channel_id, { analysed: r.analysed, lastAt: r.last_at ? new Date(r.last_at).toISOString() : null });
+    }
+    return channels.map((c) => ({
+      ...c,
+      url: `https://www.youtube.com/channel/${c.channelId}`,
+      seed: YOUTUBE_RSS_CHANNELS.some((s) => s.channelId === c.channelId),
+      analysedVideos: stats.get(c.channelId)?.analysed ?? 0,
+      lastVideoAt: stats.get(c.channelId)?.lastAt ?? null,
+    }));
   }
 
   getMaxDailyTranscriptions(): number {
@@ -672,6 +705,11 @@ export class YoutubeRadarService implements OnModuleInit, OnModuleDestroy {
     limit?: number;
     category?: string;
     status?: string;
+    channelId?: string;
+    sort?: 'top' | 'latest';
+    maxAgeHours?: number;
+    importantOnly?: boolean;
+    offset?: number;
   }): Promise<{ items: YoutubeVideoInsight[]; quota: YoutubeQuotaStatus }> {
     const limit = Math.max(1, Math.min(50, options?.limit ?? 20));
     const quota = await this.getQuotaStatus();
@@ -715,9 +753,15 @@ export class YoutubeRadarService implements OnModuleInit, OnModuleDestroy {
            FROM youtube_videos
            WHERE ($1::text = 'all' OR status = $1)
              AND ($2::text IS NULL OR category = $2)
-           ORDER BY worth_score DESC, published_at DESC
-           LIMIT $3`,
-          [statusFilter, categoryFilter, limit],
+             AND ($4::text IS NULL OR channel_id = $4)
+             AND ($5::int IS NULL OR published_at >= now() - ($5::int * interval '1 hour'))
+             AND (NOT $6::boolean OR importance = 'high')
+           ORDER BY
+             CASE WHEN $7::text = 'latest' THEN published_at END DESC NULLS LAST,
+             worth_score DESC, published_at DESC
+           LIMIT $3 OFFSET $8`,
+          [statusFilter, categoryFilter, limit, options?.channelId || null, options?.maxAgeHours ?? null,
+            Boolean(options?.importantOnly), options?.sort === 'latest' ? 'latest' : 'top', options?.offset ?? 0],
         );
 
         const items: YoutubeVideoInsight[] = res.rows.map((r) => ({
@@ -784,7 +828,7 @@ export class YoutubeRadarService implements OnModuleInit, OnModuleDestroy {
     maxTranscribe?: number;
     channels?: YoutubeChannelDefinition[];
   }) {
-    const channels = options?.channels ?? YOUTUBE_RSS_CHANNELS;
+    const channels = options?.channels ?? (await this.getActiveChannels());
     const maxPerCycle = clampPositiveInt(
       options?.maxTranscribe !== undefined ? String(options.maxTranscribe) : process.env.YOUTUBE_MAX_PER_CYCLE,
       4,
@@ -818,6 +862,8 @@ export class YoutubeRadarService implements OnModuleInit, OnModuleDestroy {
           licenseMode: 'summary',
         });
         channelsPolled += 1;
+        const latest = feedItems.map((a) => a.published_at).sort().pop() ?? null;
+        void this.channelDirectory?.recordPollResult(channel.channelId, true, latest);
 
         for (const article of feedItems) {
           if (!isPublishedWithinHours(article.published_at, VIDEO_LOOKBACK_HOURS)) continue;
@@ -867,6 +913,7 @@ export class YoutubeRadarService implements OnModuleInit, OnModuleDestroy {
         this.logger.warn(
           `YouTube RSS poll failed for ${channel.name}: ${error instanceof Error ? error.message : String(error)}`,
         );
+        void this.channelDirectory?.recordPollResult(channel.channelId, false);
       }
     }
 
@@ -1232,6 +1279,63 @@ export class YoutubeRadarService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Attaches an analysed video to the written story it is about (same cluster), so the app and the story
+   * briefing can show "what was said on video" as a sub-item instead of a separate, disconnected card.
+   */
+  private async linkVideoToStory(
+    newsItemId: string,
+    videoId: string,
+    video: {
+      text: string; url: string; canonical: string; channelName: string; channelSlug: string;
+      title: string; titleUk: string; summary: string; publishedAt: string;
+    },
+  ): Promise<string | null> {
+    if (!this.db) return null;
+    const { rows } = await this.db.query<{
+      id: string; url: string; cluster_id: string | null; original_title: string; title_uk: string | null;
+      cluster_sources: ClusterSource[] | null;
+    }>(
+      `SELECT id::text, url, cluster_id, original_title, title_uk, cluster_sources
+       FROM news_items
+       WHERE status = 'published' AND id <> $1::bigint
+         AND published_at >= now() - interval '72 hours'
+         AND COALESCE(ai_metadata->>'source_type', '') <> 'youtube_video'
+       ORDER BY jsonb_array_length(COALESCE(cluster_sources, '[]'::jsonb)) DESC, published_at DESC
+       LIMIT 300`,
+      [newsItemId],
+    );
+    const match = rows.find((r) => videoMatchesStory(`${r.original_title} ${r.title_uk || ''}`, video.text));
+    if (!match) return null;
+
+    const clusterId = match.cluster_id || buildStableClusterId([match.url, video.url]);
+    const videoSource: ClusterSource = {
+      id: `yt-${videoId}`,
+      title: video.title,
+      titleUk: video.titleUk,
+      url: video.url,
+      canonicalUrl: video.canonical,
+      sourceName: `${video.channelName} (YouTube)`,
+      sourceSlug: video.channelSlug,
+      publishedAt: video.publishedAt,
+      licenseMode: 'summary',
+      summary: video.summary.slice(0, 500),
+    };
+    const existing = (match.cluster_sources || []).filter((s) => s.url !== video.url);
+    const merged = [...existing, videoSource].slice(0, 16);
+
+    await this.db.query(
+      `UPDATE news_items SET cluster_id = $1, cluster_sources = $2::jsonb, updated_at = now() WHERE id = $3::bigint`,
+      [clusterId, JSON.stringify(merged), match.id],
+    );
+    await this.db.query(
+      `UPDATE news_items SET cluster_id = $1, cluster_sources = $2::jsonb WHERE id = $3::bigint`,
+      [clusterId, JSON.stringify(merged), newsItemId],
+    );
+    await this.db.query(`UPDATE youtube_videos SET cluster_id = $1 WHERE video_id = $2`, [clusterId, videoId]).catch(() => undefined);
+    return clusterId;
+  }
+
   private async publishInsightToNews(
     channel: YoutubeChannelDefinition,
     article: FeedArticle,
@@ -1339,7 +1443,23 @@ export class YoutubeRadarService implements OnModuleInit, OnModuleDestroy {
           contentHash,
         ],
       );
-      return newsRes.rows[0]?.id ? String(newsRes.rows[0].id) : null;
+      const newsItemId = newsRes.rows[0]?.id ? String(newsRes.rows[0].id) : null;
+      if (newsItemId) {
+        await this.linkVideoToStory(newsItemId, videoId, {
+          text: `${article.original_title} ${insight.titleUk} ${insight.keyTakeawaysUk.join(' ')}`,
+          url: article.url,
+          canonical,
+          channelName: channel.name,
+          channelSlug: channel.slug,
+          title: article.original_title,
+          titleUk: insight.titleUk,
+          summary: insight.summaryUk,
+          publishedAt: article.published_at,
+        }).catch((err) =>
+          this.logger.debug(`Video ${videoId} not linked to a story: ${err instanceof Error ? err.message : err}`),
+        );
+      }
+      return newsItemId;
     } catch (error) {
       this.logger.warn(
         `Failed publishing YouTube insight ${videoId} to news_items: ${error instanceof Error ? error.message : String(error)}`,

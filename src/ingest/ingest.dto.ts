@@ -23,6 +23,17 @@ export const CATEGORIES = [
   'open_source',
   'research',
   'business',
+  // v2.1 categories
+  'climate_energy',
+  'robotics',
+  'crypto_web3',
+  'mobility_ev',
+  'biotech',
+  'ai_policy',
+  'media_social',
+  'sports',
+  'travel_lifestyle',
+  'real_estate',
   'other',
 ] as const;
 export type NewsCategory = (typeof CATEGORIES)[number];

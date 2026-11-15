@@ -33,3 +33,33 @@ services:
         value: ""
       - key: DB_KEEPALIVE_INTERVAL_MS
         value: "240000"
+      - key: cloudflare_account_id
+        sync: false
+      - key: cloudflare_api_token
+        sync: false
+      - key: cloudflare_access_key_id
+        sync: false
+      - key: cloudflare_secret_access_key
+        sync: false
+      - key: cloudflare_s3_api_endpoint
+        sync: false
+      - key: cloudflare_r2_bucket
+        sync: false
+      - key: REDDIT_CLIENT_ID
+        sync: false
+      - key: REDDIT_CLIENT_SECRET
+        sync: false
+      - key: BLUESKY_HANDLE
+        sync: false
+      - key: BLUESKY_APP_PASSWORD
+        sync: false
+      - key: YOUTUBE_API_KEY
+        sync: false
+      - key: groq_api_key
+        sync: false
+      - key: openrouter_api_key
+        sync: false
+      - key: GOOGLE_TTS_API_KEY
+        sync: false
+      - key: AUDIO_LANGS
+        value: "en,uk"

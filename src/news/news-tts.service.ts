@@ -517,7 +517,8 @@ export class NewsTtsService implements OnModuleInit, OnModuleDestroy {
     if (
       this.activeKey &&
       process.env.NODE_ENV !== 'test' &&
-      process.env.TTS_AUTO_PREWARM !== 'false'
+      // Legacy prewarm stored WAV base64 in Postgres; AudioBriefingService (R2) replaces it. Opt-in only.
+      process.env.TTS_AUTO_PREWARM === 'true'
     ) {
       this.prewarmTimer = setTimeout(() => void this.schedulePrewarmLoop(), PREWARM_INITIAL_DELAY_MS);
       this.prewarmTimer.unref?.();

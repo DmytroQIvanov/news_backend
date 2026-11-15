@@ -384,6 +384,50 @@ export class SourceDiscoveryService implements OnModuleInit, OnModuleDestroy {
     return res.rows[0];
   }
 
+  /** Counts root domains cited by recently published stories that are not yet monitored sources. */
+  async mineReferencedDomains(
+    knownRoots: Set<string>,
+    rejectedRoots: Set<string>,
+    minMentions = 3,
+  ): Promise<Array<{ domain: string; mentions: number; category: NewsCategory }>> {
+    const { rows } = await this.db.query<{ url: string; category: string | null }>(
+      `SELECT src->>'url' AS url, n.category
+       FROM news_items n,
+            LATERAL jsonb_array_elements(
+              COALESCE(n.ai_metadata->'article'->'sources', '[]'::jsonb)
+              || COALESCE(n.ai_metadata->'grounding', '[]'::jsonb)
+              || COALESCE(n.cluster_sources, '[]'::jsonb)
+            ) AS src
+       WHERE n.status = 'published' AND n.published_at >= now() - interval '14 days'
+         AND jsonb_typeof(src) = 'object' AND src ? 'url'
+       LIMIT 5000`,
+    );
+    const counts = new Map<string, { mentions: number; cats: Map<string, number>; host: string }>();
+    for (const row of rows) {
+      const host = URL.parse(row.url || '')?.hostname?.toLowerCase().replace(/^www\./, '');
+      if (!host) continue;
+      const root = extractRootDomain(host);
+      if (knownRoots.has(root) || rejectedRoots.has(root) || DISALLOWED_DISCOVERY_ROOTS.has(root) || DISALLOWED_DISCOVERY_ROOTS.has(host)) continue;
+      const entry = counts.get(root) ?? { mentions: 0, cats: new Map(), host: root };
+      entry.mentions += 1;
+      const cat = row.category || 'other';
+      entry.cats.set(cat, (entry.cats.get(cat) || 0) + 1);
+      counts.set(root, entry);
+    }
+    return [...counts.values()]
+      .filter((e) => e.mentions >= minMentions)
+      .sort((a, b) => b.mentions - a.mentions)
+      .slice(0, 4)
+      .map((e) => {
+        const category = ([...e.cats.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || 'other') as NewsCategory;
+        return {
+          domain: e.host,
+          mentions: e.mentions,
+          category: (CATEGORIES as readonly string[]).includes(category) ? category : 'other',
+        };
+      });
+  }
+
   private async runDiscovery(options?: {
     focusCategories?: string[];
     query?: string;
@@ -504,7 +548,7 @@ Task: Propose up to 6 genuinely reputable, primary institutional, Ukrainian, or 
       : [DEFAULT_GEMINI_MODEL, ...FALLBACK_GEMINI_MODELS];
 
     try {
-      const res = await postGeminiGenerateContent({
+      const res = await postGeminiGenerateContent({ priority: 'low',
         apiKey: this.geminiKey,
         preferredModel: candidateModels[0],
         candidateModels: [...new Set(candidateModels)],
@@ -528,17 +572,25 @@ Task: Propose up to 6 genuinely reputable, primary institutional, Ukrainian, or 
         candidates = Array.isArray(parsed.candidates) ? parsed.candidates : [];
       }
     } catch (error) {
+      // Keep going: domains mined from our own articles below do not need Gemini.
       this.logger.warn(`Gemini source discovery request failed: ${error instanceof Error ? error.message : error}`);
-      return {
-        proposed: 0,
-        verified: 0,
-        added,
-        autoApproved,
-        pendingReview,
-        rejected,
-        modelUsed,
-        pendingModeration: 0,
-      };
+    }
+
+    // "Related sites": domains our published stories keep citing (editorial sources, search grounding,
+    // multi-source clusters) but that we do not monitor yet. They pass the same RSS/robots/quality checks.
+    if (!options?.query) {
+      const mined = await this.mineReferencedDomains(existingRootDomains, rejectedRootDomains).catch(() => []);
+      const known = new Set(candidates.map((c) => (URL.parse(c.homepageUrl || '')?.hostname || '').replace(/^www\./, '')));
+      for (const m of mined) {
+        if (!known.has(m.domain)) {
+          candidates.unshift({
+            name: m.domain,
+            homepageUrl: `https://${m.domain}`,
+            category: m.category,
+            rationaleUk: `Сайт цитується у ${m.mentions} наших матеріалах за останні 14 днів.`,
+          } as CandidateFeed);
+        }
+      }
     }
 
     const fetchImpl = options?.fetchFn ?? fetch;

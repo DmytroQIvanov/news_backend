@@ -559,7 +559,7 @@ ${JSON.stringify({
 
 Поверни валідний JSON українською мовою за схемою. Для тимчасових акцій вказуй expires у форматі YYYY-MM-DD якщо дата відома.`;
 
-      const { data } = await postGeminiGenerateContent({
+      const { data } = await postGeminiGenerateContent({ priority: 'low',
         apiKey: this.geminiKey!,
         preferredModel: this.geminiModel,
         timeoutMs: 65_000,

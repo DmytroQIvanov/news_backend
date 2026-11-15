@@ -76,6 +76,29 @@ export const COMPANY_FEED_CATALOG: FeedDefinition[] = [
   { slug: 'openai-python-sdk', name: 'OpenAI Python SDK', domain: 'github.com', url: 'https://github.com/openai/openai-python/releases.atom', category: 'api', providerId: 'openai', licenseMode: 'full_text_licensed' },
   { slug: 'ollama-releases', name: 'Ollama Releases', domain: 'github.com', url: 'https://github.com/ollama/ollama/releases.atom', category: 'open_source', licenseMode: 'full_text_licensed' },
   { slug: 'vllm-releases', name: 'vLLM Releases', domain: 'github.com', url: 'https://github.com/vllm-project/vllm/releases.atom', category: 'open_source', licenseMode: 'full_text_licensed' },
+
+  // Expanded coverage (v2.0): general tech, AI analysis, security, gaming, climate/EV, crypto, culture, Ukraine tech.
+  // Feeds that stop working show up in /api/v1/sources health and are replaced by source discovery.
+  { slug: 'the-verge', name: 'The Verge', domain: 'theverge.com', allowedDomains: ['theverge.com'], url: 'https://www.theverge.com/rss/index.xml', category: 'global_tech', licenseMode: 'headline_link' },
+  { slug: 'wired', name: 'WIRED', domain: 'wired.com', allowedDomains: ['wired.com'], url: 'https://www.wired.com/feed/rss', category: 'global_tech', licenseMode: 'headline_link' },
+  { slug: 'ars-technica', name: 'Ars Technica', domain: 'arstechnica.com', allowedDomains: ['arstechnica.com', 'feeds.arstechnica.com'], url: 'https://feeds.arstechnica.com/arstechnica/index', category: 'global_tech', licenseMode: 'headline_link' },
+  { slug: 'engadget', name: 'Engadget', domain: 'engadget.com', allowedDomains: ['engadget.com'], url: 'https://www.engadget.com/rss.xml', category: 'hardware_gaming', licenseMode: 'headline_link' },
+  { slug: 'mit-tech-review', name: 'MIT Technology Review', domain: 'technologyreview.com', allowedDomains: ['technologyreview.com'], url: 'https://www.technologyreview.com/feed/', category: 'research', licenseMode: 'headline_link' },
+  { slug: 'the-decoder', name: 'The Decoder', domain: 'the-decoder.com', allowedDomains: ['the-decoder.com'], url: 'https://the-decoder.com/feed/', category: 'model', licenseMode: 'headline_link' },
+  { slug: 'venturebeat-ai', name: 'VentureBeat AI', domain: 'venturebeat.com', allowedDomains: ['venturebeat.com'], url: 'https://venturebeat.com/category/ai/feed/', category: 'model', licenseMode: 'headline_link' },
+  { slug: 'nvidia-blog', name: 'NVIDIA Blog', domain: 'blogs.nvidia.com', allowedDomains: ['blogs.nvidia.com', 'nvidia.com'], url: 'https://blogs.nvidia.com/feed/', category: 'hardware_gaming', licenseMode: 'summary' },
+  { slug: 'simon-willison', name: 'Simon Willison', domain: 'simonwillison.net', allowedDomains: ['simonwillison.net'], url: 'https://simonwillison.net/atom/everything/', category: 'coding', licenseMode: 'headline_link' },
+  { slug: 'hacker-news-top', name: 'Hacker News (200+ points)', domain: 'news.ycombinator.com', allowedDomains: ['news.ycombinator.com', 'hnrss.org'], url: 'https://hnrss.org/frontpage?points=200', category: 'coding', unofficial: true, licenseMode: 'headline_link' },
+  { slug: 'bleepingcomputer', name: 'BleepingComputer', domain: 'bleepingcomputer.com', allowedDomains: ['bleepingcomputer.com'], url: 'https://www.bleepingcomputer.com/feed/', category: 'cybersecurity', licenseMode: 'headline_link' },
+  { slug: 'krebs-on-security', name: 'Krebs on Security', domain: 'krebsonsecurity.com', allowedDomains: ['krebsonsecurity.com'], url: 'https://krebsonsecurity.com/feed/', category: 'cybersecurity', licenseMode: 'headline_link' },
+  { slug: 'pc-gamer', name: 'PC Gamer', domain: 'pcgamer.com', allowedDomains: ['pcgamer.com'], url: 'https://www.pcgamer.com/rss/', category: 'hardware_gaming', licenseMode: 'headline_link' },
+  { slug: 'polygon', name: 'Polygon', domain: 'polygon.com', allowedDomains: ['polygon.com'], url: 'https://www.polygon.com/rss/index.xml', category: 'culture', licenseMode: 'headline_link' },
+  { slug: 'deadline', name: 'Deadline', domain: 'deadline.com', allowedDomains: ['deadline.com'], url: 'https://deadline.com/feed/', category: 'culture', licenseMode: 'headline_link' },
+  { slug: 'electrek', name: 'Electrek', domain: 'electrek.co', allowedDomains: ['electrek.co'], url: 'https://electrek.co/feed/', category: 'global_tech', licenseMode: 'headline_link' },
+  { slug: 'carbon-brief', name: 'Carbon Brief', domain: 'carbonbrief.org', allowedDomains: ['carbonbrief.org'], url: 'https://www.carbonbrief.org/feed/', category: 'science_space', licenseMode: 'headline_link' },
+  { slug: 'coindesk', name: 'CoinDesk', domain: 'coindesk.com', allowedDomains: ['coindesk.com'], url: 'https://www.coindesk.com/arc/outboundfeeds/rss/', category: 'finance', licenseMode: 'headline_link' },
+  { slug: 'ain-ua', name: 'AIN.UA', domain: 'ain.ua', allowedDomains: ['ain.ua'], url: 'https://ain.ua/feed/', category: 'startups_fintech', licenseMode: 'headline_link' },
+  { slug: 'mezha-media', name: 'Mezha.Media', domain: 'mezha.media', allowedDomains: ['mezha.media'], url: 'https://mezha.media/feed/', category: 'global_tech', licenseMode: 'headline_link' },
 ];
 
 export const DEFAULT_FEEDS = COMPANY_FEED_CATALOG;
@@ -898,6 +921,23 @@ export function classifyFeedArticleCategory(
     )
   ) {
     return 'cybersecurity';
+  }
+
+  // v2.1 categories (checked before the broad politics/science/tech buckets)
+  const v21Rules: Array<[NewsCategory, RegExp]> = [
+    ['ai_policy', /(?<![\p{L}\p{N}])(ai act|ai regulation|ai safety institute|ai executive order|frontier model rules|ai copyright|regulat\p{L}* (?:ai|artificial intelligence)|регулюванн\p{L}* (?:ші|штучного інтелекту)|закон\p{L}* про (?:ші|штучний інтелект))(?![\p{L}\p{N}])/iu],
+    ['crypto_web3', /(?<![\p{L}\p{N}])(bitcoin|ethereum|crypto\p{L}*|blockchain|stablecoin|defi|nft|solana|coinbase|binance|біткоїн\p{L}*|крипт\p{L}*|блокчейн\p{L}*)(?![\p{L}\p{N}])/iu],
+    ['mobility_ev', /(?<![\p{L}\p{N}])(electric vehicle\p{L}*|\bev\b|tesla|waymo|robotaxi|self-driving|autonomous driving|charging network|byd|rivian|електромобіл\p{L}*|автопілот\p{L}*|роботаксі)(?![\p{L}\p{N}])/iu],
+    ['robotics', /(?<![\p{L}\p{N}])(robot\p{L}*|humanoid|boston dynamics|figure ai|unitree|optimus|робот\p{L}*|гуманоїд\p{L}*)(?![\p{L}\p{N}])/iu],
+    ['climate_energy', /(?<![\p{L}\p{N}])(climate|emission\p{L}*|carbon (?:capture|tax|market|emissions)|solar (?:power|panel\p{L}*|energy|farm)|wind power|renewable\p{L}*|nuclear (?:power|plant|reactor)|battery storage|heatwave|cop\d+|клімат\p{L}*|викид\p{L}*|сонячн\p{L}*|відновлюван\p{L}*|аес|енергосистем\p{L}*)(?![\p{L}\p{N}])/iu],
+    ['biotech', /(?<![\p{L}\p{N}])(biotech\p{L}*|crispr|gene therap\p{L}*|clinical trial\p{L}*|fda approv\p{L}*|mrna|drug discovery|alphafold|біотех\p{L}*|генн\p{L}* терап\p{L}*|клінічн\p{L}* випробуван\p{L}*)(?![\p{L}\p{N}])/iu],
+    ['media_social', /(?<![\p{L}\p{N}])(tiktok|instagram|youtube creators?|creator economy|social network\p{L}*|bluesky|threads app|x\.com|meta platforms|influencer\p{L}*|соцмереж\p{L}*|блогер\p{L}*|інфлюенсер\p{L}*)(?![\p{L}\p{N}])/iu],
+    ['sports', /(?<![\p{L}\p{N}])(football|soccer|premier league|champions league|nba|nfl|olympic\p{L}*|world cup|tennis|formula 1|f1 grand prix|boxing|esports tournament|футбол\p{L}*|олімпі\p{L}*|чемпіонат\p{L}*|теніс\p{L}*|бокс\p{L}*)(?![\p{L}\p{N}])/iu],
+    ['real_estate', /(?<![\p{L}\p{N}])(real estate|housing market|mortgage rate\p{L}*|home prices|rent prices|property market|нерухомост\p{L}*|іпотек\p{L}*|оренд\p{L}* житла|ціни на житло)(?![\p{L}\p{N}])/iu],
+    ['travel_lifestyle', /(?<![\p{L}\p{N}])(airline\p{L}*|air travel|travel industry|tourism|visa-free|hotel\p{L}*|food trend\p{L}*|restaurant\p{L}*|авіакомпані\p{L}*|авіарейс\p{L}*|туризм\p{L}*|подорож\p{L}*|безвіз\p{L}*|готел\p{L}*)(?![\p{L}\p{N}])/iu],
+  ];
+  for (const [category, pattern] of v21Rules) {
+    if (matchesBoundaryPattern(haystack, pattern)) return category;
   }
   if (
     matchesBoundaryPattern(

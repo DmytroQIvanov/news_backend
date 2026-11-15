@@ -1179,7 +1179,7 @@ export class ExpertOpinionsService implements OnModuleInit, OnModuleDestroy {
       .map((e) => `${e.fullName} (${e.handle}, ${e.profileUrl})`)
       .join('; ');
 
-    const { data } = await postGeminiGenerateContent({
+    const { data } = await postGeminiGenerateContent({ priority: 'low',
       apiKey: this.activeKey,
       preferredModel: DEFAULT_GEMINI_MODEL,
       timeoutMs: 35_000,
@@ -1336,7 +1336,7 @@ export class ExpertOpinionsService implements OnModuleInit, OnModuleDestroy {
 
     let data: unknown;
     try {
-      const res = await postGeminiGenerateContent({
+      const res = await postGeminiGenerateContent({ priority: 'low',
         apiKey: this.activeKey,
         preferredModel: DEFAULT_GEMINI_MODEL,
         timeoutMs: 40_000,
@@ -1712,7 +1712,7 @@ export class ExpertOpinionsService implements OnModuleInit, OnModuleDestroy {
   ): Promise<ConsensusSummary> {
     if (this.activeKey && canUseHydrogenQuota() && process.env.NODE_ENV !== 'test') {
       try {
-        const res = await postGeminiGenerateContent({
+        const res = await postGeminiGenerateContent({ priority: 'low',
           apiKey: this.activeKey,
           preferredModel: DEFAULT_HYDROGEN_MODEL,
           candidateModels: [DEFAULT_HYDROGEN_MODEL, DEFAULT_GEMINI_MODEL],

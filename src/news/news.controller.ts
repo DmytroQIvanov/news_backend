@@ -44,7 +44,14 @@ export class NewsController {
     @Query('depth') depthRaw?: string,
     @Query('sort') sortRaw?: string,
     @Query('maxAgeHours') maxAgeHoursRaw?: string,
+    @Query('lang') langRaw?: string,
+    /** Internal use (FeedController): return up to this many ranked items instead of one page. */
+    poolSize?: number,
   ) {
+    const lang: 'uk' | 'en' | null = langRaw === 'en' ? 'en' : langRaw === 'uk' ? 'uk' : null;
+    if (langRaw !== undefined && langRaw !== 'en' && langRaw !== 'uk') {
+      throw new BadRequestException('lang must be uk or en');
+    }
     const limit = limitRaw === undefined ? 20 : Number(limitRaw);
     const offset = offsetRaw === undefined ? 0 : Number(offsetRaw);
     if (!Number.isInteger(limit) || limit < 1 || limit > 50 || !Number.isInteger(offset) || offset < 0 || offset > 10000) {
@@ -134,7 +141,13 @@ export class NewsController {
                 n.ai_metadata->>'hydrogen_insight' AS hydrogen_insight,
                 n.cluster_id,
                 COALESCE(n.cluster_sources, '[]'::jsonb) AS cluster_sources,
-                COALESCE(n.ai_generated, n.ai_metadata ? 'editorial_fingerprint') AS ai_generated
+                COALESCE(n.ai_generated, n.ai_metadata ? 'editorial_fingerprint') AS ai_generated,
+                n.why_it_matters,
+                n.ai_metadata->'article'->>'title_en' AS title_en,
+                n.ai_metadata->'article'->>'summary_en' AS summary_en,
+                n.ai_metadata->'article'->>'why_it_matters_en' AS why_it_matters_en,
+                n.ai_metadata->>'source_type' AS source_type,
+                n.ai_metadata->>'thumbnail_url' AS thumbnail_url
          FROM news_items n JOIN sources s ON s.id=n.source_id
          WHERE n.status='published' AND ($1::text IS NULL OR n.category=$1)
            AND ($4::text[] IS NULL OR s.slug = ANY($4::text[]))
@@ -172,6 +185,24 @@ export class NewsController {
         ),
       );
 
+    const localize = <T extends Record<string, unknown>>(item: T): T => {
+      if (!lang) return item;
+      const pick = (...keys: string[]) => {
+        for (const k of keys) {
+          const v = item[k];
+          if (typeof v === 'string' && v.trim()) return v;
+        }
+        return null;
+      };
+      return {
+        ...item,
+        lang,
+        display_title: lang === 'en' ? pick('title_en', 'original_title', 'title_uk') : pick('title_uk', 'original_title'),
+        display_summary: lang === 'en' ? pick('summary_en', 'original_summary', 'summary_uk') : pick('summary_uk', 'original_summary'),
+        display_why: lang === 'en' ? pick('why_it_matters_en', 'why_it_matters') : pick('why_it_matters'),
+      };
+    };
+
     const normalizeItemFreshness = <T extends Record<string, unknown>>(item: T): T => {
       const pub = item.published_at as Date | string | null | undefined;
       const fresh24h = isPublishedWithinHours(pub, 24);
@@ -186,7 +217,7 @@ export class NewsController {
     };
 
     const filterClusterAndSortItems = <T extends Record<string, unknown>>(rawItems: T[]) => {
-      let filtered = rawItems.map(normalizeItemFreshness);
+      let filtered = rawItems.map(normalizeItemFreshness).map(localize);
       if (effectiveMaxAgeHours !== null) {
         filtered = filtered.filter((item) =>
           isPublishedWithinHours(item.published_at as Date | string | null | undefined, effectiveMaxAgeHours!),
@@ -241,7 +272,7 @@ export class NewsController {
       if (category && ranked.length < 3 && offset === 0) {
         this.discovery?.triggerDiscoveryIfNeeded([category]);
       }
-      const page = ranked.slice(offset, offset + limit);
+      const page = poolSize ? ranked.slice(0, poolSize) : ranked.slice(offset, offset + limit);
       return {
         items: page,
         limit,
@@ -278,7 +309,7 @@ export class NewsController {
       });
     const combined = [...result.rows, ...fresh];
     const items = filterClusterAndSortItems(combined);
-    const page = items.slice(offset, offset + limit);
+    const page = poolSize ? items.slice(0, poolSize) : items.slice(offset, offset + limit);
     return {
       items: page,
       limit,
@@ -660,7 +691,7 @@ function publishedTime(date: Date | string | null): number {
   return date ? new Date(date).getTime() : 0;
 }
 
-const TOPIC_ALIAS_MAP: Record<string, { categories: string[]; keywords: string[] }> = {
+export const TOPIC_ALIAS_MAP: Record<string, { categories: string[]; keywords: string[] }> = {
   politics: { categories: ['politics', 'law'], keywords: ['politics', 'election', 'treaty', 'summit', 'diplomacy', 'world', 'політик', 'україн', 'міжнародн', 'безпек', 'вибор'] },
   politics_ukraine: { categories: ['politics', 'law', 'defense'], keywords: ['україн', 'політик', 'закон', 'податк', 'кордон', 'правда', 'суспільне', 'bbc', 'міжнародн', 'дипломат'] },
   ukraine_world_events: { categories: ['politics', 'defense'], keywords: ['україн', 'світ', 'саміт', 'дипломат', 'безпек', 'міжнародн', 'єс', 'нато'] },
@@ -703,6 +734,21 @@ const TOPIC_ALIAS_MAP: Record<string, { categories: string[]; keywords: string[]
   education_grants: { categories: ['education_grants'], keywords: ['grant', 'education', 'hackathon', 'fellowship'] },
   global: { categories: ['politics', 'global_tech', 'economy'], keywords: ['global', 'world', 'tech', 'itc', 'dou', 'dev.ua', 'технологі', 'світ'] },
   global_tech: { categories: ['global_tech'], keywords: ['global', 'tech', 'itc', 'dou', 'dev.ua'] },
+  climate_energy: { categories: ['climate_energy', 'science_space', 'economy', 'research'], keywords: ['climate', 'energy', 'solar', 'battery', 'nuclear', 'renewable', 'emission', 'клімат', 'енергетик', 'сонячн', 'батаре', 'атомн', 'відновлюван'] },
+  robotics: { categories: ['robotics', 'research', 'global_tech', 'hardware_gaming'], keywords: ['robot', 'robotics', 'humanoid', 'boston dynamics', 'figure ai', 'робот', 'гуманоїд'] },
+  crypto_web3: { categories: ['crypto_web3', 'finance', 'startups_fintech'], keywords: ['bitcoin', 'ethereum', 'crypto', 'blockchain', 'stablecoin', 'біткоїн', 'крипт', 'блокчейн'] },
+  smartphones_gadgets: { categories: ['hardware_gaming', 'global_tech'], keywords: ['iphone', 'android', 'pixel', 'galaxy', 'smartphone', 'wearable', 'смартфон', 'гаджет', 'годинник'] },
+  ev_transport: { categories: ['mobility_ev', 'global_tech', 'business', 'science_space'], keywords: ['tesla', 'electric vehicle', 'ev', 'autonomous', 'self-driving', 'waymo', 'електромобіл', 'автопілот'] },
+  biotech_medicine: { categories: ['biotech', 'health', 'research', 'science_space'], keywords: ['biotech', 'crispr', 'vaccine', 'clinical trial', 'fda', 'drug', 'біотех', 'вакцин', 'клінічн', 'ліки'] },
+  ai_policy_safety: { categories: ['ai_policy', 'model', 'law', 'politics', 'research'], keywords: ['ai act', 'regulation', 'safety', 'alignment', 'copyright', 'регулюван', 'безпека ші', 'авторськ'] },
+  ai_tools_productivity: { categories: ['model', 'api', 'coding', 'career'], keywords: ['assistant', 'copilot', 'agent', 'workflow', 'automation', 'prompt', 'асистент', 'агент', 'автоматизац'] },
+  movies_streaming: { categories: ['culture'], keywords: ['netflix', 'hbo', 'disney', 'trailer', 'box office', 'streaming', 'фільм', 'серіал', 'трейлер', 'прокат'] },
+  esports_gaming: { categories: ['hardware_gaming', 'culture'], keywords: ['esports', 'tournament', 'steam', 'playstation', 'xbox', 'nintendo', 'кіберспорт', 'турнір'] },
+  media_social: { categories: ['media_social', 'culture'], keywords: ['tiktok', 'instagram', 'creator', 'influencer', 'соцмереж', 'блогер'] },
+  sports: { categories: ['sports'], keywords: ['football', 'olympic', 'nba', 'f1', 'футбол', 'олімпі'] },
+  travel_lifestyle: { categories: ['travel_lifestyle'], keywords: ['travel', 'airline', 'tourism', 'подорож', 'туризм', 'авіа'] },
+  real_estate: { categories: ['real_estate', 'finance'], keywords: ['real estate', 'mortgage', 'housing', 'нерухомост', 'іпотек'] },
+  ukraine_tech: { categories: ['global_tech', 'startups_fintech', 'defense', 'career'], keywords: ['dou', 'dev.ua', 'itc', 'ukrainian startup', 'brave1', 'дія', 'український стартап', 'айті'] },
 };
 
 const EXACT_BOUNDARY_TOKENS = new Set([

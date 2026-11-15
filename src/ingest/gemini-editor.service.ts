@@ -17,6 +17,7 @@ import {
   LicenseMode,
 } from '../common/source-compliance';
 import { DatabaseService } from '../database/database.service';
+import { generateWithRouter } from '../common/llm-router';
 import { ClusterSource } from '../news/news-clustering.service';
 import { ArticleDto, CATEGORIES, SourceDto } from './ingest.dto';
 
@@ -47,8 +48,15 @@ export const EDITORIAL_ARTICLE_SCHEMA = objectSchema(
     editorial: objectSchema({ angles: arraySchema(textSchema), style: textSchema, limitations: textSchema }),
     hydrogen_insight: textSchema,
     briefing_script: textSchema,
+    background: textSchema,
+    whats_next: textSchema,
+    title_uk: textSchema,
+    summary_uk: textSchema,
+    why_it_matters_uk: textSchema,
+    briefing_script_uk: textSchema,
+    body_uk: textSchema,
   },
-  ['hydrogen_insight', 'briefing_script'],
+  ['hydrogen_insight', 'briefing_script', 'background', 'whats_next', 'title_uk', 'summary_uk', 'why_it_matters_uk', 'briefing_script_uk', 'body_uk'],
 );
 
 const DAILY_DIRECTIVE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -398,7 +406,7 @@ export class GeminiEditorService {
           }
         }
 
-        const response = await postGeminiGenerateContent({
+        const response = await postGeminiGenerateContent({ priority: 'high',
           apiKey: this.activeKey!,
           preferredModel: DEFAULT_HYDROGEN_MODEL,
           candidateModels: [DEFAULT_HYDROGEN_MODEL],
@@ -489,7 +497,7 @@ export class GeminiEditorService {
     }
 
     try {
-      const response = await postGeminiGenerateContent({
+      const response = await postGeminiGenerateContent({ priority: 'high',
         apiKey: this.activeKey,
         preferredModel: DEFAULT_HYDROGEN_MODEL,
         candidateModels: [DEFAULT_HYDROGEN_MODEL],
@@ -586,7 +594,7 @@ export class GeminiEditorService {
       return { polishedCount: 0, skippedCount: 0, modelUsed: null, items: [] };
     }
 
-    const response = await postGeminiGenerateContent({
+    const response = await postGeminiGenerateContent({ priority: 'high',
       apiKey: this.activeKey,
       preferredModel: DEFAULT_HYDROGEN_MODEL,
       candidateModels: [DEFAULT_HYDROGEN_MODEL],
@@ -747,19 +755,39 @@ export class GeminiEditorService {
 
       const useToolsInitially = this.research && supportsSearchTools(this.model);
 
-      let result = await postGeminiGenerateContent({
-        apiKey: this.activeKey!,
-        preferredModel: this.model,
-        timeoutMs: 65_000,
-        jsonSchemaWhenNoTools: EDITORIAL_ARTICLE_SCHEMA,
-        body: requestBody(useToolsInitially),
-      });
-      let candidate = (result.data as GeminiResponse).candidates?.[0];
-      if (candidate?.finishReason !== 'STOP') {
-        throw new Error(`Gemini did not finish the article (${candidate?.finishReason || 'unknown'})`);
+      let result: { data: unknown; modelUsed: string };
+      let candidate: NonNullable<GeminiResponse['candidates']>[number] | undefined;
+      let rawOutput: string;
+      try {
+        result = await postGeminiGenerateContent({ priority: 'high',
+          apiKey: this.activeKey!,
+          preferredModel: this.model,
+          timeoutMs: 65_000,
+          jsonSchemaWhenNoTools: EDITORIAL_ARTICLE_SCHEMA,
+          body: requestBody(useToolsInitially),
+        });
+        candidate = (result.data as GeminiResponse).candidates?.[0];
+        if (candidate?.finishReason !== 'STOP') {
+          throw new Error(`Gemini did not finish the article (${candidate?.finishReason || 'unknown'})`);
+        }
+        rawOutput = extractCandidateText(result.data);
+      } catch (geminiError) {
+        // Gemini quota/outage: same instructions and schema on Groq, then OpenRouter (free tiers).
+        const fallback = await generateWithRouter({
+          task: 'editorial',
+          exclude: ['gemini'],
+          system: systemText,
+          prompt: JSON.stringify(userPayload),
+          schema: EDITORIAL_ARTICLE_SCHEMA,
+          schemaName: 'editorial_article',
+          maxTokens: 3500,
+          temperature: 0.2,
+        }).catch(() => null);
+        if (!fallback) throw geminiError;
+        this.logger.warn(`Gemini editorial unavailable, used ${fallback.provider}/${fallback.model} for ${item.externalId}`);
+        result = { data: null, modelUsed: `${fallback.provider}:${fallback.model}` };
+        rawOutput = fallback.text;
       }
-
-      let rawOutput = extractCandidateText(result.data);
       let article: ReturnType<typeof validateArticle>;
       const extraClusterUrls = options?.clusterSources?.map(cs => ({
         title: `${cs.sourceName}: ${cs.title}`,
@@ -770,7 +798,7 @@ export class GeminiEditorService {
       } catch {
         if (!useToolsInitially) throw new Error('Invalid editorial payload');
         // Fallback to strict JSON schema without tools if tool-assisted response failed JSON/schema validation
-        result = await postGeminiGenerateContent({
+        result = await postGeminiGenerateContent({ priority: 'high',
           apiKey: this.activeKey!,
           preferredModel: this.model,
           timeoutMs: 65_000,
@@ -793,7 +821,7 @@ export class GeminiEditorService {
       const needsDeepHydrogenPass = Boolean(article.important || options?.angleHint?.boostImportant);
       if (needsDeepHydrogenPass && !/hydrogen/i.test(modelUsed) && this.activeKey && canUseHydrogenQuota()) {
         try {
-          const deepRes = await postGeminiGenerateContent({
+          const deepRes = await postGeminiGenerateContent({ priority: 'high',
             apiKey: this.activeKey,
             preferredModel: DEFAULT_HYDROGEN_MODEL,
             candidateModels: [DEFAULT_HYDROGEN_MODEL],
@@ -850,18 +878,21 @@ export class GeminiEditorService {
         hydrogenDeepAnalysis = true;
       }
 
-      const grounding = (candidate.groundingMetadata?.groundingChunks ?? [])
+      const grounding = (candidate?.groundingMetadata?.groundingChunks ?? [])
         .flatMap((chunk) => {
           const url = httpsUrl(chunk.web?.uri);
           return url ? [{ url, title: (chunk.web?.title || '').slice(0, 200) }] : [];
         })
         .slice(0, 20);
       GeminiEditorService.lastAiError = null;
+      // DB columns title_uk / summary_uk / why_it_matters keep the Ukrainian version for the uk app;
+      // the English canonical text lives in ai_metadata.article (title, summary, body, importance_reason).
+      const isEn = article.canonical_lang === 'en';
       return {
         ...item,
-        titleUk: article.title,
-        summaryUk: article.summary,
-        whyItMatters: finalWhyItMatters,
+        titleUk: isEn ? article.title_uk || undefined : article.title,
+        summaryUk: isEn ? article.summary_uk || undefined : article.summary,
+        whyItMatters: isEn ? article.why_it_matters_uk || (refinedWhyIsUk(finalWhyItMatters) ? finalWhyItMatters : undefined) : finalWhyItMatters,
         category: article.category,
         importance: article.important ? 'high' : 'low',
         freeAccess: 'unknown',
@@ -923,6 +954,10 @@ function stripHtmlToCleanText(html: string): string {
     .replace(/&#39;/gi, "'")
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function refinedWhyIsUk(value: string | undefined): boolean {
+  return Boolean(value) && detectCanonicalLang(value || '', '') === 'uk';
 }
 
 function sanitizeShortText(value: unknown, max: number): string | undefined {
@@ -1008,7 +1043,21 @@ export function validateArticle(
   const editorial = object(a.editorial);
   const hydrogenInsight = sanitizeShortText(a.hydrogen_insight, 1500);
   const briefingScript = sanitizeShortText(a.briefing_script, 2500);
+  const background = sanitizeShortText(a.background, 2000);
+  const whatsNext = sanitizeShortText(a.whats_next, 1200);
+  // English-first (v2.1): title/summary/body are canonical English; *_uk are translations.
+  // Legacy records may still carry title_en; the model occasionally answers in Ukrainian, which we detect.
+  const titleEn = sanitizeShortText(a.title_en, 350);
+  const summaryEn = sanitizeShortText(a.summary_en, 2500);
+  const whyItMattersEn = sanitizeShortText(a.why_it_matters_en, 1500);
+  const titleUk = sanitizeShortText(a.title_uk, 350);
+  const summaryUk = sanitizeShortText(a.summary_uk, 2500);
+  const whyItMattersUk = sanitizeShortText(a.why_it_matters_uk, 1500);
+  const briefingScriptUk = sanitizeShortText(a.briefing_script_uk, 2500);
+  const bodyUk = typeof a.body_uk === 'string' && a.body_uk.trim() ? a.body_uk.trim().slice(0, 16000) : undefined;
+  const canonicalLang = detectCanonicalLang(typeof a.title === 'string' ? a.title : '', typeof a.summary === 'string' ? a.summary : '');
   return {
+    canonical_lang: canonicalLang,
     title: text(a.title, 350),
     summary: text(a.summary, 2500),
     body: text(a.body, 16000),
@@ -1026,5 +1075,23 @@ export function validateArticle(
     },
     ...(hydrogenInsight ? { hydrogen_insight: hydrogenInsight } : {}),
     ...(briefingScript ? { briefing_script: briefingScript } : {}),
+    ...(background ? { background } : {}),
+    ...(whatsNext ? { whats_next: whatsNext } : {}),
+    ...(titleEn ? { title_en: titleEn } : {}),
+    ...(summaryEn ? { summary_en: summaryEn } : {}),
+    ...(whyItMattersEn ? { why_it_matters_en: whyItMattersEn } : {}),
+    ...(titleUk ? { title_uk: titleUk } : {}),
+    ...(summaryUk ? { summary_uk: summaryUk } : {}),
+    ...(whyItMattersUk ? { why_it_matters_uk: whyItMattersUk } : {}),
+    ...(briefingScriptUk ? { briefing_script_uk: briefingScriptUk } : {}),
+    ...(bodyUk ? { body_uk: bodyUk } : {}),
   };
+}
+
+/** 'uk' when the text is mostly Cyrillic, otherwise 'en'. */
+export function detectCanonicalLang(title: string, summary: string): 'en' | 'uk' {
+  const text = `${title} ${summary}`.slice(0, 600);
+  const cyr = (text.match(/[\u0400-\u04FF]/g) || []).length;
+  const lat = (text.match(/[A-Za-z]/g) || []).length;
+  return cyr > lat ? 'uk' : 'en';
 }

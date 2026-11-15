@@ -27,19 +27,40 @@ interface RateBucketState {
   recentAttemptTimestamps: number[];
 }
 
-const standardBucket: RateBucketState = {
-  queue: Promise.resolve(),
-  lastCallAt: 0,
-  cooldownUntil: 0,
-  recentAttemptTimestamps: [],
-};
+interface RateBucketStateWithDepth extends RateBucketState {
+  pending: number;
+}
 
-const hydrogenBucket: RateBucketState = {
-  queue: Promise.resolve(),
-  lastCallAt: 0,
-  cooldownUntil: 0,
-  recentAttemptTimestamps: [],
-};
+function createBucket(): RateBucketStateWithDepth {
+  return { queue: Promise.resolve(), lastCallAt: 0, cooldownUntil: 0, recentAttemptTimestamps: [], pending: 0 };
+}
+
+/**
+ * Free-tier Gemini quotas are tracked per model, so each model gets its own RPM bucket.
+ * Previously every model shared one 4 RPM queue, which throttled the whole backend to the
+ * slowest model and let background jobs (memes, experts) starve editorial processing.
+ * GEMINI_SHARED_BUCKET=true restores the old single-queue behaviour.
+ */
+const standardBucket: RateBucketStateWithDepth = createBucket();
+const modelBuckets = new Map<string, RateBucketStateWithDepth>();
+
+function bucketForModel(model: string): RateBucketStateWithDepth {
+  if (process.env.GEMINI_SHARED_BUCKET === 'true') return standardBucket;
+  let bucket = modelBuckets.get(model);
+  if (!bucket) {
+    bucket = createBucket();
+    modelBuckets.set(model, bucket);
+  }
+  return bucket;
+}
+
+export type GeminiPriority = 'high' | 'normal' | 'low';
+
+/** Low-priority callers give up instead of queueing behind more than this many pending calls on a model. */
+const LOW_PRIORITY_MAX_PENDING = 1;
+const NORMAL_PRIORITY_MAX_PENDING = 6;
+
+const hydrogenBucket: RateBucketStateWithDepth = createBucket();
 
 function getUtcDayKey(now = Date.now()): string {
   return new Date(now).toISOString().slice(0, 10);
@@ -156,8 +177,16 @@ type AttemptOutcome =
 function enqueueGeminiHttpAttempt(
   isHydrogen: boolean,
   task: () => Promise<AttemptOutcome>,
+  model = '',
+  priority: GeminiPriority = 'normal',
 ): Promise<AttemptOutcome> {
-  const bucket = isHydrogen ? hydrogenBucket : standardBucket;
+  const bucket = isHydrogen ? hydrogenBucket : bucketForModel(model);
+  const maxPending =
+    priority === 'low' ? LOW_PRIORITY_MAX_PENDING : priority === 'normal' ? NORMAL_PRIORITY_MAX_PENDING : Infinity;
+  if (bucket.pending >= maxPending) {
+    return Promise.resolve({ ok: false as const, status: 429, snippet: `local ${priority}-priority queue is busy` });
+  }
+  bucket.pending += 1;
   const hydrogenLimits = isHydrogen ? getHydrogenLimits() : null;
   const maxRpm = hydrogenLimits ? hydrogenLimits.maxRpm : STRICT_MAX_RPM;
   const minIntervalMs = hydrogenLimits ? hydrogenLimits.minIntervalMs : MIN_GEMINI_INTERVAL_MS;
@@ -193,8 +222,11 @@ function enqueueGeminiHttpAttempt(
       return outcome;
     }
   });
-  bucket.queue = run.catch(() => undefined);
-  return run;
+  const settled = run.finally(() => {
+    bucket.pending = Math.max(0, bucket.pending - 1);
+  });
+  bucket.queue = settled.catch(() => undefined);
+  return settled;
 }
 
 export function buildGeminiRequestBody(
@@ -236,6 +268,9 @@ export function buildGeminiRequestBody(
 }
 
 export function resetGeminiClientStateForTests(): void {
+  modelBuckets.clear();
+  standardBucket.pending = 0;
+  hydrogenBucket.pending = 0;
   standardBucket.queue = Promise.resolve();
   standardBucket.lastCallAt = 0;
   standardBucket.cooldownUntil = 0;
@@ -260,6 +295,8 @@ export async function postGeminiGenerateContent(params: {
   jsonSchemaWhenNoTools?: Record<string, unknown>;
   body: Record<string, unknown>;
   timeoutMs?: number;
+  /** high = editorial/user-facing, normal = default, low = optional enrichment (memes, caricature prompts). */
+  priority?: GeminiPriority;
 }): Promise<{ data: unknown; modelUsed: string }> {
   const primary = normalizeGeminiModel(params.preferredModel);
   const rawCandidates = params.candidateModels?.length
@@ -318,7 +355,7 @@ export async function postGeminiGenerateContent(params: {
           const errText = await resp.text().catch(() => '');
           const snippet = errText.replace(/\s+/g, ' ').slice(0, 180);
           return { ok: false as const, status: resp.status, snippet };
-        });
+        }, model, params.priority ?? 'normal');
 
         if (result.ok) {
           return { data: result.data, modelUsed: model };
@@ -326,8 +363,9 @@ export async function postGeminiGenerateContent(params: {
         if (result.status === 404) {
           markModelUnavailable(model);
         }
-        if (result.status === 429 && !hasNextModel && attempt === 1) {
-          const bucket = useHydrogenBucket ? hydrogenBucket : standardBucket;
+        const localBusy = result.status === 429 && result.snippet.startsWith('local ');
+        if (result.status === 429 && !localBusy && !hasNextModel && attempt === 1 && params.priority !== 'low') {
+          const bucket = useHydrogenBucket ? hydrogenBucket : bucketForModel(model);
           bucket.cooldownUntil = Math.max(bucket.cooldownUntil, Date.now() + 61_000);
           continue;
         }

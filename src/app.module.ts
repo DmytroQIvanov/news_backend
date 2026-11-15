@@ -25,6 +25,13 @@ import { GrantsController } from './grants/grants.controller';
 import { GrantsService } from './grants/grants.service';
 import { YoutubeController } from './youtube/youtube.controller';
 import { YoutubeRadarService } from './youtube/youtube-radar.service';
+import { FeedController } from './news/feed.controller';
+import { PersonalizationService } from './news/personalization.service';
+import { StoryBriefingService } from './news/story-briefing.service';
+import { CaricatureService } from './news/caricature.service';
+import { AudioBriefingService } from './news/audio-briefing.service';
+import { TranslationService } from './news/translation.service';
+import { YoutubeChannelDiscoveryService } from './youtube/youtube-channel-discovery.service';
 
 @Module({
   controllers: [
@@ -37,6 +44,7 @@ import { YoutubeRadarService } from './youtube/youtube-radar.service';
     KgController,
     GrantsController,
     YoutubeController,
+    FeedController,
   ],
   providers: [
     DatabaseService,
@@ -56,6 +64,12 @@ import { YoutubeRadarService } from './youtube/youtube-radar.service';
     KgService,
     GrantsService,
     YoutubeRadarService,
+    PersonalizationService,
+    StoryBriefingService,
+    CaricatureService,
+    AudioBriefingService,
+    TranslationService,
+    YoutubeChannelDiscoveryService,
   ],
 })
 export class AppModule {}

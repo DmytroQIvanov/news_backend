@@ -22,6 +22,11 @@ export interface NewsMemeItem {
   upvotes?: number | null;
   publishedAt: string;
   verificationStatus: 'live_public_api' | 'gemini_search_grounded';
+  /** Official embed / oEmbed page of the original post. Images are never copied to our storage. */
+  embedUrl?: string | null;
+  /** Human readable credit line shown under the meme ("@handle · Bluesky"). */
+  attribution?: string;
+  imagePolicy?: 'hotlink_original';
 }
 
 export interface NewsMemesResponse {
@@ -52,12 +57,16 @@ interface NewsMemeContext {
   newsKey: string;
   articleUrl: string | null;
   title: string;
+  /** Original (usually English) headline: social platforms are searched with it, not with the Ukrainian title. */
+  searchTitle?: string;
   summary: string;
   category: string;
   sourceName: string | null;
 }
 
 const MEME_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+/** Empty results are retried sooner: memes usually appear a few hours after the news breaks. */
+const MEME_EMPTY_CACHE_TTL_MS = 90 * 60 * 1000;
 const MEME_CACHE_MAX = 400;
 const MAX_MEMES_PER_ARTICLE = 6;
 
@@ -106,7 +115,7 @@ const HUMOR_SUBREDDITS = new Set([
   'nottheonion',
 ]);
 
-const TRAGEDY_SENSITIVITY_RE = /(?:\b(?:massacre|genocide|mass\s+casualties|fatalities|killed\s+\d+|dead\s+\d+|suicide|terrorist\s+attack)\b|загибл|померл|теракт|масов[а-яіїє]+\s+вбивств|катуван|жертв[а-яіїє]*\s+(?:обстріл|удар|атак))/i;
+export const TRAGEDY_SENSITIVITY_RE = /(?:\b(?:massacre|genocide|mass\s+casualties|casualt(?:y|ies)|fatalit(?:y|ies)|killed|dead|death\s+toll|died|wounded|injured|suicide|terror(?:ist)?\s+attack|shelling|airstrike|air\s+strike|missile\s+strike|drone\s+strike|bombing|frontline|front\s+line|war\s+crimes?|hostages?|prisoners?\s+of\s+war|earthquake|tsunami|flood(?:ing)?|wildfire|hurricane|plane\s+crash|disaster|tragedy|funeral|mourning)\b|загибл|загину|померл|смерт|вбит|вбив|поранен|теракт|обстріл|ракетн|балістик|шахед|удар(?:и|ом)?\s+по|атак[аиу]\s+на|фронт|окупант|полон|катуван|масов[а-яіїє]+\s+вбивств|жертв|трагеді|катастроф|землетрус|повін|пожеж|аварі|евакуац|руйнуван|траур|похорон|блекаут|знеструмлен)/i;
 const HUMOR_SIGNAL_RE = /(\blol\b|\blmao\b|\bhaha\b|\bjoke\b|\bmeme\b|\bsatire\b|\bshitpost\b|😂|🤣|🤡|💀|😭|🙃|мем|жарт|смішн|анекдот|прикол|сатира|іроні)/i;
 
 function safeHttpsUrl(raw: unknown): string | null {
@@ -156,18 +165,51 @@ function normalizePlatform(raw: unknown, url?: string): MemePlatform {
   return 'web';
 }
 
-function extractMemeSearchQuery(title: string): string {
+export function extractMemeSearchQuery(title: string, maxTokens = 3): string {
   const stopWords = new Set([
-    'the', 'and', 'for', 'with', 'that', 'this', 'from', 'into', 'about', 'after', 'over',
+    'the', 'and', 'for', 'with', 'that', 'this', 'from', 'into', 'about', 'after', 'over', 'new', 'its', 'their',
+    'how', 'why', 'what', 'will', 'says', 'said', 'just', 'now', 'are', 'has', 'have', 'was', 'were', 'more', 'than',
     'про', 'для', 'що', 'які', 'який', 'яка', 'як', 'від', 'при', 'під', 'над', 'після', 'через',
-    'нове', 'нова', 'новий', 'нові', 'оновила', 'оновив', 'оголосила', 'повідомила',
+    'нове', 'нова', 'новий', 'нові', 'оновила', 'оновив', 'оголосила', 'повідомила', 'заявив', 'заявила',
   ]);
   const tokens = title
-    .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
+    .replace(/[^\p{L}\p{N}\s.-]/gu, ' ')
     .split(/\s+/)
-    .map((w) => w.trim())
-    .filter((w) => w.length >= 3 && !stopWords.has(w.toLowerCase()));
-  return tokens.slice(0, 5).join(' ');
+    .map((w) => w.replace(/^[.-]+|[.-]+$/g, '').trim())
+    .filter((w) => w.length >= 2 && !stopWords.has(w.toLowerCase()));
+  // Proper nouns / product names (capitalised or with digits, e.g. "GPT-5", "Nintendo") carry the meme signal.
+  return tokens
+    .map((w, idx) => ({ w, idx, score: (/^\p{Lu}/u.test(w) ? 3 : 0) + (/\d/.test(w) ? 2 : 0) + Math.min(w.length, 10) / 10 }))
+    .sort((a, b) => b.score - a.score || a.idx - b.idx)
+    .slice(0, maxTokens)
+    .sort((a, b) => a.idx - b.idx)
+    .map((t) => t.w)
+    .join(' ');
+}
+
+function attributionFor(platform: MemePlatform, author: string, community?: string | null): string {
+  const where =
+    platform === 'reddit' ? community || 'Reddit' : platform === 'bluesky' ? 'Bluesky' : platform === 'x' ? 'X' : platform;
+  return `${author} · ${where}`;
+}
+
+function embedUrlFor(platform: MemePlatform, sourceUrl: string): string | null {
+  if (platform === 'reddit') {
+    const parsed = URL.parse(sourceUrl);
+    return parsed ? `https://embed.reddit.com${parsed.pathname}?embed=true` : null;
+  }
+  if (platform === 'bluesky') return `https://embed.bsky.app/oembed?url=${encodeURIComponent(sourceUrl)}`;
+  return null;
+}
+
+/** Adds credit + official embed links. Image URLs keep pointing to the platform CDN (no re-hosting). */
+export function withMemeAttribution(item: NewsMemeItem): NewsMemeItem {
+  return {
+    ...item,
+    attribution: item.attribution || attributionFor(item.platform, item.author, item.community),
+    embedUrl: item.embedUrl ?? embedUrlFor(item.platform, item.sourceUrl),
+    imagePolicy: 'hotlink_original',
+  };
 }
 
 function makeItemId(url: string, text: string): string {
@@ -201,7 +243,7 @@ export class NewsMemesService {
 
     const context = await this.resolveNewsContext(trimmedId, options);
     const customQuery = options.query?.trim().slice(0, 120) || '';
-    const queryUsed = customQuery || extractMemeSearchQuery(context.title);
+    const queryUsed = customQuery || extractMemeSearchQuery(context.searchTitle || context.title);
     const cacheKey = customQuery
       ? `${context.newsKey}:q:${createHash('sha256').update(customQuery.toLowerCase()).digest('hex').slice(0, 12)}`
       : context.newsKey;
@@ -219,7 +261,8 @@ export class NewsMemesService {
       }
     }
 
-    if (!customQuery && TRAGEDY_SENSITIVITY_RE.test(`${context.title} ${context.summary}`)) {
+    // Tone filter: no humour next to deaths, shelling, the front line or disasters, even for custom queries.
+    if (TRAGEDY_SENSITIVITY_RE.test(`${context.title} ${context.searchTitle || ''} ${context.summary}`) || context.category === 'defense') {
       const skipped: NewsMemesResponse = {
         newsKey: cacheKey,
         articleUrl: context.articleUrl,
@@ -241,18 +284,22 @@ export class NewsMemesService {
     const collected: NewsMemeItem[] = [];
 
     if (!options.skipLiveFetch && queryUsed) {
-      const redditOAuthEnabled =
-        process.env.ENABLE_REDDIT_MEMES === 'true' &&
-        Boolean(process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET);
+      const redditOAuthEnabled = Boolean(process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET);
 
-      const tasks: Array<Promise<NewsMemeItem[]>> = [this.fetchBlueskyJokes(queryUsed, context)];
-      if (redditOAuthEnabled) {
-        tasks.unshift(this.fetchRedditMemes(queryUsed, context));
-      }
+      const runSearch = async (q: string) => {
+        const tasks: Array<Promise<NewsMemeItem[]>> = [this.fetchBlueskyJokes(q, context)];
+        if (redditOAuthEnabled) tasks.unshift(this.fetchRedditMemes(q, context));
+        const settled = await Promise.allSettled(tasks);
+        for (const r of settled) {
+          if (r.status === 'fulfilled') collected.push(...r.value);
+        }
+      };
 
-      const settled = await Promise.allSettled(tasks);
-      for (const r of settled) {
-        if (r.status === 'fulfilled') collected.push(...r.value);
+      await runSearch(queryUsed);
+      // Too specific? Retry with the two strongest keywords before giving up.
+      if (collected.length === 0 && !customQuery) {
+        const broader = extractMemeSearchQuery(context.searchTitle || context.title, 2);
+        if (broader && broader !== queryUsed) await runSearch(broader);
       }
 
       if (
@@ -265,7 +312,7 @@ export class NewsMemesService {
       }
     }
 
-    const items = deduplicateMemeItems(collected).slice(0, MAX_MEMES_PER_ARTICLE);
+    const items = deduplicateMemeItems(collected).slice(0, MAX_MEMES_PER_ARTICLE).map(withMemeAttribution);
     const translated = await this.enrichUkrainianCaptions(items, context);
 
     const payload: NewsMemesResponse = {
@@ -317,6 +364,7 @@ export class NewsMemesService {
             newsKey: String(row.id || id),
             articleUrl: row.url,
             title: row.title_uk || row.original_title,
+            searchTitle: row.original_title || row.title_uk || '',
             summary: row.summary_uk || row.original_summary || '',
             category: row.category || options.category || 'other',
             sourceName: row.source_name,
@@ -336,6 +384,7 @@ export class NewsMemesService {
             newsKey: rssItem.id,
             articleUrl: rssItem.url,
             title: rssItem.original_title,
+            searchTitle: rssItem.original_title,
             summary: rssItem.original_summary || '',
             category: rssItem.category || options.category || 'other',
             sourceName: rssItem.source_name,
@@ -362,11 +411,18 @@ export class NewsMemesService {
 
   private async fetchRedditMemes(query: string, context: NewsMemeContext): Promise<NewsMemeItem[]> {
     try {
-      const url = `https://www.reddit.com/search.json?q=${encodeURIComponent(query)}&sort=top&t=month&limit=16&raw_json=1`;
+      // Reddit blocks anonymous requests from cloud IPs (Render), so the official OAuth API is used.
+      const token = await this.getRedditAppToken();
+      if (!token) return [];
+      const url = `https://oauth.reddit.com/search?q=${encodeURIComponent(query)}&sort=top&t=week&limit=25&raw_json=1&type=link`;
       const resp = await fetch(url, {
         method: 'GET',
-        headers: { 'User-Agent': 'OpportunityRadar/1.0 (public meme search)', Accept: 'application/json' },
-        signal: AbortSignal.timeout(4_000),
+        headers: {
+          'User-Agent': process.env.REDDIT_USER_AGENT?.trim() || 'web:ai-news-radar:1.0 (meme discovery)',
+          Accept: 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        signal: AbortSignal.timeout(6_000),
       });
       if (!resp.ok) return [];
 
@@ -454,15 +510,94 @@ export class NewsMemesService {
     }
   }
 
+  private redditToken: { value: string; expiresAt: number } | null = null;
+  private blueskySession: { accessJwt: string; service: string; expiresAt: number } | null = null;
+
+  private async getRedditAppToken(): Promise<string | null> {
+    const id = process.env.REDDIT_CLIENT_ID?.trim();
+    const secret = process.env.REDDIT_CLIENT_SECRET?.trim();
+    if (!id || !secret) return null;
+    if (this.redditToken && this.redditToken.expiresAt > Date.now() + 60_000) return this.redditToken.value;
+    try {
+      const resp = await fetch('https://www.reddit.com/api/v1/access_token', {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${id}:${secret}`).toString('base64')}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': process.env.REDDIT_USER_AGENT?.trim() || 'web:ai-news-radar:1.0 (meme discovery)',
+        },
+        body: 'grant_type=client_credentials',
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (!resp.ok) {
+        this.logger.warn(`Reddit OAuth token request failed: HTTP ${resp.status}`);
+        await resp.body?.cancel().catch(() => undefined);
+        return null;
+      }
+      const json = (await resp.json()) as { access_token?: string; expires_in?: number };
+      if (!json.access_token) return null;
+      this.redditToken = { value: json.access_token, expiresAt: Date.now() + (json.expires_in ?? 3600) * 1000 };
+      return json.access_token;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Bluesky's public AppView may reject unauthenticated search from cloud IPs (HTTP 403).
+   * When BLUESKY_HANDLE + BLUESKY_APP_PASSWORD (an app password, not the account password) are set,
+   * search runs through an authenticated session; otherwise the public endpoint is tried.
+   */
+  private async getBlueskySession(): Promise<{ accessJwt: string; service: string } | null> {
+    const identifier = process.env.BLUESKY_HANDLE?.trim();
+    const password = process.env.BLUESKY_APP_PASSWORD?.trim();
+    if (!identifier || !password) return null;
+    if (this.blueskySession && this.blueskySession.expiresAt > Date.now()) return this.blueskySession;
+    try {
+      const service = process.env.BLUESKY_SERVICE?.trim() || 'https://bsky.social';
+      const resp = await fetch(`${service}/xrpc/com.atproto.server.createSession`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier, password }),
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (!resp.ok) {
+        this.logger.warn(`Bluesky session failed: HTTP ${resp.status}`);
+        await resp.body?.cancel().catch(() => undefined);
+        return null;
+      }
+      const json = (await resp.json()) as { accessJwt?: string };
+      if (!json.accessJwt) return null;
+      // Access JWTs live ~2h; refresh well before that.
+      this.blueskySession = { accessJwt: json.accessJwt, service, expiresAt: Date.now() + 90 * 60_000 };
+      return this.blueskySession;
+    } catch {
+      return null;
+    }
+  }
+
   private async fetchBlueskyJokes(query: string, context: NewsMemeContext): Promise<NewsMemeItem[]> {
     try {
-      const apiUrl = `https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=${encodeURIComponent(query)}&limit=12`;
+      const session = await this.getBlueskySession();
+      const base = session ? session.service : 'https://public.api.bsky.app';
+      const apiUrl = `${base}/xrpc/app.bsky.feed.searchPosts?q=${encodeURIComponent(query)}&limit=25&sort=top`;
       const resp = await fetch(apiUrl, {
         method: 'GET',
-        headers: { 'User-Agent': 'OpportunityRadar/1.0', Accept: 'application/json' },
-        signal: AbortSignal.timeout(3_500),
+        headers: {
+          'User-Agent': 'AINewsRadar/1.0',
+          Accept: 'application/json',
+          ...(session ? { Authorization: `Bearer ${session.accessJwt}` } : {}),
+        },
+        signal: AbortSignal.timeout(5_000),
       });
-      if (!resp.ok) return [];
+      if (!resp.ok) {
+        if (resp.status === 401 || resp.status === 403) {
+          this.blueskySession = null;
+          this.logger.warn(`Bluesky search HTTP ${resp.status}${session ? '' : ' (set BLUESKY_HANDLE + BLUESKY_APP_PASSWORD)'}`);
+        }
+        await resp.body?.cancel().catch(() => undefined);
+        return [];
+      }
 
       const data = (await resp.json()) as {
         posts?: Array<{
@@ -518,7 +653,7 @@ export class NewsMemesService {
 
   private async discoverMemesWithGemini(query: string, context: NewsMemeContext): Promise<NewsMemeItem[]> {
     if (!this.activeKey) return [];
-    const { data } = await postGeminiGenerateContent({
+    const { data } = await postGeminiGenerateContent({ priority: 'low',
       apiKey: this.activeKey,
       preferredModel: DEFAULT_GEMINI_MODEL,
       timeoutMs: 30_000,
@@ -619,7 +754,7 @@ export class NewsMemesService {
     }
 
     try {
-      const res = await postGeminiGenerateContent({
+      const res = await postGeminiGenerateContent({ priority: 'low',
         apiKey: this.activeKey,
         preferredModel: DEFAULT_GEMINI_MODEL,
         timeoutMs: 18_000,
@@ -702,7 +837,7 @@ export class NewsMemesService {
       if (oldestKey !== undefined) this.memoryCache.delete(oldestKey);
     }
     this.memoryCache.set(key, {
-      expiresAt: Date.now() + MEME_CACHE_TTL_MS,
+      expiresAt: Date.now() + (payload.hasMemes || payload.sourceMode === 'skipped' ? MEME_CACHE_TTL_MS : MEME_EMPTY_CACHE_TTL_MS),
       payload,
     });
   }
@@ -730,7 +865,8 @@ export class NewsMemesService {
   private async writeDbCache(payload: NewsMemesResponse): Promise<void> {
     if (!this.db) return;
     try {
-      const expiresAt = new Date(Date.now() + MEME_CACHE_TTL_MS).toISOString();
+      const ttl = payload.hasMemes || payload.sourceMode === 'skipped' ? MEME_CACHE_TTL_MS : MEME_EMPTY_CACHE_TTL_MS;
+      const expiresAt = new Date(Date.now() + ttl).toISOString();
       await this.db.query(
         `INSERT INTO news_memes_cache (
            news_key, article_url, category, has_memes, payload, source_mode, created_at, expires_at

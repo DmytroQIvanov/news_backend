@@ -37,6 +37,13 @@ export interface ExpertCompetenceAssessment {
   conflictOfInterestUk: string;
 }
 
+/** Categories that have hand-verified seed experts; v2.1 categories get experts dynamically (Gemini curation). */
+export const EXPERT_SEEDED_CATEGORIES = [
+  'politics', 'law', 'economy', 'finance', 'career', 'health', 'psychology', 'culture', 'defense', 'cybersecurity',
+  'science_space', 'hardware_gaming', 'startups_fintech', 'education_grants', 'global_tech', 'model', 'api', 'coding',
+  'open_source', 'research', 'business',
+] as const;
+
 export const EXPERT_DIRECTORY: ExpertProfile[] = [
   // --- AI & LLM Systems ---
   {

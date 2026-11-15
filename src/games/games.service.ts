@@ -449,7 +449,7 @@ ${JSON.stringify(batch.map(b => ({
   instructions: b.rawInstructions.slice(0, 300),
 })))}`;
 
-      const { data } = await postGeminiGenerateContent({
+      const { data } = await postGeminiGenerateContent({ priority: 'low',
         apiKey: this.geminiKey!,
         preferredModel: this.geminiModel,
         timeoutMs: 45_000,
