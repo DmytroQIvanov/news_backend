@@ -9,6 +9,19 @@ import { ClusterableArticle, ClusterSource, NewsClusteringService } from './news
 import { NewsMemesService } from './news-memes.service';
 import { NEWS_AUDIO_STYLES, NEWS_DEPTHS, NewsTtsService } from './news-tts.service';
 import { SourceDiscoveryService } from './source-discovery.service';
+const ENGLISH_FIELDS_SQL = `
+  COALESCE(CASE WHEN n.ai_metadata->'article'->>'canonical_lang' = 'en'
+    THEN NULLIF(n.ai_metadata->'article'->>'title', '') END,
+    NULLIF(n.ai_metadata->'article'->>'title_en', ''), tr.title) AS title_en,
+  COALESCE(CASE WHEN n.ai_metadata->'article'->>'canonical_lang' = 'en'
+    THEN NULLIF(n.ai_metadata->'article'->>'summary', '') END,
+    NULLIF(n.ai_metadata->'article'->>'summary_en', ''), tr.summary) AS summary_en,
+  COALESCE(CASE WHEN n.ai_metadata->'article'->>'canonical_lang' = 'en'
+    THEN NULLIF(n.ai_metadata->'article'->>'importance_reason', '') END,
+    NULLIF(n.ai_metadata->'article'->>'why_it_matters_en', ''), tr.why_it_matters) AS why_it_matters_en`;
+
+const ENGLISH_TRANSLATION_JOIN = `LEFT JOIN news_translations tr ON tr.news_id = n.id AND tr.lang = 'en'`;
+
 @Controller('news')
 export class NewsController {
   private readonly clustering: NewsClusteringService;
@@ -143,12 +156,11 @@ export class NewsController {
                 COALESCE(n.cluster_sources, '[]'::jsonb) AS cluster_sources,
                 COALESCE(n.ai_generated, n.ai_metadata ? 'editorial_fingerprint') AS ai_generated,
                 n.why_it_matters,
-                n.ai_metadata->'article'->>'title_en' AS title_en,
-                n.ai_metadata->'article'->>'summary_en' AS summary_en,
-                n.ai_metadata->'article'->>'why_it_matters_en' AS why_it_matters_en,
+                ${ENGLISH_FIELDS_SQL},
                 n.ai_metadata->>'source_type' AS source_type,
                 n.ai_metadata->>'thumbnail_url' AS thumbnail_url
          FROM news_items n JOIN sources s ON s.id=n.source_id
+         ${ENGLISH_TRANSLATION_JOIN}
          WHERE n.status='published' AND ($1::text IS NULL OR n.category=$1)
            AND ($4::text[] IS NULL OR s.slug = ANY($4::text[]))
            AND (NOT $5::boolean OR n.ai_metadata->'article'->'important' = 'true'::jsonb)
@@ -283,7 +295,11 @@ export class NewsController {
       };
     }
 
-    const [result, feeds] = await Promise.all([published, this.companyFeeds.list(sources)]);
+    const result = await published;
+    let feeds = await this.companyFeeds.list(sources, result.rows.length === 0);
+    if (feeds.unavailable && result.rows.length && topics.length && !filterClusterAndSortItems(result.rows).length) {
+      feeds = await this.companyFeeds.list(sources);
+    }
     if (feeds.unavailable && !result.rows.length) {
       throw new ServiceUnavailableException('Company feeds are temporarily unavailable');
     }
@@ -511,10 +527,12 @@ export class NewsController {
                   n.category,n.importance,n.why_it_matters,n.free_access,
                   n.credibility_tier,n.is_retracted,n.correction_note,n.corrected_at,n.fact_claims,
                   n.ai_metadata,n.ai_metadata->'article' AS article,
+                  ${ENGLISH_FIELDS_SQL}, tr.body AS body_en,
                   s.name AS source_name,s.slug AS source_slug,s.homepage_url,s.unofficial AS source_is_unofficial,
                   n.cluster_id,COALESCE(n.cluster_sources, '[]'::jsonb) AS cluster_sources,
                   COALESCE(n.ai_generated, n.ai_metadata ? 'editorial_fingerprint') AS ai_generated
            FROM news_items n JOIN sources s ON s.id=n.source_id
+           ${ENGLISH_TRANSLATION_JOIN}
            WHERE n.external_id=$1 AND n.status='published' LIMIT 1`,
           [id],
         )
@@ -559,10 +577,12 @@ export class NewsController {
                   n.category,n.importance,n.why_it_matters,n.free_access,
                   n.credibility_tier,n.is_retracted,n.correction_note,n.corrected_at,n.fact_claims,
                   n.ai_metadata,n.ai_metadata->'article' AS article,
+                  ${ENGLISH_FIELDS_SQL}, tr.body AS body_en,
                   s.name AS source_name,s.slug AS source_slug,s.homepage_url,s.unofficial AS source_is_unofficial,
                   n.cluster_id,COALESCE(n.cluster_sources, '[]'::jsonb) AS cluster_sources,
                   COALESCE(n.ai_generated, n.ai_metadata ? 'editorial_fingerprint') AS ai_generated
            FROM news_items n JOIN sources s ON s.id=n.source_id
+           ${ENGLISH_TRANSLATION_JOIN}
            WHERE n.id=$1 AND n.status='published'`,
           [id],
         )
@@ -587,7 +607,7 @@ export class NewsController {
       : [];
     if (storedClusterSources.length <= 1) {
       const [feeds, recentDb] = await Promise.all([
-        this.companyFeeds.list([]).catch(() => ({ items: [] as ClusterableArticle[] })),
+        this.companyFeeds.list([], false).catch(() => ({ items: [] as ClusterableArticle[] })),
         this.db
           .query<ClusterableArticle>(
             `SELECT n.id::text AS id, n.url, n.canonical_url AS "canonicalUrl",
@@ -643,9 +663,11 @@ export class NewsController {
 
     const { rows } = await this.db.query(`
       SELECT n.id, n.url, n.title_uk, n.summary_uk, n.original_title, n.category, n.importance,
+             ${ENGLISH_FIELDS_SQL},
              COALESCE(n.ai_metadata->'article'->'important' = 'true'::jsonb, false) AS important,
              n.published_at, s.name AS source_name, s.slug AS source_slug
       FROM news_items n JOIN sources s ON s.id = n.source_id
+      ${ENGLISH_TRANSLATION_JOIN}
       WHERE n.status = 'published'
         AND n.id::text <> COALESCE($1, '')
         AND n.external_id <> $2

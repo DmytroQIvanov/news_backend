@@ -5,6 +5,7 @@ import { DatabaseService } from '../database/database.service';
 import { BatchAngleHint, GeminiEditorService, PolishBatchResult } from '../ingest/gemini-editor.service';
 import { CATEGORIES } from '../ingest/ingest.dto';
 import { IngestService } from '../ingest/ingest.service';
+import { isAudioAutoGenerateEnabled } from './audio-briefing.service';
 import { CompanyFeedsService, isPublishedWithinHours } from './company-feeds.service';
 import { ClusterableArticle, NewsClusteringService } from './news-clustering.service';
 import { NewsTtsService } from './news-tts.service';
@@ -279,7 +280,7 @@ export class FeedEditorialService implements OnModuleInit, OnModuleDestroy {
         );
       }
 
-      if (!this.stopped && this.newsTts) {
+      if (!this.stopped && this.newsTts && isAudioAutoGenerateEnabled()) {
         await this.newsTts.prewarmImportantBriefings({ limit: 5 }).catch((err) =>
           this.logger.warn(`TTS briefing prewarm failed: ${err instanceof Error ? err.message : err}`),
         );

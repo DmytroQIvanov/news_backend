@@ -11,6 +11,7 @@ import { DatabaseService } from '../database/database.service';
  */
 
 const LANG_NAMES: Record<string, string> = {
+  en: 'English',
   uk: 'Ukrainian', pl: 'Polish', de: 'German', es: 'Spanish', fr: 'French', it: 'Italian', pt: 'Portuguese',
   ro: 'Romanian', cs: 'Czech', tr: 'Turkish', ja: 'Japanese', ko: 'Korean', zh: 'Chinese (Simplified)', ar: 'Arabic',
 };
@@ -24,7 +25,7 @@ const schema = {
       type: 'array',
       items: {
         type: 'object',
-        properties: { id: { type: 'string' }, title: { type: 'string' }, summary: { type: 'string' }, why: { type: 'string' } },
+        properties: { id: { type: 'string' }, title: { type: 'string' }, summary: { type: 'string' }, why: { type: 'string' }, body: { type: 'string' } },
         required: ['id', 'title', 'summary', 'why'],
       },
     },
@@ -39,11 +40,14 @@ export function getExtraLangs(): string[] {
     .filter((l) => /^[a-z]{2}$/.test(l) && l !== 'en' && l !== 'uk');
 }
 
-export function buildTranslationPrompt(lang: string, items: Array<{ id: string; title: string; summary: string; why: string }>): string {
+type TranslationItem = { id: string; title: string; summary: string; why: string; body?: string };
+
+export function buildTranslationPrompt(lang: string, items: TranslationItem[]): string {
   const name = LANG_NAMES[lang] || lang;
-  return `Translate these news items from English into natural, modern ${name} for a news app.
+  return `Translate these news items ${lang === 'en' ? 'from their original languages' : 'from English'} into natural, modern ${name} for a news app.
 Keep facts, numbers, names and [n] source references exactly; do not add or remove information; no clickbait.
 Return JSON {"items":[{"id","title","summary","why"}]} with the same ids.
+${lang === 'en' ? 'Include body in each output item. Preserve headings and paragraphs. Use an empty string if the input body is empty.' : ''}
 
 ${JSON.stringify(items)}`;
 }
@@ -79,34 +83,72 @@ export class TranslationService implements OnModuleInit, OnModuleDestroy {
     if (this.timer) clearTimeout(this.timer);
   }
 
-  async runOnce(): Promise<{ uk: number; extra: number }> {
-    if (!this.db || this.running) return { uk: 0, extra: 0 };
+  async runOnce(): Promise<{ uk: number; en: number; extra: number }> {
+    if (!this.db || this.running) return { uk: 0, en: 0, extra: 0 };
     this.running = true;
     try {
       const uk = await this.fillUkrainian();
+      const en = await this.fillLegacyEnglish();
       let extra = 0;
       for (const lang of getExtraLangs()) extra += await this.fillExtra(lang);
-      if (uk || extra) this.logger.log(`Translated ${uk} item(s) to Ukrainian, ${extra} to extra languages`);
-      return { uk, extra };
+      if (uk || en || extra) this.logger.log(`Translated ${uk} to Ukrainian, ${en} to English, ${extra} to extra languages`);
+      return { uk, en, extra };
     } finally {
       this.running = false;
     }
   }
 
-  private async translate(lang: string, items: Array<{ id: string; title: string; summary: string; why: string }>) {
-    const res = await generateJsonWithRouter<{ items?: Array<{ id: string; title: string; summary: string; why: string }> }>({
+  private async translate(lang: string, items: TranslationItem[]) {
+    const res = await generateJsonWithRouter<{ items?: TranslationItem[] }>({
       task: 'translate',
       prompt: buildTranslationPrompt(lang, items),
       schema,
       schemaName: 'translations',
-      maxTokens: 2500,
+      maxTokens: lang === 'en' ? 6000 : 2500,
       temperature: 0.2,
       timeoutMs: 40_000,
     });
     if (!res) return { rows: [], model: null as string | null };
     const ids = new Set(items.map((i) => i.id));
-    const rows = (res.data.items ?? []).filter((r) => r && ids.has(String(r.id)) && typeof r.title === 'string' && r.title.trim());
+    const rows = (Array.isArray(res.data.items) ? res.data.items : []).filter((r) =>
+      r && ids.has(String(r.id)) && typeof r.title === 'string' && r.title.trim() &&
+      typeof r.summary === 'string' && typeof r.why === 'string');
     return { rows, model: `${res.provider}:${res.model}` };
+  }
+
+  private async fillLegacyEnglish(): Promise<number> {
+    const { rows } = await this.db!.query<TranslationItem>(`
+      SELECT n.id::text,
+             COALESCE(NULLIF(n.title_uk, ''), n.ai_metadata->'article'->>'title', n.original_title) AS title,
+             COALESCE(NULLIF(n.summary_uk, ''), n.ai_metadata->'article'->>'summary', n.original_summary, '') AS summary,
+             COALESCE(n.why_it_matters, n.ai_metadata->'article'->>'importance_reason', '') AS why,
+             COALESCE(n.ai_metadata->'article'->>'body', '') AS body
+      FROM news_items n
+      WHERE n.status = 'published'
+        AND n.ai_metadata->'article'->>'canonical_lang' IS DISTINCT FROM 'en'
+        AND concat_ws(' ', n.title_uk, n.original_title, n.summary_uk, n.original_summary,
+                      n.why_it_matters, n.ai_metadata->'article'->>'body') ~ '[А-Яа-яІіЇїЄєҐґ]'
+        AND NOT EXISTS (SELECT 1 FROM news_translations t WHERE t.news_id = n.id AND t.lang = 'en')
+      ORDER BY n.published_at DESC NULLS LAST, n.id DESC
+      LIMIT 6`);
+    let done = 0;
+    for (let i = 0; i < rows.length; i += 2) {
+      const batch = rows.slice(i, i + 2);
+      const { rows: translated, model } = await this.translate('en', batch);
+      for (const item of translated) {
+        const source = batch.find(row => row.id === String(item.id));
+        if (!source || (source.summary && !item.summary.trim()) || (source.body && !item.body?.trim())) continue;
+        const res = await this.db!.query(
+          `INSERT INTO news_translations (news_id, lang, title, summary, why_it_matters, model, body)
+           VALUES ($1::bigint, 'en', $2, $3, $4, $5, $6)
+           ON CONFLICT (news_id, lang) DO NOTHING`,
+          [item.id, item.title.slice(0, 350), item.summary, item.why, model, item.body || null],
+        );
+        done += res.rowCount ?? 0;
+      }
+      if (!translated.length) break;
+    }
+    return done;
   }
 
   private async sourceRows(where: string, params: unknown[]) {

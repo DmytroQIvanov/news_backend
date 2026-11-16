@@ -157,10 +157,15 @@ export class CaricatureService implements OnModuleInit, OnModuleDestroy {
           skipped += 1;
           continue;
         }
+        let storageFailed = false;
         const ok = await this.generateForNews(row).catch((err) => {
-          this.logger.warn(`Caricature for news ${row.id} failed: ${err instanceof Error ? err.message : err}`);
+          const msg = err instanceof Error ? err.message : String(err);
+          this.logger.warn(`Caricature for news ${row.id} failed: ${msg}`);
+          // Image already uploaded and rejected (e.g. NoSuchBucket): don't upload the next one too.
+          if (/^R2 /.test(msg)) storageFailed = true;
           return false;
         });
+        if (storageFailed) break;
         if (ok) generated += 1;
         else skipped += 1;
       }

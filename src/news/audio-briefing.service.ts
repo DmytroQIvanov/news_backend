@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { postGeminiGenerateContent } from '../common/gemini-client';
+import { compressWavToImaAdpcm } from '../common/ima-adpcm';
 import { R2Storage, readEnv } from '../common/r2-storage';
 import { getWorkersAiConfig } from '../common/workers-ai';
 import { DatabaseService } from '../database/database.service';
@@ -67,6 +68,9 @@ interface ArticleRow {
   original_title: string;
   summary_uk: string | null;
   original_summary: string | null;
+  title_en?: string | null;
+  summary_en?: string | null;
+  why_en?: string | null;
   why_it_matters: string | null;
   source_name: string | null;
   article: Record<string, unknown> | null;
@@ -79,6 +83,13 @@ interface ArticleRow {
 
 const DEFAULT_MAX_BYTES = 1024 * 1024 * 1024;
 const PROVIDER_COOLDOWN_MS = 10 * 60_000;
+/** After an R2/DB storage failure (e.g. NoSuchBucket), stop generating audio for this long. */
+const STORAGE_FAILURE_COOLDOWN_MS = 60 * 60_000;
+
+/** Background (no user action) audio generation. Temporarily off by default to save bandwidth/quota. */
+export function isAudioAutoGenerateEnabled(): boolean {
+  return process.env.AUDIO_AUTO_GENERATE === 'true';
+}
 const GEMINI_FOREGROUND_TIMEOUT_MS = 25_000;
 const MAX_QUEUE = 300;
 
@@ -136,12 +147,19 @@ export function buildScript(row: ArticleRow, lang: string, depth: NewsDepth, sty
     );
   }
   // English (and fallback for other languages until translations exist)
-  const title = (canonicalEn ? pickText(row.article, 'title') : pickText(row.article, 'title_en')) || row.original_title;
-  const summary = (canonicalEn ? pickText(row.article, 'summary') : pickText(row.article, 'summary_en')) || row.original_summary || '';
+  const title = (canonicalEn ? pickText(row.article, 'title') : pickText(row.article, 'title_en')) || row.title_en || row.original_title;
+  const summary = (canonicalEn ? pickText(row.article, 'summary') : pickText(row.article, 'summary_en')) || row.summary_en || row.original_summary || '';
   const scripted = canonicalEn ? row.briefing_script : null;
-  const why = pickText(row.article, canonicalEn ? 'importance_reason' : 'why_it_matters_en');
+  const why = pickText(row.article, canonicalEn ? 'importance_reason' : 'why_it_matters_en') || row.why_en;
   const raw = scripted || [title, summary, style === 'headline_flash' ? '' : why || ''].filter(Boolean).join(' ');
   return stripTtsPromptDirectives(raw.replace(/\[\d+\]/g, '').replace(/\s+/g, ' ').trim()).slice(0, 2400);
+}
+
+function canRenderScript(script: string, lang: string): boolean {
+  if (lang !== 'en') return true;
+  const cyrillic = script.match(/\p{Script=Cyrillic}/gu)?.length ?? 0;
+  const letters = script.match(/\p{L}/gu)?.length ?? 0;
+  return cyrillic <= letters / 2;
 }
 
 @Injectable()
@@ -154,6 +172,11 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
   private working = false;
   private timer?: NodeJS.Timeout;
   private destroyed = false;
+  private storageBlockedUntil = 0;
+
+  private get storageBlocked(): boolean {
+    return Date.now() < this.storageBlockedUntil;
+  }
 
   constructor(@Optional() private readonly db?: DatabaseService) {}
 
@@ -172,6 +195,11 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit(): void {
     if (process.env.NODE_ENV === 'test' || !this.enabled) return;
+    // Paused by default: audio is generated only when a user asks for it (getAudio). AUDIO_AUTO_GENERATE=true resumes the scan.
+    if (!isAudioAutoGenerateEnabled()) {
+      this.logger.log('Automatic audio pregeneration is paused (set AUDIO_AUTO_GENERATE=true to resume); on-demand audio still works.');
+      return;
+    }
     const scan = (delay: number) => {
       this.timer = setTimeout(async () => {
         if (this.destroyed) return;
@@ -224,7 +252,7 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
 
   /** Important / top stories of the last 36 h, every configured language, in priority order. */
   async scanAndEnqueue(limit = 12): Promise<number> {
-    if (!this.db) return 0;
+    if (!this.db || this.storageBlocked) return 0;
     const { depth, style } = resolveNewsBriefMode(undefined);
     const { rows } = await this.db.query<ArticleRow>(this.articleSql(`
          WHERE n.status = 'published'
@@ -247,13 +275,15 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
 
   private articleSql(where: string): string {
     return `SELECT n.id::text, n.title_uk, n.original_title, n.summary_uk, n.original_summary, n.why_it_matters,
+                   tr.title AS title_en, tr.summary AS summary_en, tr.why_it_matters AS why_en,
                    s.name AS source_name, n.ai_metadata->'article' AS article,
                    COALESCE(n.ai_metadata->>'briefing_script', n.ai_metadata->'article'->>'briefing_script') AS briefing_script,
                    n.importance,
                    COALESCE(n.ai_metadata->'article'->'important' = 'true'::jsonb, false) AS important,
                    GREATEST(1, jsonb_array_length(COALESCE(n.cluster_sources, '[]'::jsonb)))::int AS source_count,
                    n.published_at
-            FROM news_items n JOIN sources s ON s.id = n.source_id ${where}`;
+            FROM news_items n JOIN sources s ON s.id = n.source_id
+            LEFT JOIN news_translations tr ON tr.news_id = n.id AND tr.lang = 'en' ${where}`;
   }
 
   private async loadArticle(newsId: string): Promise<ArticleRow | null> {
@@ -271,7 +301,7 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
         [key],
       )
       .catch(() => ({ rows: [] as Array<{ object_key: string; mime_type: string; provider: TtsProvider; model: string; duration_sec: number; script: string; bytes: number }> }));
-    return rows[0] ? { ...rows[0], cacheKey: key } : null;
+    return rows[0] && canRenderScript(rows[0].script, lang) ? { ...rows[0], cacheKey: key } : null;
   }
 
   // ---------------------------------------------------------------- public API
@@ -299,7 +329,7 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
     if (!row) return null;
     const script = buildScript(row, lang, depth, style);
     let position = 0;
-    if (this.enabled) {
+    if (this.enabled && canRenderScript(script, lang)) {
       // User is waiting: jump the queue.
       position = this.enqueue({ newsId: row.id, lang, depth, style, priority: 1000, requestedAt: Date.now() });
     }
@@ -353,6 +383,10 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
       maxBytes: this.maxBytes,
       queueLength: this.queue.length,
       languages: getAudioLangs(),
+      geminiTtsModels: PREFERRED_TTS_MODELS.map((m) => {
+        const h = this.geminiTtsHealth.get(m);
+        return { model: m, status: !h ? 'untested' : h.ok ? 'working' : 'cooling_down', retryInSec: h ? Math.max(0, Math.round((h.retryAt - now) / 1000)) : 0, lastError: h?.lastError ?? null };
+      }),
       providers: this.providerOrder().map((p) => ({
         provider: p,
         coolingDownSec: Math.max(0, Math.round(((this.providerCooldown.get(p) ?? 0) - now) / 1000)),
@@ -392,8 +426,9 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
     const row = await this.loadArticle(job.newsId);
     if (!row) return;
     const script = buildScript(row, job.lang, job.depth, job.style);
-    if (script.length < 20) return;
+    if (script.length < 20 || !canRenderScript(script, job.lang)) return;
 
+    if (this.storageBlocked) return;
     for (const provider of this.providerOrder()) {
       if (!this.providerAvailable(provider, job.lang)) continue;
       const started = Date.now();
@@ -409,7 +444,17 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
         if (!out) continue;
         const elapsed = Date.now() - started;
         this.avgRenderMs.set(provider, Math.round(((this.avgRenderMs.get(provider) ?? elapsed) * 2 + elapsed) / 3));
-        await this.store(job, row, script, provider, out);
+        try {
+          await this.store(job, row, script, provider, this.compressForStorage(out));
+        } catch (storeErr) {
+          // The audio body was already sent: a storage/DB failure is NOT a provider failure. Re-rendering with
+          // the next provider (and again on every scan) re-uploads megabytes of WAV in a loop, so stop here.
+          this.storageBlockedUntil = Date.now() + STORAGE_FAILURE_COOLDOWN_MS;
+          this.queue.length = 0;
+          this.logger.warn(
+            `Audio storage failed for ${job.newsId}/${job.lang}; pausing audio pregeneration for ${Math.round(STORAGE_FAILURE_COOLDOWN_MS / 60_000)} min: ${storeErr instanceof Error ? storeErr.message.slice(0, 300) : storeErr}`,
+          );
+        }
         return;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -429,21 +474,45 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
       lang === 'uk'
         ? 'Прочитай як ведучий новин: спокійно, чітко, природною українською.'
         : 'Read as a calm, clear news anchor in natural English.';
-    const res = await postGeminiGenerateContent({
-      apiKey: key,
-      preferredModel: PREFERRED_TTS_MODELS[0],
-      // Only the two best models: walking the whole list is what made users wait minutes.
-      candidateModels: PREFERRED_TTS_MODELS.slice(0, 2) as unknown as string[],
-      priority: 'high',
-      timeoutMs: GEMINI_FOREGROUND_TIMEOUT_MS,
-      body: {
-        contents: [{ role: 'user', parts: [{ text: `${instruction}\n\n${script}` }] }],
-        generationConfig: {
-          responseModalities: ['AUDIO'],
-          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: this.voice } } },
-        },
-      },
-    });
+    // Try every Gemini TTS model: each has its own (hourly/daily) free quota. A model that failed is
+    // re-probed with a real request after its cooldown: 429 -> ~1 h (or Retry-After), 404 -> 6 h, other -> 10 min.
+    let res: { data: unknown; modelUsed: string } | null = null;
+    let lastErr: unknown = null;
+    for (const model of PREFERRED_TTS_MODELS) {
+      const health = this.geminiTtsHealth.get(model);
+      if (health && health.retryAt > Date.now()) continue;
+      try {
+        res = await postGeminiGenerateContent({
+          apiKey: key,
+          preferredModel: model,
+          candidateModels: [model],
+          priority: 'high',
+          timeoutMs: GEMINI_FOREGROUND_TIMEOUT_MS,
+          body: {
+            contents: [{ role: 'user', parts: [{ text: `${instruction}
+
+${script}` }] }],
+            generationConfig: {
+              responseModalities: ['AUDIO'],
+              speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: this.voice } } },
+            },
+          },
+        });
+        this.geminiTtsHealth.set(model, { ok: true, retryAt: 0, lastError: null, checkedAt: Date.now() });
+        break;
+      } catch (err) {
+        lastErr = err;
+        const msg = err instanceof Error ? err.message : String(err);
+        const status = (err as { status?: number })?.status ?? Number(/HTTP (\d{3})/.exec(msg)?.[1]);
+        const wait = status === 429 ? Number(readEnv('GEMINI_TTS_QUOTA_COOLDOWN_MS')) || 60 * 60_000 : status === 404 ? 6 * 3_600_000 : 10 * 60_000;
+        this.geminiTtsHealth.set(model, { ok: false, retryAt: Date.now() + wait, lastError: `${status || ''} ${msg}`.slice(0, 160), checkedAt: Date.now() });
+      }
+    }
+    if (!res) {
+      if (lastErr) throw lastErr;
+      // Every model is cooling down: let the next provider take it without marking Gemini as broken.
+      return null;
+    }
     const parts =
       (res.data as { candidates?: { content?: { parts?: { inlineData?: { data?: string; mimeType?: string } }[] } }[] })
         .candidates?.[0]?.content?.parts ?? [];
@@ -457,6 +526,8 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
     const wav = pcm16ToWavBase64(Buffer.from(inline.data, 'base64'), rate, 1, 16);
     return { audio: Buffer.from(wav, 'base64'), mimeType: 'audio/wav', model: res.modelUsed };
   }
+
+  private readonly geminiTtsHealth = new Map<string, { ok: boolean; retryAt: number; lastError: string | null; checkedAt: number }>();
 
   private groqTtsUsage = { day: '', count: 0, chars: 0 };
 
@@ -518,6 +589,18 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
     if (!resp.ok) throw new Error(`Google TTS HTTP ${resp.status}`);
     const json = (await resp.json()) as { audioContent?: string };
     return json.audioContent ? { audio: Buffer.from(json.audioContent, 'base64'), mimeType: 'audio/mpeg', model: `google-tts:${languageCode}` } : null;
+  }
+
+  /** PCM16 WAV is ~2.9 MB/min; IMA ADPCM WAV is 4x smaller and still plays everywhere. AUDIO_ADPCM=false disables. */
+  private compressForStorage(out: { audio: Buffer; mimeType: string; model: string }) {
+    if (process.env.AUDIO_ADPCM === 'false' || !/wav/.test(out.mimeType)) return out;
+    try {
+      const adpcm = compressWavToImaAdpcm(out.audio);
+      if (adpcm && adpcm.length < out.audio.length) return { ...out, audio: adpcm, mimeType: 'audio/wav' };
+    } catch (err) {
+      this.logger.warn(`ADPCM compression failed, storing PCM WAV: ${err instanceof Error ? err.message : err}`);
+    }
+    return out;
   }
 
   private async store(job: AudioJob, row: ArticleRow, script: string, provider: TtsProvider, out: { audio: Buffer; mimeType: string; model: string }) {

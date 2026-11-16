@@ -5,6 +5,9 @@ import { ValidationPipe } from '@nestjs/common';
 import { json } from 'express';
 import { AppModule } from './app.module';
 import { createRateLimiter } from './common/rate-limit.middleware';
+import { startEgressMeter } from './common/egress-meter';
+
+startEgressMeter();
 
 async function bootstrap(): Promise<void> {
   if (!process.env.DATABASE_URL?.trim()) {

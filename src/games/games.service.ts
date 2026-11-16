@@ -2,8 +2,10 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import { createHash } from 'node:crypto';
 import { postGeminiGenerateContent } from '../common/gemini-client';
 import { DatabaseService } from '../database/database.service';
+import { fetchAndParseFeedUrl } from '../news/company-feeds.service';
+import { canonicalizeUrl } from '../common/url-utils';
 
-export type GameOfferType = 'giveaway' | 'demo' | 'beta' | 'dlc' | 'discount';
+export type GameOfferType = 'giveaway' | 'demo' | 'beta' | 'dlc' | 'discount' | 'free_game';
 
 export interface GameOfferItem {
   id: string;
@@ -122,7 +124,7 @@ export class GamesService implements OnModuleInit, OnModuleDestroy {
     const storeFilter = filters?.store && filters.store !== 'all' ? filters.store : null;
     const qFilter = filters?.q?.trim() ? `%${filters.q.trim()}%` : null;
 
-    let orderBy = 'last_verified_at DESC, id DESC';
+    let orderBy = 'created_at DESC, id DESC';
     if (filters?.sort === 'expiring_soon') {
       orderBy = 'expires_at ASC NULLS LAST, worth_score DESC, id DESC';
     } else if (filters?.sort === 'worth_desc') {
@@ -130,8 +132,6 @@ export class GamesService implements OnModuleInit, OnModuleDestroy {
     }
 
     try {
-      await this.db.query(`UPDATE game_offers SET status = 'expired' WHERE status = 'active' AND expires_at IS NOT NULL AND expires_at < now()`).catch(() => undefined);
-
       const { rows } = await this.db.query<GameOfferItem>(`
         SELECT id::text,
                external_id AS "externalId",
@@ -153,16 +153,16 @@ export class GamesService implements OnModuleInit, OnModuleDestroy {
                last_verified_at AS "lastVerifiedAt"
         FROM game_offers
         WHERE status = 'active'
+          AND (expires_at >= now() OR (expires_at IS NULL AND last_verified_at >= now() - interval '72 hours'))
           AND ($1::text IS NULL OR offer_type = $1)
           AND ($2::text IS NULL OR lower(store_name) LIKE '%' || lower($2) || '%')
           AND ($3::text IS NULL OR title ILIKE $3 OR COALESCE(title_uk, '') ILIKE $3 OR COALESCE(description_uk, '') ILIKE $3)
         ORDER BY ${orderBy}
-        LIMIT $4 OFFSET $5
-      `, [typeFilter, storeFilter, qFilter, limit + 1, offset]);
+      `, [typeFilter, storeFilter, qFilter]);
 
-      const hasMore = rows.length > limit;
-      const items = rows.slice(0, limit);
-      return { items, total: offset + items.length, hasMore };
+      const unique = dedupeGameOffers(rows);
+      const items = unique.slice(offset, offset + limit);
+      return { items, total: unique.length, hasMore: offset + items.length < unique.length };
     } catch (error) {
       this.logger.warn(`Failed querying game_offers: ${error instanceof Error ? error.message : error}`);
       return { items: [], total: 0, hasMore: false };
@@ -178,19 +178,16 @@ export class GamesService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async executeSync(): Promise<{ fetched: number; written: number; enriched: number }> {
-    const [epic, gamerPower, steam] = await Promise.all([
+    const [epic, gamerPower, steam, itch] = await Promise.all([
       this.fetchEpicFreeGames(),
       this.fetchGamerPower(),
       this.fetchSteamDemosAndDeals(),
+      this.fetchItchFreeGames(),
     ]);
 
-    const dedup = new Map<string, RawGameCandidate>();
-    for (const c of [...epic, ...gamerPower, ...steam]) {
-      if (!dedup.has(c.externalId)) {
-        dedup.set(c.externalId, c);
-      }
-    }
-    const candidates = [...dedup.values()];
+    const now = Date.now();
+    const candidates = dedupeGameOffers([...epic, ...steam, ...itch, ...gamerPower].filter(c =>
+      c.title.trim() && (!c.expiresAt || Date.parse(c.expiresAt) > now)));
     if (!candidates.length) return { fetched: 0, written: 0, enriched: 0 };
 
     // Determine which items are new or changed to avoid redundant Gemini calls
@@ -279,6 +276,32 @@ export class GamesService implements OnModuleInit, OnModuleDestroy {
     return { fetched: candidates.length, written, enriched: enrichMap.size };
   }
 
+  private async fetchItchFreeGames(): Promise<RawGameCandidate[]> {
+    try {
+      const items = await fetchAndParseFeedUrl({
+        slug: 'itch-free-games', name: 'itch.io', domain: 'itch.io', url: 'https://itch.io/games/price-free.xml',
+      });
+      return items.slice(0, 16).map(item => ({
+        externalId: `itch-${item.id}`,
+        title: item.original_title,
+        rawDescription: item.original_summary.slice(0, 1500),
+        rawInstructions: '',
+        offerType: 'free_game',
+        storeName: 'itch.io',
+        platforms: ['itch.io'],
+        imageUrl: item.thumbnail_url || null,
+        url: item.canonical_url || item.url,
+        originalPrice: null,
+        isFree: true,
+        worthScore: 20,
+        expiresAt: null,
+      }));
+    } catch (err) {
+      this.logger.warn(`itch.io fetch failed: ${err instanceof Error ? err.message : err}`);
+      return [];
+    }
+  }
+
   private async fetchEpicFreeGames(): Promise<RawGameCandidate[]> {
     try {
       const resp = await fetch(
@@ -342,13 +365,16 @@ export class GamesService implements OnModuleInit, OnModuleDestroy {
       const rows = (await resp.json()) as any[];
       if (!Array.isArray(rows)) return [];
 
-      return rows.slice(0, 28).map((g): RawGameCandidate | null => {
+      return rows.map((g): RawGameCandidate | null => {
         const url = String(g.open_giveaway_url || g.gamerpower_url || '');
         if (!url.startsWith('https://')) return null;
         const typeRaw = String(g.type || '').toLowerCase();
+        const title = String(g.title || '').trim().slice(0, 350);
+        if (!title || !g.id) return null;
         const offerType: GameOfferType =
           typeRaw.includes('beta') ? 'beta'
           : typeRaw.includes('dlc') || typeRaw.includes('loot') ? 'dlc'
+          : /\bdemo\b/i.test(title) ? 'demo'
           : 'giveaway';
         const platformsRaw = String(g.platforms || 'PC');
         const storeName = detectStoreName(platformsRaw, url);
@@ -361,7 +387,7 @@ export class GamesService implements OnModuleInit, OnModuleDestroy {
 
         return {
           externalId: `gp-${g.id}`,
-          title: String(g.title || '').slice(0, 350),
+          title,
           rawDescription: String(g.description || '').slice(0, 1500),
           rawInstructions: String(g.instructions || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 800),
           offerType,
@@ -395,10 +421,10 @@ export class GamesService implements OnModuleInit, OnModuleDestroy {
       const specials: any[] = data?.specials?.items || [];
       const results: RawGameCandidate[] = [];
 
-      for (const item of specials.slice(0, 10)) {
+      for (const item of specials) {
         const discount = Number(item.discount_percent || 0);
         if (discount < 50) continue;
-        const isFree = Number(item.final_price || 0) === 0 || discount === 100;
+        const isFree = item.final_price === 0 || discount === 100;
         const img = String(item.large_capsule_image || item.header_image || '');
         const url = `https://store.steampowered.com/app/${item.id}`;
         const origPrice = item.original_price ? `${(Number(item.original_price) / 100).toFixed(0)} ₴` : null;
@@ -475,6 +501,33 @@ ${JSON.stringify(batch.map(b => ({
       return [];
     }
   }
+}
+
+export function dedupeGameOffers<T extends Pick<GameOfferItem, 'externalId' | 'title' | 'storeName' | 'offerType' | 'url'>>(items: T[]): T[] {
+  const ids = new Set<string>();
+  const keys = new Set<string>();
+  const selected = new Set<T>();
+  // Process direct listings before aggregators while retaining the incoming display order.
+  const priority = [...items.filter(item => !item.externalId.startsWith('gp-')), ...items.filter(item => item.externalId.startsWith('gp-'))];
+  for (const item of priority) {
+    const title = item.title.normalize('NFKC').toLowerCase()
+      .replace(/\s*(?:[-–:]\s*)?\b(?:free giveaway|giveaway)\s*$/i, '')
+      .replace(/\s*\((?:steam|epic games(?: store)?|gog|pc)\)\s*$/i, '')
+      .replace(/\s+(?:on steam|on epic games(?: store)?|on gog)\s*$/i, '')
+      .replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    const url = canonicalizeUrl(item.url).replace(/\/$/, '');
+    const kind = item.offerType === 'discount' || item.offerType === 'giveaway' ? 'promotion' : item.offerType;
+    const uniqueUrl = !/\/free-games$/.test(url) ? `${kind}:url:${url}` : null;
+    // Publisher-scoped itch.io URLs distinguish indie games with the same name.
+    const sameProduct = title && item.storeName !== 'itch.io' && item.storeName !== 'Інший маркет'
+      ? `${kind}:name:${item.storeName.toLowerCase()}:${title}` : null;
+    if (ids.has(item.externalId) || (uniqueUrl && keys.has(uniqueUrl)) || (sameProduct && keys.has(sameProduct))) continue;
+    if (uniqueUrl) keys.add(uniqueUrl);
+    if (sameProduct) keys.add(sameProduct);
+    ids.add(item.externalId);
+    selected.add(item);
+  }
+  return items.filter(item => selected.delete(item));
 }
 
 export function detectStoreName(platforms: string, url: string): string {

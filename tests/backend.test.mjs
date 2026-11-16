@@ -26,7 +26,7 @@ import {
   SourceDiscoveryService,
 } from '../dist/news/source-discovery.service.js';
 import { IngestService } from '../dist/ingest/ingest.service.js';
-import { detectStoreName } from '../dist/games/games.service.js';
+import { dedupeGameOffers, detectStoreName } from '../dist/games/games.service.js';
 import {
   buildGeminiRequestBody,
   canUseHydrogenQuota,
@@ -266,6 +266,15 @@ test('detectStoreName identifies game marketplaces', () => {
   assert.equal(detectStoreName('PC, Epic Games Store', 'https://store.epicgames.com/uk/p/test'), 'Epic Games');
   assert.equal(detectStoreName('Steam', 'https://store.steampowered.com/app/123'), 'Steam');
   assert.equal(detectStoreName('GOG', 'https://www.gog.com/game/test'), 'GOG');
+});
+
+test('game offers collapse a syndicated giveaway while keeping distinct products and store offers', () => {
+  const direct = { title: 'A Space Game', externalId: 'steam-123', url: 'https://store.steampowered.com/app/123', storeName: 'Steam', offerType: 'giveaway' };
+  const syndicated = { ...direct, title: 'A Space Game (Steam) Giveaway', externalId: 'gp-7', url: 'https://www.gamerpower.com/open/7' };
+  const tracked = { ...direct, externalId: 'gp-8', url: `${direct.url}/?utm_source=gamerpower` };
+  const demo = { ...direct, externalId: 'steam-456', url: 'https://store.steampowered.com/app/456', offerType: 'demo' };
+  const epic = { ...direct, externalId: 'epic-9', url: 'https://store.epicgames.com/uk/p/a-space-game', storeName: 'Epic Games' };
+  assert.deepEqual(dedupeGameOffers([syndicated, tracked, direct, demo, epic, direct]), [direct, demo, epic]);
 });
 
 test('extractEntitySlugs links NVIDIA, GPU, local AI, and Ollama', () => {
@@ -3940,6 +3949,9 @@ test('Audio script follows the language: canonical English vs Ukrainian translat
   assert.match(buildScript(row, 'uk', 'balanced', 'podcast_story'), /[А-Яа-яІіЇїЄє]/);
   assert.equal(detectCanonicalLang('Lab ships a new model', 'The lab released'), 'en');
   assert.equal(detectCanonicalLang('Лабораторія випустила модель', 'Сьогодні'), 'uk');
+  const legacy = { ...row, article: { canonical_lang: 'uk' }, original_summary: 'Раніше опублікована новина.',
+    title_en: 'Translated release', summary_en: 'The release brings support for more devices.', why_en: 'It extends compatibility.' };
+  assert.match(buildScript(legacy, 'en', 'balanced', 'analyst_brief'), /Translated release.*more devices.*compatibility/);
 });
 
 test('New v2.1 categories are recognised by the feed classifier', () => {
@@ -3992,4 +4004,59 @@ test('LLM router: task roles, free-tier budgets and failover to the next provide
   }
   assert.match(buildTranslationPrompt('pl', [{ id: '1', title: 'T', summary: 'S', why: 'W' }]), /Polish/);
   assert.deepEqual(parseJsonLoose('```json\n{"a":1}\n```'), { a: 1 });
+});
+
+test('IMA ADPCM: Gemini-style PCM16 WAV compresses ~4x and decodes back close to the original', async () => {
+  const { compressWavToImaAdpcm, parsePcm16Wav } = await import('../dist/common/ima-adpcm.js');
+  const { pcm16ToWavBase64 } = await import('../dist/news/news-tts.service.js');
+  const rate = 24000;
+  const n = rate * 3 + 123; // not a multiple of the block size
+  const pcm = Buffer.alloc(n * 2);
+  for (let i = 0; i < n; i += 1) {
+    const t = i / rate;
+    const env = 0.5 + 0.5 * Math.sin(2 * Math.PI * 3 * t); // speech-like loudness changes
+    pcm.writeInt16LE(Math.round(env * (9000 * Math.sin(2 * Math.PI * 220 * t) + 4000 * Math.sin(2 * Math.PI * 1300 * t))), i * 2);
+  }
+  const wav = Buffer.from(pcm16ToWavBase64(pcm, rate, 1, 16), 'base64');
+  const adpcm = compressWavToImaAdpcm(wav);
+  assert.ok(adpcm);
+  assert.ok(adpcm.length < wav.length / 3.8, `ratio ${wav.length / adpcm.length}`);
+  assert.equal(adpcm.readUInt16LE(20), 0x11);
+  assert.equal(adpcm.readUInt32LE(48), n); // fact chunk = real sample count
+  assert.equal(compressWavToImaAdpcm(adpcm), null); // already compressed / not PCM16
+
+  // Independent reference decoder (standard IMA algorithm).
+  const steps = [7,8,9,10,11,12,13,14,16,17,19,21,23,25,28,31,34,37,41,45,50,55,60,66,73,80,88,97,107,118,130,143,157,173,190,209,230,253,279,307,337,371,408,449,494,544,598,658,724,796,876,963,1060,1166,1282,1411,1552,1707,1878,2066,2272,2499,2749,3024,3327,3660,4026,4428,4871,5358,5894,6484,7132,7845,8630,9493,10442,11487,12635,13899,15289,16818,18500,20350,22385,24623,27086,29794,32767];
+  const idxT = [-1,-1,-1,-1,2,4,6,8,-1,-1,-1,-1,2,4,6,8];
+  const blockAlign = adpcm.readUInt16LE(32);
+  const perBlock = adpcm.readUInt16LE(38);
+  const data = adpcm.subarray(60);
+  const out = [];
+  for (let b = 0; b * blockAlign < data.length; b += 1) {
+    const o = b * blockAlign;
+    let pred = data.readInt16LE(o);
+    let idx = data[o + 2];
+    out.push(pred);
+    for (let i = 1; i < perBlock; i += 1) {
+      const byte = data[o + 4 + ((i - 1) >> 1)];
+      const code = (i - 1) & 1 ? byte >> 4 : byte & 15;
+      const step = steps[idx];
+      let d = step >> 3;
+      if (code & 4) d += step;
+      if (code & 2) d += step >> 1;
+      if (code & 1) d += step >> 2;
+      pred = Math.max(-32768, Math.min(32767, pred + (code & 8 ? -d : d)));
+      idx = Math.max(0, Math.min(88, idx + idxT[code]));
+      out.push(pred);
+    }
+  }
+  const orig = parsePcm16Wav(wav).samples;
+  let sig = 0;
+  let noise = 0;
+  for (let i = 0; i < n; i += 1) {
+    sig += orig[i] ** 2;
+    noise += (orig[i] - out[i]) ** 2;
+  }
+  const snr = 10 * Math.log10(sig / noise);
+  assert.ok(snr > 20, `SNR ${snr.toFixed(1)} dB`);
 });

@@ -99,24 +99,22 @@ export class FeedController {
     }
     if (deviceId !== undefined && !isValidDeviceId(deviceId)) throw new BadRequestException('deviceId must be a UUID');
 
-    const profile = deviceId ? await this.personalization.getProfile(deviceId) : null;
+    const [profile, pool, storyList, caricatureList] = await Promise.all([
+      deviceId ? this.personalization.getProfile(deviceId) : Promise.resolve(null),
+      this.news.list('50', '0', undefined, sourcesRaw, undefined, undefined, depthRaw, 'newest', '72', lang, 300),
+      offset === 0 ? this.stories.list(8, lang, 36) : Promise.resolve([]),
+      this.caricatures.list({ limit: 6, lang, apiBase: apiBase(req) }),
+    ]);
     const declared = topicsRaw ? topicsRaw.split(',').map((t) => t.trim()).filter(Boolean) : profile?.declaredTopics ?? [];
     // Pull a wide pool (no topic hard-filter: interests re-rank instead of hiding everything else).
-    const pool = (await this.news.list('50', '0', undefined, sourcesRaw, undefined, undefined, depthRaw, 'newest', '72', lang, 300)) as {
-      items: Array<Record<string, unknown> & { id: string }>;
-    };
-    const items = pool.items;
+    const items = pool.items as Array<Record<string, unknown> & { id: string }>;
     const ranked = rankForReader(items, profile, declaredTopicsToCategories(declared));
 
-    const top = offset === 0 ? pickTopStories(items, 6) : [];
+    const top = pickTopStories(items, 6);
     const topIds = new Set(top.map((t) => String(t.id)));
     const rest = ranked.filter((i) => !topIds.has(String(i.id)));
     const page = rest.slice(offset, offset + limit);
 
-    const [storyList, caricatureList] = await Promise.all([
-      offset === 0 ? this.stories.list(8, lang, 36) : Promise.resolve([]),
-      this.caricatures.list({ limit: 6, lang, apiBase: apiBase(req) }),
-    ]);
     const storyByCluster = new Map(storyList.map((s) => [s.clusterId, s]));
 
     // Interleave caricatures as their own cards (never next to the story they joke about if it is sensitive).
@@ -133,7 +131,7 @@ export class FeedController {
     return {
       lang,
       personalized: Boolean(profile),
-      top: top.map((t) => ({ ...t, story: t.cluster_id ? storyByCluster.get(String(t.cluster_id)) ?? null : null })),
+      top: offset === 0 ? top.map((t) => ({ ...t, story: t.cluster_id ? storyByCluster.get(String(t.cluster_id)) ?? null : null })) : [],
       stories: offset === 0 ? storyList.slice(0, 5) : [],
       items: cards,
       hasMore: offset + page.length < rest.length,

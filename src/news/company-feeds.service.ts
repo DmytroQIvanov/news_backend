@@ -376,21 +376,21 @@ export class CompanyFeedsService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  async list(sources: string[]) {
+  async list(sources: string[], waitForCold = true) {
     const selected = this.activeFeeds.filter(
       feed =>
         !sources.length ||
         sources.includes(feed.slug) ||
         (feed.alias !== undefined && sources.includes(feed.alias)),
     );
-    const batches = await Promise.all(selected.map(feed => this.read(feed)));
+    const batches = await Promise.all(selected.map(feed => this.read(feed, waitForCold ? 'cold' : 'background')));
     return {
       items: batches.flatMap(items => items ?? []),
       unavailable: batches.length > 0 && batches.every(items => !items),
     };
   }
 
-  private async read(feed: FeedDefinition): Promise<FeedArticle[] | undefined> {
+  private async read(feed: FeedDefinition, refreshMode: 'wait' | 'cold' | 'background' = 'wait'): Promise<FeedArticle[] | undefined> {
     let state = this.cache.get(feed.slug);
     if (!state) {
       state = { items: [], fetchedAt: 0, refreshAt: 0, consecutiveFailures: 0 };
@@ -399,7 +399,9 @@ export class CompanyFeedsService implements OnModuleInit, OnModuleDestroy {
     if (!state.pending && Date.now() >= state.refreshAt) {
       state.pending = this.refresh(feed, state);
     }
-    await state.pending;
+    if (refreshMode === 'wait' || (refreshMode === 'cold' && Date.now() - state.fetchedAt > maxStaleAge)) {
+      await state.pending;
+    }
     return Date.now() - state.fetchedAt <= maxStaleAge ? state.items : undefined;
   }
 
@@ -696,6 +698,8 @@ function parseFeedXmlWithMeta(
       const field = stack[3];
       if (
         field === 'title' ||
+        field === 'plainTitle' ||
+        field === 'imageurl' ||
         field === 'link' ||
         field === 'guid' ||
         field === 'pubDate' ||
@@ -746,10 +750,11 @@ function parseFeedXmlWithMeta(
           ? fields.guid.trim()
           : '';
       const item = normalizeArticle(feed, {
-        title: fields.title,
+        title: fields.plainTitle || fields.title,
         link: fields.link || guidLink,
         pubDate: fields.pubDate || fields.date,
         description: fields.description || fields.encoded,
+        thumbnailUrl: /^https:\/\//i.test(fields.imageurl?.trim()) ? fields.imageurl : undefined,
       });
       if (item && !items.has(item.canonical_url)) items.set(item.canonical_url, item);
     } else if (mode === 'rdf' && stack.length === 2 && name === 'item') {
