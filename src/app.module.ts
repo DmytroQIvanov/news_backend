@@ -39,6 +39,8 @@ import { ObjectivityController } from './news/objectivity.controller';
 import { TopicsService } from './news/topics.service';
 import { InsightsController } from './insights/insights.controller';
 import { InsightsService } from './insights/insights.service';
+import { LlmStatsController } from './common/llm-stats.controller';
+import { LlmStatsService } from './common/llm-stats';
 
 @Module({
   controllers: [
@@ -55,6 +57,7 @@ import { InsightsService } from './insights/insights.service';
     AiRankingsController,
     ObjectivityController,
     InsightsController,
+    LlmStatsController,
   ],
   providers: [
     DatabaseService,
@@ -84,6 +87,7 @@ import { InsightsService } from './insights/insights.service';
     AiRankingsService,
     TopicsService,
     InsightsService,
+    LlmStatsService,
   ],
 })
 export class AppModule {}

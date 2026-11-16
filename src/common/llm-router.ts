@@ -1,4 +1,5 @@
 import { DEFAULT_GEMINI_MODEL, postGeminiGenerateContent } from './gemini-client';
+import { recordLlmEvent, LlmOutcome } from './llm-stats';
 import { readEnv } from './r2-storage';
 
 /**
@@ -138,15 +139,20 @@ function usageFor(target: LlmTarget, now = Date.now()): Usage {
   return u;
 }
 
+/** Why the call does not fit the target's free budget right now (null = it fits). */
+export function blockReason(target: LlmTarget, tokens: number, now = Date.now()): LlmOutcome | null {
+  const u = usageFor(target, now);
+  if (u.cooldownUntil > now) return 'skipped_cooldown';
+  if (tokens > target.maxRequestTokens) return 'skipped_size';
+  if (u.dayRequests >= target.rpd) return 'skipped_daily';
+  if (u.minuteRequests >= target.rpm) return 'skipped_rpm';
+  if (u.minuteTokens + tokens > target.tpm) return 'skipped_tpm';
+  return null;
+}
+
 /** True when the call fits the target's free budget right now. */
 export function canUse(target: LlmTarget, tokens: number, now = Date.now()): boolean {
-  const u = usageFor(target, now);
-  if (u.cooldownUntil > now) return false;
-  if (tokens > target.maxRequestTokens) return false;
-  if (u.dayRequests >= target.rpd) return false;
-  if (u.minuteRequests >= target.rpm) return false;
-  if (u.minuteTokens + tokens > target.tpm) return false;
-  return true;
+  return blockReason(target, tokens, now) === null;
 }
 
 function record(target: LlmTarget, tokens: number, ok: boolean, retryAfterSec?: number) {
@@ -166,6 +172,11 @@ function record(target: LlmTarget, tokens: number, ok: boolean, retryAfterSec?: 
 
 export function resetLlmRouterForTests() {
   usage.clear();
+}
+
+/** Flat list of every configured target with its local free-tier limits (used by the stats report). */
+export function llmLimits() {
+  return Object.values(getTargets()).flat().map((t) => ({ provider: t.provider, model: t.model, rpd: t.rpd, rpm: t.rpm }));
 }
 
 export function llmRouterStatus() {
@@ -198,7 +209,7 @@ class LlmHttpError extends Error {
 async function callOpenAiCompatible(
   target: LlmTarget,
   req: LlmJsonRequest,
-): Promise<string> {
+): Promise<{ text: string; tokens?: number }> {
   const isGroq = target.provider === 'groq';
   const url = isGroq ? 'https://api.groq.com/openai/v1/chat/completions' : 'https://openrouter.ai/api/v1/chat/completions';
   const key = isGroq ? readEnv('groq_api_key') : readEnv('openrouter_api_key');
@@ -231,10 +242,10 @@ async function callOpenAiCompatible(
     const retryAfter = Number(resp.headers.get('retry-after'));
     throw new LlmHttpError(`${target.provider} HTTP ${resp.status}: ${text}`, resp.status, Number.isFinite(retryAfter) ? retryAfter : undefined);
   }
-  const json = (await resp.json()) as { choices?: Array<{ message?: { content?: string } }>; model?: string };
+  const json = (await resp.json()) as { choices?: Array<{ message?: { content?: string } }>; model?: string; usage?: { total_tokens?: number } };
   const content = json.choices?.[0]?.message?.content;
   if (!content) throw new LlmHttpError(`${target.provider} returned no content`, 502);
-  return content;
+  return { text: content, tokens: json.usage?.total_tokens };
 }
 
 async function callGemini(target: LlmTarget, req: LlmJsonRequest): Promise<{ text: string; model: string }> {
@@ -242,6 +253,7 @@ async function callGemini(target: LlmTarget, req: LlmJsonRequest): Promise<{ tex
     apiKey: process.env.GEMINI_API_KEY!.trim(),
     preferredModel: target.model,
     priority: req.task === 'editorial' ? 'high' : 'normal',
+    statsTask: req.task,
     timeoutMs: req.timeoutMs ?? 60_000,
     jsonSchemaWhenNoTools: req.schema,
     body: {
@@ -268,24 +280,37 @@ export async function generateWithRouter(req: LlmJsonRequest): Promise<LlmResult
   for (const provider of chainFor(req.task)) {
     if (req.exclude?.includes(provider) || !hasKey(provider)) continue;
     for (const target of targets[provider]) {
-      if (!canUse(target, tokens)) continue;
+      const blocked = blockReason(target, tokens);
+      if (blocked) {
+        recordLlmEvent({ provider, model: target.model, task: req.task, outcome: blocked });
+        continue;
+      }
+      const startedAt = Date.now();
       try {
         if (provider === 'gemini') {
           const out = await callGemini(target, req);
           record(target, tokens, true);
           return { text: out.text, provider, model: out.model };
         }
-        const text = await callOpenAiCompatible(target, req);
+        const out = await callOpenAiCompatible(target, req);
         record(target, tokens, true);
-        return { text, provider, model: target.model };
+        recordLlmEvent({ provider, model: target.model, task: req.task, outcome: 'ok', tokens: out.tokens ?? tokens, latencyMs: Date.now() - startedAt });
+        return { text: out.text, provider, model: target.model };
       } catch (err) {
         lastError = err;
         const status = err instanceof LlmHttpError ? err.status : (err as { status?: number })?.status;
+        // Gemini attempts are already counted per HTTP request inside postGeminiGenerateContent.
+        if (provider !== 'gemini') {
+          const name = (err as Error)?.name;
+          const outcome: LlmOutcome = name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : status === 429 ? 'rate_limited' : status === 502 && err instanceof LlmHttpError && /no content/.test(err.message) ? 'no_content' : 'http_error';
+          recordLlmEvent({ provider, model: target.model, task: req.task, outcome, latencyMs: Date.now() - startedAt, detail: err instanceof Error ? err.message : String(err) });
+        }
         // 400 = this model rejected the request shape (e.g. schema); try the next target without a long cooldown.
         record(target, tokens, false, status === 400 ? 5 : err instanceof LlmHttpError ? err.retryAfterSec : undefined);
       }
     }
   }
+  recordLlmEvent({ provider: 'router', model: '-', task: req.task, outcome: 'exhausted', detail: lastError instanceof Error ? lastError.message : undefined });
   if (lastError) throw lastError instanceof Error ? lastError : new Error(String(lastError));
   return null;
 }

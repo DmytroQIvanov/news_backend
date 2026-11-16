@@ -4305,3 +4305,48 @@ test('open-data adapters turn API payloads into articles with built-in charts', 
   assert.equal(kev[0].category, 'cybersecurity');
   assert.equal(A.reconstructAbstract({ Hello: [0], world: [1] }), 'Hello world');
 });
+
+// ---- AI usage statistics (llm_usage_daily) ----
+test('LLM stats: router records ok/429/skips, report flags limits to tune', async () => {
+  const { pendingLlmStats, resetLlmStatsForTests, buildLlmReport, formatLlmReportText } = await import('../dist/common/llm-stats.js');
+  resetLlmRouterForTests();
+  resetLlmStatsForTests();
+  const saved = { groq: process.env.groq_api_key, or: process.env.openrouter_api_key, gem: process.env.GEMINI_API_KEY };
+  process.env.groq_api_key = 'test-groq';
+  process.env.openrouter_api_key = 'test-or';
+  delete process.env.GEMINI_API_KEY;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('groq.com')) return new Response('rate limited', { status: 429 });
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }], usage: { total_tokens: 42 } }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    await generateWithRouter({ task: 'translate', prompt: 'hello', maxTokens: 100 });
+    await generateWithRouter({ task: 'translate', prompt: 'again', maxTokens: 100 }); // groq cooling down -> skipped_cooldown
+    const rows = pendingLlmStats();
+    const find = (provider, outcome) => rows.find((r) => r.provider === provider && r.outcome === outcome);
+    assert.equal(find('groq', 'rate_limited')?.count, 1);
+    assert.ok(find('groq', 'skipped_cooldown')?.count >= 1);
+    assert.equal(find('openrouter', 'ok')?.count, 2);
+    assert.equal(find('openrouter', 'ok')?.tokens, 84, 'real token usage from the provider is recorded');
+  } finally {
+    globalThis.fetch = realFetch;
+    if (saved.groq === undefined) delete process.env.groq_api_key; else process.env.groq_api_key = saved.groq;
+    if (saved.or === undefined) delete process.env.openrouter_api_key; else process.env.openrouter_api_key = saved.or;
+    if (saved.gem !== undefined) process.env.GEMINI_API_KEY = saved.gem;
+    resetLlmRouterForTests();
+  }
+
+  const row = (o) => ({ day: '2026-11-15', provider: 'groq', model: 'm', task: 'translate', tokens: 0, latencyMs: 0, count: 1, ...o });
+  const report = buildLlmReport(
+    [row({ outcome: 'ok', count: 95 }), row({ outcome: 'rate_limited', count: 5 }), row({ outcome: 'skipped_daily', count: 3 }), row({ provider: 'router', model: '-', outcome: 'exhausted', count: 2 })],
+    [{ provider: 'groq', model: 'm', rpd: 100, rpm: 30 }],
+    7,
+  );
+  assert.equal(report.models[0].requests, 100);
+  assert.equal(report.models[0].peakDayUsagePct, 100);
+  assert.equal(report.allProvidersExhausted.translate, 2);
+  assert.ok(report.hints.some((h) => /429/.test(h)) && report.hints.some((h) => /майже вичерпується/.test(h)));
+  assert.match(formatLlmReportText(report), /groq\/m: запитів 100/);
+  resetLlmStatsForTests();
+});

@@ -1,3 +1,4 @@
+import { recordLlmEvent } from './llm-stats';
 import { isTransientHttpStatus } from './url-utils';
 
 export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
@@ -297,7 +298,10 @@ export async function postGeminiGenerateContent(params: {
   timeoutMs?: number;
   /** high = editorial/user-facing, normal = default, low = optional enrichment (memes, caricature prompts). */
   priority?: GeminiPriority;
+  /** Label for usage statistics (defaults to "direct:<priority>" for calls outside the LLM router). */
+  statsTask?: string;
 }): Promise<{ data: unknown; modelUsed: string }> {
+  const statsTask = params.statsTask ?? `direct:${params.priority ?? 'normal'}`;
   const primary = normalizeGeminiModel(params.preferredModel);
   const rawCandidates = params.candidateModels?.length
     ? Array.from(new Set(params.candidateModels.map((entry) => normalizeGeminiModel(entry))))
@@ -340,20 +344,38 @@ export async function postGeminiGenerateContent(params: {
       for (let attempt = 1; attempt <= 2; attempt += 1) {
         const result = await enqueueGeminiHttpAttempt(useHydrogenBucket, async () => {
           const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
-          const resp = await fetch(url, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-goog-api-key': params.apiKey,
-            },
-            signal: AbortSignal.timeout(params.timeoutMs ?? 45_000),
-            body: JSON.stringify(requestPayload),
-          });
+          const startedAt = Date.now();
+          let resp: Response;
+          try {
+            resp = await fetch(url, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': params.apiKey,
+              },
+              signal: AbortSignal.timeout(params.timeoutMs ?? 45_000),
+              body: JSON.stringify(requestPayload),
+            });
+          } catch (fetchError) {
+            const timedOut = (fetchError as Error)?.name === 'TimeoutError' || (fetchError as Error)?.name === 'AbortError';
+            recordLlmEvent({
+              provider: 'gemini', model, task: statsTask, outcome: timedOut ? 'timeout' : 'http_error',
+              latencyMs: Date.now() - startedAt, detail: fetchError instanceof Error ? fetchError.message : String(fetchError),
+            });
+            throw fetchError;
+          }
           if (resp.ok) {
-            return { ok: true as const, data: await resp.json() };
+            const data = await resp.json();
+            const meta = (data as { usageMetadata?: { totalTokenCount?: number } })?.usageMetadata;
+            recordLlmEvent({ provider: 'gemini', model, task: statsTask, outcome: 'ok', tokens: meta?.totalTokenCount, latencyMs: Date.now() - startedAt });
+            return { ok: true as const, data };
           }
           const errText = await resp.text().catch(() => '');
           const snippet = errText.replace(/\s+/g, ' ').slice(0, 180);
+          recordLlmEvent({
+            provider: 'gemini', model, task: statsTask, outcome: resp.status === 429 ? 'rate_limited' : 'http_error',
+            latencyMs: Date.now() - startedAt, detail: `HTTP ${resp.status} ${snippet}`,
+          });
           return { ok: false as const, status: resp.status, snippet };
         }, model, params.priority ?? 'normal');
 
@@ -364,6 +386,7 @@ export async function postGeminiGenerateContent(params: {
           markModelUnavailable(model);
         }
         const localBusy = result.status === 429 && result.snippet.startsWith('local ');
+        if (localBusy) recordLlmEvent({ provider: 'gemini', model, task: statsTask, outcome: 'skipped_local', detail: result.snippet });
         if (result.status === 429 && !localBusy && !hasNextModel && attempt === 1 && params.priority !== 'low') {
           const bucket = useHydrogenBucket ? hydrogenBucket : bucketForModel(model);
           bucket.cooldownUntil = Math.max(bucket.cooldownUntil, Date.now() + 61_000);
