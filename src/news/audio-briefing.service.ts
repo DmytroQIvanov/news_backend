@@ -4,6 +4,7 @@ import { postGeminiGenerateContent } from '../common/gemini-client';
 import { compressWavToImaAdpcm } from '../common/ima-adpcm';
 import { R2Storage, readEnv } from '../common/r2-storage';
 import { getWorkersAiConfig } from '../common/workers-ai';
+import { recordLlmEvent, recordLlmFailure } from '../common/llm-stats';
 import { DatabaseService } from '../database/database.service';
 import {
   buildBroadcastScriptUk,
@@ -465,6 +466,8 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
         this.logger.debug(`TTS provider ${provider} failed for ${job.newsId}/${job.lang}: ${msg}`);
       }
     }
+        // Gemini TTS is already counted per HTTP request inside the Gemini client.
+        if (provider !== 'gemini') recordLlmEvent({ provider, model: out.model, task: 'tts', outcome: 'ok', tokens: script.length, latencyMs: elapsed });
   }
 
   private async renderGemini(script: string, lang: string): Promise<{ audio: Buffer; mimeType: string; model: string } | null> {
@@ -480,6 +483,7 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
     let lastErr: unknown = null;
     for (const model of PREFERRED_TTS_MODELS) {
       const health = this.geminiTtsHealth.get(model);
+        if (provider !== 'gemini') recordLlmFailure(provider, '-', 'tts', err, started);
       if (health && health.retryAt > Date.now()) continue;
       try {
         res = await postGeminiGenerateContent({

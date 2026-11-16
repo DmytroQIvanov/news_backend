@@ -13,7 +13,7 @@ p.add_argument("--json", action="store_true")
 a = p.parse_args()
 if not a.key:
     sys.exit("Set --key or INGEST_API_KEY")
-url = f"{a.api.rstrip('/')}/ai/stats?days={a.days}" + ("" if a.json else "&format=text")
+url = f"{a.api.rstrip('/')}/api/v1/ai/stats?days={a.days}" + ("" if a.json else "&format=text")
 req = urllib.request.Request(url, headers={"x-ingest-key": a.key})
 sys.stdout.reconfigure(encoding="utf-8")
 print(urllib.request.urlopen(req, timeout=60).read().decode("utf-8"))

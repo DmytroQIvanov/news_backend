@@ -1,3 +1,4 @@
+import { recordLlmEvent, recordLlmFailure } from './llm-stats';
 import { generateImageWithWorkersAi, getWorkersAiConfig } from './workers-ai';
 
 /**
@@ -50,10 +51,13 @@ export async function generateImageWithPollinations(prompt: string, fetchFn: typ
 export async function generateImage(prompt: string): Promise<GeneratedImage> {
   const errors: string[] = [];
   for (const provider of availableImageProviders()) {
+    const startedAt = Date.now();
     try {
-      if (provider === 'workers_ai') return await generateImageWithWorkersAi(prompt);
-      return await generateImageWithPollinations(prompt);
+      const out = provider === 'workers_ai' ? await generateImageWithWorkersAi(prompt) : await generateImageWithPollinations(prompt);
+      recordLlmEvent({ provider, model: out.model, task: 'image', outcome: 'ok', latencyMs: Date.now() - startedAt });
+      return out;
     } catch (err) {
+      recordLlmFailure(provider, '-', 'image', err, startedAt);
       errors.push(`${provider}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }

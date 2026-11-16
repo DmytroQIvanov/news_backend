@@ -88,6 +88,17 @@ function restore(rows: Bucket[]) {
   }
 }
 
+/** Records a failed non-router call (TTS, image generation), classifying it from the error message. */
+export function recordLlmFailure(provider: string, model: string, task: string, err: unknown, startedAt: number): void {
+  const msg = err instanceof Error ? err.message : String(err);
+  const name = (err as Error)?.name;
+  const outcome: LlmOutcome =
+    name === 'TimeoutError' || name === 'AbortError' || /timeout|aborted/i.test(msg) ? 'timeout'
+    : /429/.test(msg) ? 'rate_limited'
+    : 'http_error';
+  recordLlmEvent({ provider, model, task, outcome, latencyMs: Date.now() - startedAt, detail: msg });
+}
+
 export function resetLlmStatsForTests() {
   pending = new Map();
 }
