@@ -501,6 +501,15 @@ const PREWARM_INTERVAL_MS = 10 * 60_000;
 @Injectable()
 export class NewsTtsService implements OnModuleInit, OnModuleDestroy {
   private static readonly MAX_CACHE_ENTRIES = 30;
+
+  /**
+   * Legacy: storing WAV as base64 in news_tts_cache.audio_base64 bloated Postgres (~106 MB).
+   * Audio now lives in R2 (AudioBriefingService). Opt-in only via TTS_DB_AUDIO_CACHE=true.
+   */
+  private static dbAudioCacheEnabled(): boolean {
+    return process.env.TTS_DB_AUDIO_CACHE === 'true';
+  }
+
   private readonly logger = new Logger(NewsTtsService.name);
   private readonly audioCache = new Map<string, Omit<NewsTtsResult, 'cached'>>();
   private readonly key = process.env.GEMINI_API_KEY?.trim();
@@ -570,6 +579,7 @@ export class NewsTtsService implements OnModuleInit, OnModuleDestroy {
     style: NewsAudioStyle,
     voice: string,
   ): Promise<Omit<NewsTtsResult, 'cached'> | null> {
+    if (!NewsTtsService.dbAudioCacheEnabled()) return null;
     try {
       const res = await this.db.query<NewsTtsCacheRow>(
         `SELECT cache_key, status, model_used, mime_type, audio_base64, script_uk, voice_name, duration_estimate_sec, updated_at
@@ -611,6 +621,7 @@ export class NewsTtsService implements OnModuleInit, OnModuleDestroy {
     row: Pick<NewsTtsDbArticleRow, 'id' | 'external_id'>,
     payload: Omit<NewsTtsResult, 'cached'>,
   ): Promise<void> {
+    if (!NewsTtsService.dbAudioCacheEnabled()) return;
     if (payload.status !== 'gemini_audio' || !payload.audioBase64) return;
     try {
       const numericId = /^\d+$/.test(String(row.id)) ? Number(row.id) : null;
