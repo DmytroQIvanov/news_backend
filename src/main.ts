@@ -28,12 +28,12 @@ async function bootstrap(): Promise<void> {
     if (req.method === 'GET' && req.path === '/api/v1/health' && req.url) {
       req.url = req.url.replace('/api/v1/health', '/health');
     }
-    if (req.method === 'GET' && req.path && /^\/api\/v1\/(news|catalog|games|kg|grants|youtube)/.test(req.path)) {
+    if (req.method === 'GET' && req.path && /^\/api\/v1\/(news|catalog|games|kg|grants|youtube|ai-rankings)/.test(req.path)) {
       res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
     }
     next();
   });
-  app.use(createRateLimiter({ windowMs: 60_000, maxRequests: 30, paths: [/^\/api\/v1\/(ingest|catalog\/refresh|grants\/refresh|youtube\/sync|youtube\/channels\/discover|news\/[^/]+\/(publish|reject)|sources\/discover|sources\/[^/]+\/(approve|reject)|stories\/refresh|caricatures\/)/] }));
+  app.use(createRateLimiter({ windowMs: 60_000, maxRequests: 30, paths: [/^\/api\/v1\/(ingest|catalog\/refresh|grants\/refresh|youtube\/sync|ai-rankings\/refresh|youtube\/channels\/discover|news\/[^/]+\/(publish|reject)|sources\/discover|sources\/[^/]+\/(approve|reject)|stories\/refresh|caricatures\/)/] }));
   app.use(createRateLimiter({ windowMs: 60_000, maxRequests: 180 }));
   app.setGlobalPrefix('api/v1', { exclude: ['health', 'health/db', 'health/summary'] });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true, transformOptions: { enableImplicitConversion: false } }));

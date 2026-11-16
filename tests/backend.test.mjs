@@ -4060,3 +4060,46 @@ test('IMA ADPCM: Gemini-style PCM16 WAV compresses ~4x and decodes back close to
   const snr = 10 * Math.log10(sig / noise);
   assert.ok(snr > 20, `SNR ${snr.toFixed(1)} dB`);
 });
+
+test('AI rankings taxonomy: unique slugs, known groups, every seed tool defined', async () => {
+  const { AI_GROUPS, AI_SUBCATEGORIES, SEED_TOOLS, slugifyToolName } = await import('../dist/ai-rankings/taxonomy.js');
+  const groups = new Set(AI_GROUPS.map((g) => g.slug));
+  const subs = AI_SUBCATEGORIES.map((s) => s.slug);
+  assert.equal(new Set(subs).size, subs.length, 'duplicate subcategory slug');
+  assert.ok(subs.length >= 100, `only ${subs.length} subcategories`);
+  for (const s of AI_SUBCATEGORIES) {
+    assert.ok(groups.has(s.group), `${s.slug}: unknown group ${s.group}`);
+    assert.ok(s.arena || (s.seed && s.seed.length), `${s.slug}: needs arena or seed`);
+    assert.ok(!(s.arena && s.seed), `${s.slug}: arena and seed are exclusive`);
+    for (const t of s.seed || []) assert.ok(SEED_TOOLS[t], `${s.slug}: seed tool ${t} not defined`);
+    assert.ok(s.slug.length <= 64);
+  }
+  for (const g of groups) assert.ok(AI_SUBCATEGORIES.some((s) => s.group === g), `group ${g} is empty`);
+  for (const [slug, t] of Object.entries(SEED_TOOLS)) assert.match(t.url, /^https:\/\//, slug);
+  assert.equal(slugifyToolName('GPT-Image-2.5 Sunburst (Medium)'), 'gpt-image-2-5-sunburst-medium');
+});
+
+test('AI rankings: LMArena rows map to ranked, de-duplicated entries; news tools are validated', async () => {
+  const { mapArenaRows, validateDiscoveredTools, rankMovement } = await import('../dist/ai-rankings/ai-rankings.util.js');
+  const rows = mapArenaRows({ rows: [
+    { row: { model_name: 'Veo 4', organization: 'google', license: 'Proprietary', rating: 1501.2, vote_count: 900, rank: 3, leaderboard_publish_date: '2026-11-12' } },
+    { row: { model_name: 'veo-4', organization: 'google', license: 'Proprietary', rating: 1490, vote_count: 10, rank: 4 } },
+    { row: { model_name: 'Wan 3', organization: 'alibaba', license: 'Apache 2.0', rating: 1400, vote_count: 500, rank: 9 } },
+    { row: { model_name: '', rating: 1 } },
+  ] });
+  assert.deepEqual(rows.map((r) => [r.slug, r.rank, r.isOpen]), [['veo-4', 1, false], ['wan-3', 2, true]]);
+  assert.equal(rows[0].publishDate, '2026-11-12');
+  assert.deepEqual(mapArenaRows(null), []);
+
+  const tools = validateDiscoveredTools({ tools: [
+    { newsId: '7', name: 'Nano Studio', vendor: 'Acme', subcategory: 'image-apps', url: 'https://nano.example', hasFree: true, descriptionUk: 'Генерує фото' },
+    { newsId: '7', name: 'Nano Studio', subcategory: 'image-apps' },
+    { newsId: '8', name: 'X', subcategory: 'image-apps' },
+    { newsId: '7', name: 'Fake', subcategory: 'llm-overall' },
+    { newsId: '999', name: 'Other', subcategory: 'audio-music' },
+    { newsId: 7, name: 'Tune', subcategory: 'audio-music', url: 'javascript:alert(1)' },
+  ] }, new Set(['image-apps', 'audio-music']), new Set(['7', '8']));
+  assert.deepEqual(tools.map((t) => [t.slug, t.subcategory, t.url]), [['nano-studio', 'image-apps', 'https://nano.example'], ['tune', 'audio-music', null]]);
+  assert.equal(rankMovement(2, 5), 3);
+  assert.equal(rankMovement(2, null), null);
+});
