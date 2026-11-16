@@ -3248,6 +3248,8 @@ test('NewsTtsService DB persistence, prewarmImportantBriefings, listLatestBriefi
   resetGeminiClientStateForTests();
   const prevKey = process.env.GEMINI_API_KEY;
   process.env.GEMINI_API_KEY = 'test-tts-prewarm-key';
+  const prevDbAudio = process.env.TTS_DB_AUDIO_CACHE;
+  process.env.TTS_DB_AUDIO_CACHE = 'true'; // legacy DB audio cache is opt-in
   const prevFetch = globalThis.fetch;
 
   const cacheRows = new Map();
@@ -3379,6 +3381,28 @@ test('NewsTtsService DB persistence, prewarmImportantBriefings, listLatestBriefi
     globalThis.fetch = prevFetch;
     if (prevKey === undefined) delete process.env.GEMINI_API_KEY;
     else process.env.GEMINI_API_KEY = prevKey;
+    if (prevDbAudio === undefined) delete process.env.TTS_DB_AUDIO_CACHE;
+    else process.env.TTS_DB_AUDIO_CACHE = prevDbAudio;
+  }
+});
+
+test('NewsTtsService does not persist audio to Postgres by default', async () => {
+  resetGeminiClientStateForTests();
+  const prev = process.env.TTS_DB_AUDIO_CACHE;
+  delete process.env.TTS_DB_AUDIO_CACHE;
+  const queries = [];
+  const db = { async query(sql) { queries.push(sql); return { rows: [] }; } };
+  try {
+    const svc = new NewsTtsService(db);
+    await svc.writeDbCache('k', { id: '1', external_id: 'e' }, {
+      status: 'gemini_audio', audioBase64: 'AAAA', depth: 'short', style: 'news',
+      voiceName: 'Kore', modelUsed: 'm', mimeType: 'audio/wav', scriptUk: 's', durationEstimateSec: 5,
+    });
+    assert.equal(await svc.readDbCache('k', '1', 'short', 'news', 'Kore'), null);
+    assert.equal(queries.length, 0, 'no news_tts_cache queries when flag is off');
+  } finally {
+    if (prev === undefined) delete process.env.TTS_DB_AUDIO_CACHE;
+    else process.env.TTS_DB_AUDIO_CACHE = prev;
   }
 });
 
@@ -4102,4 +4126,107 @@ test('AI rankings: LMArena rows map to ranked, de-duplicated entries; news tools
   assert.deepEqual(tools.map((t) => [t.slug, t.subcategory, t.url]), [['nano-studio', 'image-apps', 'https://nano.example'], ['tune', 'audio-music', null]]);
   assert.equal(rankMovement(2, 5), 3);
   assert.equal(rankMovement(2, null), null);
+});
+
+// ---- v2.2: objectivity layer ----
+import {
+  normalizeInsight,
+  normalizePredictions,
+  normalizeTopic,
+  parseResearchMode,
+  storyMemoryTerms,
+} from '../dist/ingest/gemini-editor.service.js';
+import { analyzeCoverage, lensOf, profileForUrl } from '../dist/news/source-profiles.js';
+import { predictionAccuracy, normalizeExplainer } from '../dist/news/topics.service.js';
+import { readerLensProfile } from '../dist/news/objectivity.controller.js';
+
+test('GEMINI_RESEARCH accepts true/strict/all/important and defaults to off', () => {
+  assert.equal(parseResearchMode('true'), 'all');
+  assert.equal(parseResearchMode('strict'), 'all');
+  assert.equal(parseResearchMode('important'), 'important');
+  assert.equal(parseResearchMode('false'), 'off');
+  assert.equal(parseResearchMode(undefined), 'off');
+});
+
+test('normalizeInsight keeps valid entries, drops broken ones and never throws', () => {
+  const insight = normalizeInsight({
+    tldr: 'NBU kept the key rate at 15.5%.',
+    key_points: ['Rate unchanged', '', 42],
+    claims: [
+      { claim: 'Inflation slowed to 9%', kind: 'fact', confidence: 'confirmed', confirmed_by: ['NBU', 'Reuters'], disputed_by: [] },
+      { claim: 'Rate will fall in spring', kind: 'nonsense', confidence: '???' },
+      { kind: 'fact' },
+    ],
+    timeline: [{ when: '2026-10-23', event: 'Previous decision' }, { when: '', event: 'no date' }],
+    media_positions: [{ outlet: 'Ekonomichna Pravda', stance: 'Focus on loans', framing: '' }],
+  });
+  assert.equal(insight.tldr, 'NBU kept the key rate at 15.5%.');
+  assert.deepEqual(insight.key_points, ['Rate unchanged']);
+  assert.equal(insight.claims.length, 2);
+  assert.equal(insight.claims[1].kind, 'official_claim');
+  assert.equal(insight.claims[1].confidence, 'unverified');
+  assert.equal(insight.timeline.length, 1);
+  assert.equal(insight.media_positions.length, 1);
+  assert.equal(normalizeInsight({ tldr: '' }), undefined);
+  assert.equal(normalizeInsight('oops'), undefined);
+});
+
+test('topic keys are stable ASCII slugs and predictions need a statement and a real date', () => {
+  assert.equal(normalizeTopic({ key: 'NBU Key Rate!!', title_en: 'NBU key rate' }).key, 'nbu-key-rate');
+  assert.equal(normalizeTopic({ key: 'облікова', title_en: 'x' }), undefined);
+  const preds = normalizePredictions([
+    { statement_en: 'Parliament votes on the bill', due_by: '2026-12-01' },
+    { statement_en: 'Launch', due_by: 'next week' },
+    { statement_en: '', due_by: '2026-12-01' },
+  ]);
+  assert.equal(preds.length, 2);
+  assert.equal(preds[0].due_by, '2026-12-01');
+  assert.equal(preds[1].due_by, null);
+});
+
+test('source lenses and blindspot detection', () => {
+  assert.equal(lensOf('pravda-ua'), 'ua_media');
+  assert.equal(lensOf(null, 'https://www.bbc.co.uk/news/world-1'), 'intl_media');
+  assert.equal(profileForUrl('https://blog.google/technology/ai/x')?.lens, 'official');
+  assert.equal(analyzeCoverage([{ sourceSlug: 'openai-news' }]).blindspot.kind, 'single_source');
+  assert.equal(analyzeCoverage([{ sourceSlug: 'openai-news' }, { sourceSlug: 'google-deepmind' }]).blindspot.kind, 'only_official');
+  assert.equal(analyzeCoverage([{ sourceSlug: 'pravda-ua' }, { sourceSlug: 'suspilne-news' }]).blindspot.kind, 'only_ua');
+  assert.equal(analyzeCoverage([{ sourceSlug: 'pravda-ua' }, { sourceSlug: 'bbc-world' }]).blindspot, null);
+});
+
+test('reader lens profile needs enough history and finds the dominant lens', () => {
+  assert.equal(readerLensProfile({ 'pravda-ua': 2 }), null);
+  const p = readerLensProfile({ 'pravda-ua': 8, 'suspilne-news': 6, 'bbc-world': 1, 'unknown-x': 50, 'openai-news': -3 });
+  assert.equal(p.dominant, 'ua_media');
+  assert.ok(p.share >= 0.9);
+});
+
+test('prediction accuracy counts partly as half and ignores unclear', () => {
+  const s = predictionAccuracy({ came_true: 3, partly: 2, did_not_happen: 5, unclear: 4, pending: 7 });
+  assert.equal(s.resolved, 10);
+  assert.equal(s.accuracy, 0.4);
+  assert.equal(predictionAccuracy({}).accuracy, null);
+  assert.equal(normalizeExplainer({ essence: '' }), null);
+});
+
+test('story memory finds earlier coverage by shared entities', async () => {
+  assert.ok(storyMemoryTerms('OpenAI releases GPT-6 for developers').length > 0);
+  let sqlSeen = '';
+  const db = {
+    query: async (sql, params) => {
+      sqlSeen = sql;
+      assert.ok(Array.isArray(params[2]) && params[2].every((p) => p.startsWith('%')));
+      return {
+        rows: [
+          { id: 1, original_title: 'OpenAI previews GPT-6 to partners', title_uk: null, summary_uk: 'Preview', original_summary: null, published_at: '2026-10-01T00:00:00Z', source_name: 'The Verge', topic: 'openai-model-releases' },
+          { id: 2, original_title: 'Football results', title_uk: null, summary_uk: null, original_summary: null, published_at: '2026-10-02T00:00:00Z', source_name: 'BBC', topic: null },
+        ],
+      };
+    },
+  };
+  const editor = new GeminiEditorService(db);
+  const memory = await editor.findStoryMemory({ externalId: 'x', url: 'https://openai.com/x', originalTitle: 'OpenAI releases GPT-6 for developers', category: 'model', importance: 'unknown', freeAccess: 'unknown' });
+  assert.ok(sqlSeen.includes('120 days'));
+  assert.equal(memory.length, 1);
+  assert.equal(memory[0].topic, 'openai-model-releases');
 });

@@ -5,6 +5,7 @@ import { DatabaseService } from '../database/database.service';
 import { ClusterSource, extractClusterSignature } from './news-clustering.service';
 import { TRAGEDY_SENSITIVITY_RE } from './news-memes.service';
 import { importanceScore } from './personalization.service';
+import { analyzeCoverage } from './source-profiles';
 import { YoutubeChannelDiscoveryService } from '../youtube/youtube-channel-discovery.service';
 
 /**
@@ -36,6 +37,12 @@ export interface StoryLocalized {
   perspectives: Array<{ source: string; angle: string }>;
   videoInsights: Array<{ videoIndex: number; insight: string }>;
   whatsNext: string;
+  /** Objectivity layer (v2.2): optional for briefings generated before it existed. */
+  forYou?: string;
+  claims?: Array<{ claim: string; kind: string; confidence: string; confirmedBy: string[]; disputedBy: string[] }>;
+  positions?: Array<{ side: string; position: string }>;
+  unknowns?: string[];
+  consensusNote?: string;
 }
 
 export interface StoryBriefingPayload {
@@ -73,8 +80,26 @@ const localizedSchema = {
     perspectives: { type: 'array', items: { type: 'object', properties: { source: { type: 'string' }, angle: { type: 'string' } }, required: ['source', 'angle'] } },
     videoInsights: { type: 'array', items: { type: 'object', properties: { videoIndex: { type: 'integer' }, insight: { type: 'string' } }, required: ['videoIndex', 'insight'] } },
     whatsNext: { type: 'string' },
+    forYou: { type: 'string' },
+    claims: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          claim: { type: 'string' },
+          kind: { type: 'string', enum: ['fact', 'official_claim', 'opinion'] },
+          confidence: { type: 'string', enum: ['confirmed', 'single_source', 'unverified', 'disputed'] },
+          confirmedBy: { type: 'array', items: { type: 'string' } },
+          disputedBy: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['claim', 'kind', 'confidence', 'confirmedBy', 'disputedBy'],
+      },
+    },
+    positions: { type: 'array', items: { type: 'object', properties: { side: { type: 'string' }, position: { type: 'string' } }, required: ['side', 'position'] } },
+    unknowns: { type: 'array', items: { type: 'string' } },
+    consensusNote: { type: 'string' },
   },
-  required: ['title', 'tldr', 'whatHappened', 'whyItMatters', 'background', 'timeline', 'perspectives', 'videoInsights', 'whatsNext'],
+  required: ['title', 'tldr', 'whatHappened', 'whyItMatters', 'background', 'timeline', 'perspectives', 'videoInsights', 'whatsNext', 'forYou', 'claims', 'positions', 'unknowns', 'consensusNote'],
 };
 
 const storySchema = {
@@ -159,6 +184,28 @@ export function normalizeLocalized(raw: unknown, videoCount: number): StoryLocal
       return Number.isInteger(videoIndex) && videoIndex >= 1 && videoIndex <= videoCount && insight ? { videoIndex, insight } : null;
     }),
     whatsNext: cleanText(r.whatsNext, 800),
+    forYou: cleanText(r.forYou, 1200),
+    claims: list(r.claims, 10, (x) => {
+      const claim = cleanText(x.claim, 600);
+      if (!claim) return null;
+      const kinds = ['fact', 'official_claim', 'opinion'];
+      const levels = ['confirmed', 'single_source', 'unverified', 'disputed'];
+      const names = (v: unknown) => (Array.isArray(v) ? v.map((n) => cleanText(n, 120)).filter(Boolean).slice(0, 8) : []);
+      return {
+        claim,
+        kind: kinds.includes(String(x.kind)) ? String(x.kind) : 'official_claim',
+        confidence: levels.includes(String(x.confidence)) ? String(x.confidence) : 'unverified',
+        confirmedBy: names(x.confirmedBy),
+        disputedBy: names(x.disputedBy),
+      };
+    }),
+    positions: list(r.positions, 6, (x) => {
+      const side = cleanText(x.side, 160);
+      const position = cleanText(x.position, 700);
+      return side && position ? { side, position } : null;
+    }),
+    unknowns: Array.isArray(r.unknowns) ? r.unknowns.map((u) => cleanText(u, 400)).filter(Boolean).slice(0, 6) : [],
+    consensusNote: cleanText(r.consensusNote, 800),
   };
 }
 
@@ -407,9 +454,15 @@ Write the same story twice: "uk" in natural modern Ukrainian and "en" in natural
 - whyItMatters: concrete consequences for ordinary readers / developers / businesses
 - background: context a non-expert needs (what led here, earlier related events)
 - timeline: key moments in order (only those supported by the material)
-- perspectives: how different outlets framed it (source name + angle), skip if all say the same
+- perspectives: how different outlets framed it — source name + angle (what they emphasised, which words they chose); skip if all say the same
 - videoInsights: for analysed videos only, what was said that adds to the story (videoIndex = number after V)
-- whatsNext: what to watch next
+- whatsNext: what to watch next (only what sources say is scheduled or expected)
+- forYou: what it concretely means for an ordinary reader in Ukraine (money, work, documents, health, safety); empty if nothing
+- claims: 3–8 key statements; kind = fact | official_claim (a party says so) | opinion; confidence = confirmed (2+ independent sources) | single_source | unverified | disputed; confirmedBy / disputedBy = outlet names
+- positions: each side's position in its strongest form, worded so its supporters would agree; empty if not controversial
+- unknowns: what is still not known
+- consensusNote: if science, law or documented facts clearly settle part of the question, say so (no false balance); else empty
+Neutral wording, no verdicts of your own. State media of a party to a conflict is labelled as that party's position.
 Set sensitive=true if the story involves deaths, war, disasters or tragedy (it must then be written with a sober tone).`;
 
     const routed = await generateWithRouter({
@@ -417,9 +470,9 @@ Set sensitive=true if the story involves deaths, war, disasters or tragedy (it m
       prompt,
       schema: storySchema,
       schemaName: 'story_briefing',
-      maxTokens: 6000,
+      maxTokens: 9000,
       temperature: 0.3,
-      timeoutMs: 75_000,
+      timeoutMs: 90_000,
     });
     if (!routed) return false;
     const modelUsed = `${routed.provider}:${routed.model}`;
@@ -519,6 +572,11 @@ List every concrete claim in the DRAFT (numbers, names, dates, causes) that is N
   localize(payload: StoryBriefingPayload, lang: string) {
     const text = lang === 'en' ? payload.en : payload.uk;
     const { uk: _uk, en: _en, ...rest } = payload;
-    return { ...rest, lang: lang === 'en' ? 'en' : 'uk', ...text };
+    const l = lang === 'en' ? 'en' : 'uk';
+    const coverage = analyzeCoverage(
+      (payload.sources ?? []).map((s) => ({ sourceName: s.name, url: s.url })),
+      l,
+    );
+    return { ...rest, lang: l, coverage, ...text };
   }
 }

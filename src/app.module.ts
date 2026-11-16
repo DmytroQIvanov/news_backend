@@ -34,6 +34,8 @@ import { TranslationService } from './news/translation.service';
 import { YoutubeChannelDiscoveryService } from './youtube/youtube-channel-discovery.service';
 import { AiRankingsController } from './ai-rankings/ai-rankings.controller';
 import { AiRankingsService } from './ai-rankings/ai-rankings.service';
+import { ObjectivityController } from './news/objectivity.controller';
+import { TopicsService } from './news/topics.service';
 
 @Module({
   controllers: [
@@ -48,6 +50,7 @@ import { AiRankingsService } from './ai-rankings/ai-rankings.service';
     YoutubeController,
     FeedController,
     AiRankingsController,
+    ObjectivityController,
   ],
   providers: [
     DatabaseService,
@@ -74,6 +77,7 @@ import { AiRankingsService } from './ai-rankings/ai-rankings.service';
     TranslationService,
     YoutubeChannelDiscoveryService,
     AiRankingsService,
+    TopicsService,
   ],
 })
 export class AppModule {}

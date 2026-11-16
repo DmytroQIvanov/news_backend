@@ -90,8 +90,16 @@ export class FeedController {
     @Query('topics') topicsRaw?: string,
     @Query('sources') sourcesRaw?: string,
     @Query('depth') depthRaw?: string,
+    @Query('muted') mutedRaw?: string,
+    @Query('hideSensitive') hideSensitiveRaw?: string,
+    @Query('entertainment') entertainmentRaw?: string,
   ) {
     const lang = parseLang(langRaw);
+    const cats = new Set<string>(CATEGORIES);
+    const muted = new Set((mutedRaw || '').split(',').map((c) => c.trim()).filter((c) => cats.has(c)));
+    const hideSensitive = hideSensitiveRaw === '1' || hideSensitiveRaw === 'true';
+    // Satire/caricatures are not news: they are mixed into the feed only when the reader opts in.
+    const withEntertainment = entertainmentRaw === '1' || entertainmentRaw === 'true';
     const limit = limitRaw === undefined ? 30 : Number(limitRaw);
     const offset = offsetRaw === undefined ? 0 : Number(offsetRaw);
     if (!Number.isInteger(limit) || limit < 1 || limit > 50 || !Number.isInteger(offset) || offset < 0 || offset > 1000) {
@@ -103,11 +111,13 @@ export class FeedController {
       deviceId ? this.personalization.getProfile(deviceId) : Promise.resolve(null),
       this.news.list('50', '0', undefined, sourcesRaw, undefined, undefined, depthRaw, 'newest', '72', lang, 300),
       offset === 0 ? this.stories.list(8, lang, 36) : Promise.resolve([]),
-      this.caricatures.list({ limit: 6, lang, apiBase: apiBase(req) }),
+      withEntertainment ? this.caricatures.list({ limit: 6, lang, apiBase: apiBase(req) }) : Promise.resolve([]),
     ]);
     const declared = topicsRaw ? topicsRaw.split(',').map((t) => t.trim()).filter(Boolean) : profile?.declaredTopics ?? [];
     // Pull a wide pool (no topic hard-filter: interests re-rank instead of hiding everything else).
-    const items = pool.items as Array<Record<string, unknown> & { id: string }>;
+    const items = (pool.items as Array<Record<string, unknown> & { id: string }>).filter(
+      (i) => !muted.has(String(i.category)) && !(hideSensitive && i.content_warning),
+    );
     const ranked = rankForReader(items, profile, declaredTopicsToCategories(declared));
 
     const top = pickTopStories(items, 6);

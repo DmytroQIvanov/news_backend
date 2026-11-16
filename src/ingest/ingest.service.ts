@@ -5,6 +5,7 @@ import { DatabaseService } from '../database/database.service';
 import { ClusterableArticle, ClusterSource, NewsClusteringService } from '../news/news-clustering.service';
 import { ArticleDto, IngestRequestDto } from './ingest.dto';
 import { EditArticleOptions, GeminiEditorService } from './gemini-editor.service';
+import { persistEditorialExtras } from '../news/objectivity.store';
 @Injectable()
 export class IngestService {
   private readonly clustering: NewsClusteringService;
@@ -219,7 +220,13 @@ export class IngestService {
                item.whyItMatters || null,item.category,item.importance,item.freeAccess,
                item.publishedAt || null,JSON.stringify(metadata),hash,targetStatus]);
         }
-        if (result.rowCount) changed += 1; else unchanged += 1;
+        if (result.rowCount) {
+          changed += 1;
+          const newsId = (result as { rows?: Array<{ id: string | number }> }).rows?.[0]?.id;
+          if (newsId !== undefined && metadata.article) {
+            await persistEditorialExtras(client, newsId, metadata.article, item.category, item.publishedAt);
+          }
+        } else unchanged += 1;
       }
       await client.query('COMMIT');
       return { source: s.slug, submitted: payload.items.length, written: changed, unchanged,

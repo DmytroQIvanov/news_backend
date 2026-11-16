@@ -9,6 +9,7 @@ import { ClusterableArticle, ClusterSource, NewsClusteringService } from './news
 import { NewsMemesService } from './news-memes.service';
 import { NEWS_AUDIO_STYLES, NEWS_DEPTHS, NewsTtsService } from './news-tts.service';
 import { SourceDiscoveryService } from './source-discovery.service';
+import { analyzeCoverage, localizeProfile, resolveProfile } from './source-profiles';
 const ENGLISH_FIELDS_SQL = `
   COALESCE(CASE WHEN n.ai_metadata->'article'->>'canonical_lang' = 'en'
     THEN NULLIF(n.ai_metadata->'article'->>'title', '') END,
@@ -158,7 +159,9 @@ export class NewsController {
                 n.why_it_matters,
                 ${ENGLISH_FIELDS_SQL},
                 n.ai_metadata->>'source_type' AS source_type,
-                n.ai_metadata->>'thumbnail_url' AS thumbnail_url
+                n.ai_metadata->>'thumbnail_url' AS thumbnail_url,
+                NULLIF(n.ai_metadata->'article'->>'content_warning', 'none') AS content_warning,
+                n.ai_metadata->'article'->'headline_check' AS headline_check
          FROM news_items n JOIN sources s ON s.id=n.source_id
          ${ENGLISH_TRANSLATION_JOIN}
          WHERE n.status='published' AND ($1::text IS NULL OR n.category=$1)
@@ -630,18 +633,18 @@ export class NewsController {
         resolved as { id: string; url: string },
         candidates,
       );
-      return {
+      return withObjectivity({
         ...resolved,
         cluster_id: (resolved.cluster_id as string | null) ?? matched.clusterId ?? null,
         cluster_sources: matched.clusterSources,
         source_count: matched.clusterSources.length,
-      };
+      });
     }
 
-    return {
+    return withObjectivity({
       ...resolved,
       source_count: storedClusterSources.length,
-    };
+    });
   }
 
   @Get(':id/related')
@@ -702,6 +705,23 @@ export class NewsController {
     if (!result.rowCount) throw new BadRequestException('Unknown id or cannot reject');
     return result.rows[0];
   }
+}
+
+/** Source card of the publishing outlet and the blindspot analysis of who else covered the story. */
+function withObjectivity(item: Record<string, unknown>): Record<string, unknown> {
+  const clusterSources = Array.isArray(item.cluster_sources)
+    ? (item.cluster_sources as Array<{ sourceSlug?: string; sourceName?: string; url?: string }>)
+    : [];
+  const coverageInput = clusterSources.length
+    ? clusterSources.map((c) => ({ sourceSlug: c.sourceSlug, sourceName: c.sourceName, url: c.url }))
+    : [{ sourceSlug: String(item.source_slug || ''), url: String(item.url || '') }];
+  return {
+    ...item,
+    source_profile: localizeProfile(resolveProfile(String(item.source_slug || ''), String(item.url || '')), 'uk'),
+    source_profile_en: localizeProfile(resolveProfile(String(item.source_slug || ''), String(item.url || '')), 'en'),
+    coverage: analyzeCoverage(coverageInput, 'uk'),
+    coverage_en: analyzeCoverage(coverageInput, 'en'),
+  };
 }
 
 function articleKey(value: string): string {

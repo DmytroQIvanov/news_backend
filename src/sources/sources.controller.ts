@@ -1,10 +1,15 @@
-import { BadRequestException, Body, Controller, Get, NotFoundException, Param, Post, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, NotFoundException, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { IngestKeyGuard } from '../common/ingest-key.guard';
 import { LicenseMode } from '../common/source-compliance';
 import { DatabaseService } from '../database/database.service';
 import { CATEGORIES, LICENSE_MODES, NewsCategory } from '../ingest/ingest.dto';
 import { CompanyFeedsService } from '../news/company-feeds.service';
 import { SourceDiscoveryService } from '../news/source-discovery.service';
+import { LENS_LABELS, localizeProfile, resolveProfile, SOURCE_LENSES, SOURCE_PROFILES } from '../news/source-profiles';
+
+function emptyRecord() {
+  return { published: 0, corrected: 0, retracted: 0, reportsAccepted: 0 };
+}
 
 @Controller('sources')
 export class SourcesController {
@@ -30,6 +35,53 @@ export class SourcesController {
         ),
       );
     return { items: result.rows };
+  }
+
+  /** Source cards: ownership, funding, country, lens — plus this app's own corrections record per source. */
+  @Get('profiles')
+  async profiles(@Query('lang') langRaw?: string) {
+    const lang = langRaw === 'en' ? 'en' : 'uk';
+    const stats = await this.correctionStats();
+    return {
+      lenses: SOURCE_LENSES.map((l) => ({ lens: l, label: LENS_LABELS[l][lang] })),
+      items: SOURCE_PROFILES.map((p) => ({ ...localizeProfile(p, lang), record: stats.get(p.slug) ?? emptyRecord() })),
+    };
+  }
+
+  @Get('profiles/:slug')
+  async profile(@Param('slug') slug: string, @Query('lang') langRaw?: string, @Query('url') url?: string) {
+    if (!/^[a-z0-9][a-z0-9-]{1,79}$/.test(slug)) throw new BadRequestException('Invalid source slug');
+    const lang = langRaw === 'en' ? 'en' : 'uk';
+    const profile = resolveProfile(slug, url);
+    const stats = await this.correctionStats(profile?.slug ?? slug);
+    return {
+      slug,
+      profile: localizeProfile(profile, lang),
+      lensLabel: LENS_LABELS[profile?.lens ?? 'unknown'][lang],
+      record: stats.get(profile?.slug ?? slug) ?? emptyRecord(),
+    };
+  }
+
+  private async correctionStats(slug?: string) {
+    const out = new Map<string, ReturnType<typeof emptyRecord>>();
+    const { rows } = await this.db
+      .query<{ slug: string; published: number; corrected: number; retracted: number; reports_accepted: number }>(
+        `SELECT s.slug,
+                COUNT(n.id)::int AS published,
+                COUNT(n.id) FILTER (WHERE n.correction_note IS NOT NULL OR n.corrected_at IS NOT NULL)::int AS corrected,
+                COUNT(n.id) FILTER (WHERE n.is_retracted)::int AS retracted,
+                COALESCE((SELECT COUNT(*) FROM error_reports e JOIN news_items n2 ON n2.id = e.news_id
+                          WHERE n2.source_id = s.id AND e.status = 'accepted'), 0)::int AS reports_accepted
+         FROM sources s LEFT JOIN news_items n ON n.source_id = s.id AND n.status = 'published'
+         WHERE ($1::text IS NULL OR s.slug = $1)
+         GROUP BY s.id, s.slug`,
+        [slug ?? null],
+      )
+      .catch(() => ({ rows: [] as Array<{ slug: string; published: number; corrected: number; retracted: number; reports_accepted: number }> }));
+    for (const r of rows) {
+      out.set(r.slug, { published: r.published, corrected: r.corrected, retracted: r.retracted, reportsAccepted: r.reports_accepted });
+    }
+    return out;
   }
 
   @Get('health')

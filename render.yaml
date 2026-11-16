@@ -20,9 +20,10 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
-        value: "gemini-2.0-flash-lite"
+        value: "gemini-3.8-flash"
+      # off | important (Google Search only for multi-source/boosted stories) | all
       - key: GEMINI_RESEARCH
-        value: "false"
+        value: "important"
       - key: apify_token
         sync: false
       - key: YOUTUBE_MAX_DAILY_TRANSCRIPTIONS
