@@ -13,7 +13,7 @@ export interface ExtractedImage {
 const JUNK_URL_RE =
   /(pixel|tracking|tracker|spacer|blank\.|1x1|favicon|sprite|avatar|gravatar|emoji|badge|doubleclick|feedburner|feeds\.feedburner|\/ads?\/|[?&]ad=|\/logo|logo[-_.]|\.svg(?:[?#]|$)|\.gif(?:[?#]|$)|data:image|share[-_]?(?:button|icon)|subscribe|newsletter[-_]?(?:banner|promo))/i;
 
-function decodeBasicEntities(input: string): string {
+export function decodeBasicEntities(input: string): string {
   return input
     .replace(/&amp;/g, '&')
     .replace(/&quot;/g, '"')
@@ -27,7 +27,7 @@ function decodeBasicEntities(input: string): string {
     });
 }
 
-function stripTags(input: string): string {
+export function stripTags(input: string): string {
   return decodeBasicEntities(input.replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
 }
 
@@ -60,12 +60,12 @@ export function normalizeImageUrl(raw: string | null | undefined, baseUrl?: stri
   return out;
 }
 
-function attr(tag: string, name: string): string | undefined {
+export function attr(tag: string, name: string): string | undefined {
   const m = new RegExp(`\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i').exec(tag);
   return m ? (m[2] ?? m[3] ?? m[4]) : undefined;
 }
 
-function bestFromSrcset(srcset: string | undefined): string | undefined {
+export function bestFromSrcset(srcset: string | undefined): string | undefined {
   if (!srcset) return undefined;
   const parts = srcset
     .split(',')
@@ -79,7 +79,7 @@ function bestFromSrcset(srcset: string | undefined): string | undefined {
   return best?.url;
 }
 
-function usableCaption(text: string | undefined, imageUrl: string): string | undefined {
+export function usableCaption(text: string | undefined, imageUrl: string): string | undefined {
   if (!text) return undefined;
   const cleaned = stripTags(text).slice(0, 280);
   if (cleaned.length < 12) return undefined;

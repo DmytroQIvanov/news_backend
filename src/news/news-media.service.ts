@@ -3,7 +3,18 @@ import { generateJsonWithRouter } from '../common/llm-router';
 import { checkRobotsTxtPermission, getHonestUserAgent, resolveAndValidatePublicUrl } from '../common/source-compliance';
 import { DatabaseService } from '../database/database.service';
 import { CompanyFeedsService } from './company-feeds.service';
+import {
+  ArticleFigure,
+  ArticleResource,
+  buildResources,
+  extractEmbeds,
+  extractFigures,
+  extractLinkCandidates,
+  extractTextIdentifiers,
+  keywordsOf,
+} from './article-resources';
 import { ExtractedImage, extractPageDescription, extractPageImages, normalizeImageUrl } from './image-extraction';
+import { enrichResource, findCommonsImage } from './resource-enrichment';
 import {
   buildVisualsPrompt,
   NewsVisual,
@@ -25,8 +36,13 @@ export interface NewsMedia {
   hero?: NewsHeroImage;
   gallery?: Array<{ url: string; caption?: string; credit: string }>;
   visuals?: NewsVisual[];
+  /** Outbound material the story refers to (documents, reports, repos, demos, posts...), best first. */
+  links?: ArticleResource[];
+  /** In-article photos and videos with placement hints. */
+  figures?: ArticleFigure[];
   checked_at?: string;
   visuals_checked_at?: string;
+  links_checked_at?: string;
 }
 
 interface PendingRow {
@@ -128,11 +144,12 @@ export class NewsMediaService implements OnModuleInit, OnModuleDestroy {
     return Math.max(0, this.visualsDailyMax() - this.visualsToday.count);
   }
 
-  async runOnce(): Promise<{ images: number; visuals: number }> {
-    if (!this.db || this.running) return { images: 0, visuals: 0 };
+  async runOnce(): Promise<{ images: number; visuals: number; resources: number }> {
+    if (!this.db || this.running) return { images: 0, visuals: 0, resources: 0 };
     this.running = true;
     let images = 0;
     let visuals = 0;
+    let resources = 0;
     try {
       for (const row of await this.pending('NOT (n.media ? \'checked_at\')', 6)) {
         if (this.destroyed) break;
@@ -148,10 +165,23 @@ export class NewsMediaService implements OnModuleInit, OnModuleDestroy {
         });
         if (done) visuals += 1;
       }
+      if (process.env.NEWS_RESOURCES_ENABLED !== 'false') {
+        // Wait for the entity scan (or 20 minutes) so stories without a photo can get a Commons picture of their subject.
+        for (const row of await this.pending(
+          "n.media ? 'checked_at' AND NOT (n.media ? 'links_checked_at') AND (n.insights_scanned_at IS NOT NULL OR n.published_at < now() - interval '20 minutes')",
+          4,
+        )) {
+          if (this.destroyed) break;
+          await this.attachResources(row).then(() => { resources += 1; }).catch(async (err) => {
+            this.logger.debug(`Resources for ${row.id}: ${err instanceof Error ? err.message : err}`);
+            await this.save(row.id, { links_checked_at: new Date().toISOString() }).catch(() => undefined);
+          });
+        }
+      }
     } finally {
       this.running = false;
     }
-    return { images, visuals };
+    return { images, visuals, resources };
   }
 
   private async pending(where: string, limit: number): Promise<PendingRow[]> {
@@ -261,4 +291,114 @@ export class NewsMediaService implements OnModuleInit, OnModuleDestroy {
     await this.save(row.id, patch);
     return Boolean(patch.visuals?.length);
   }
+  /**
+   * Step 3: links and figures. Every outbound link of the article body is classified and verified; exact identifiers
+   * in the text (GitHub/Hugging Face paths, arXiv ids, DOIs, bare URLs) are checked against their APIs; in-article
+   * photos and embedded videos get placement hints; a story with no picture at all gets a free Commons photo.
+   */
+  async attachResources(row: PendingRow): Promise<void> {
+    const html = await fetchArticleHtml(row.url).catch(() => null);
+    const candidates: Array<{ url: string; anchor: string; context: string; origin: ArticleResource['origin']; inline?: boolean }> = [];
+    const embeds = html ? extractEmbeds(html) : [];
+    if (html) {
+      for (const c of extractLinkCandidates(html, row.url)) candidates.push({ ...c, origin: 'article' });
+      for (const e of embeds.filter((x) => x.kind === 'post')) candidates.push({ url: e.url, anchor: '', context: e.context, origin: 'article' });
+    }
+    for (const c of extractTextIdentifiers(`${row.body}\n${row.summary}`)) candidates.push({ ...c, origin: 'identifier', inline: true });
+
+    // An embedded video is shown as a figure in the text, so it is not repeated in the link list.
+    const embeddedVideos = new Set(embeds.filter((e) => e.videoId).map((e) => `https://www.youtube.com/watch?v=${e.videoId}`));
+    const built = buildResources(candidates.filter((c) => !embeddedVideos.has(c.url)), row.url);
+    const enriched = await mapLimit(built, 3, (r) => enrichResource(r, (u) => fetchArticleHtml(u)).catch(() => r));
+    const links = enriched.filter((r): r is ArticleResource => Boolean(r)).map((r, i) => ({ ...r, id: `r${i + 1}` }));
+
+    const heroKey = imageKey(row.media.hero?.url);
+    const figures: ArticleFigure[] = [];
+    if (html) {
+      for (const f of extractFigures(html, row.url, row.source_name)) {
+        if (imageKey(f.url) === heroKey || figures.some((x) => imageKey(x.url) === imageKey(f.url))) continue;
+        figures.push(f);
+        if (figures.length >= 6) break;
+      }
+    }
+    for (const e of embeds.filter((x) => x.kind === 'video').slice(0, 2)) {
+      const video = await enrichResource(
+        { id: 'v', url: e.url, type: 'video', title: '', site: 'YouTube', match: [], origin: 'article' },
+        (u) => fetchArticleHtml(u),
+      ).catch(() => null);
+      if (!video?.verified_at || !video.image) continue;
+      figures.push({
+        id: '',
+        kind: 'video',
+        url: video.image,
+        caption: video.title,
+        credit: video.meta?.author ? `${video.meta.author} / YouTube` : 'YouTube',
+        link: video.url,
+        match: keywordsOf(`${video.title} ${video.title} ${e.context}`),
+        position: e.position,
+        origin: 'embed',
+      });
+    }
+    figures.sort((a, b) => a.position - b.position).forEach((f, i) => { f.id = `f${i + 1}`; });
+
+    const patch: Partial<NewsMedia> = { links, figures, links_checked_at: new Date().toISOString() };
+    if (!row.media.hero && figures.length === 0) {
+      const commons = await this.commonsPhoto(row.id);
+      if (commons) {
+        patch.hero = {
+          url: commons.url,
+          ...(commons.caption ? { caption: commons.caption } : {}),
+          credit: commons.credit,
+          sourceUrl: commons.link || commons.url,
+          ...(commons.width ? { width: commons.width } : {}),
+          ...(commons.height ? { height: commons.height } : {}),
+        };
+      }
+    }
+    await this.save(row.id, patch);
+  }
+
+  /** A freely licensed Wikipedia/Commons photo of the story's main person, place or organisation. */
+  private async commonsPhoto(newsId: string): Promise<ArticleFigure | null> {
+    if (process.env.NEWS_COMMONS_IMAGES === 'false') return null;
+    const { rows } = await this.db!.query<{ name: string }>(
+      `SELECT e.name
+       FROM news_entities ne JOIN kg_entities e ON e.id = ne.entity_id
+       WHERE ne.news_id = $1::bigint AND e.entity_type IN ('person', 'place', 'organization', 'company', 'event')
+       ORDER BY (e.entity_type = 'person') DESC, (e.entity_type = 'place') DESC
+       LIMIT 3`,
+      [newsId],
+    ).catch(() => ({ rows: [] as Array<{ name: string }> }));
+    for (const { name } of rows) {
+      for (const lang of ['uk', 'en'] as const) {
+        const found = await findCommonsImage(name, lang).catch(() => null);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+}
+
+/** Same photo at another size or with another query string counts as the same image. */
+function imageKey(url: string | undefined): string {
+  if (!url) return '';
+  try {
+    const u = new URL(url);
+    return `${u.hostname}${u.pathname.replace(/[-_]\d{2,4}x\d{2,4}(?=\.\w+$)/, '')}`.toLowerCase();
+  } catch {
+    return url;
+  }
+}
+
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
 }

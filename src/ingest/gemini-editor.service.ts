@@ -17,6 +17,7 @@ import {
   LicenseMode,
 } from '../common/source-compliance';
 import { DatabaseService } from '../database/database.service';
+import { buildResources, extractLinkCandidates } from '../news/article-resources';
 import { generateJsonWithRouter, generateWithRouter } from '../common/llm-router';
 import { ClusterSource, extractClusterSignature } from '../news/news-clustering.service';
 import { ArticleDto, CATEGORIES, SourceDto } from './ingest.dto';
@@ -321,6 +322,20 @@ export class GeminiEditorService {
                   const cleanText = stripHtmlToCleanText(rawHtml).slice(0, maxChars);
                   if (cleanText) {
                     sections.push(`SOURCE_PAGE_TEXT (max ${maxChars} chars):\n${cleanText}`);
+                  }
+                  // Links the source article itself points to (documents, reports, repos, posts...), already classified.
+                  const pageLinks = buildResources(
+                    extractLinkCandidates(rawHtml, safePageUrl).map((c) => ({ ...c, origin: 'article' as const })),
+                    safePageUrl,
+                    10,
+                  );
+                  if (pageLinks.length) {
+                    sections.push(
+                      'SOURCE_PAGE_LINKS (links inside the source article; cite them in `sources` when the text relies on them):\n' +
+                        pageLinks
+                          .map((l) => `- [${l.type}] ${l.title}${l.anchor && l.anchor !== l.title ? ` ("${l.anchor}")` : ''} — ${l.url}`)
+                          .join('\n'),
+                    );
                   }
                 }
               }
