@@ -5,6 +5,9 @@ import { getHonestUserAgent, LicenseMode } from '../common/source-compliance';
 import { canonicalizeUrl, isTransientHttpStatus, retryWithBackoff } from '../common/url-utils';
 import { DatabaseService } from '../database/database.service';
 import { CATEGORIES, NewsCategory } from '../ingest/ingest.dto';
+import { ADAPTER_MIN_INTERVAL_MS, runApiAdapter } from './api-adapters';
+import { ApiAdapterId, EXTRA_FEED_CATALOG } from './feed-catalog-extra';
+import { extractArticleImages } from './image-extraction';
 
 export interface FeedDefinition {
   slug: string;
@@ -18,9 +21,13 @@ export interface FeedDefinition {
   unofficial?: boolean;
   autoDiscovered?: boolean;
   licenseMode?: LicenseMode;
+  /** Open-data API (not RSS) handled by api-adapters.ts. */
+  adapter?: ApiAdapterId;
+  /** Some publishers still emit http:// links in otherwise valid feeds; upgrade them instead of dropping the feed. */
+  upgradeHttps?: boolean;
 }
 
-export const COMPANY_FEED_CATALOG: FeedDefinition[] = [
+const BASE_FEED_CATALOG: FeedDefinition[] = [
   // Ukraine, World Politics, Law & Society
   { slug: 'pravda-ua', name: 'Українська правда', domain: 'pravda.com.ua', allowedDomains: ['pravda.com.ua', 'epravda.com.ua', 'eurointegration.com.ua', 'life.pravda.com.ua'], url: 'https://www.pravda.com.ua/rss/', category: 'politics', licenseMode: 'headline_link' },
   { slug: 'suspilne-news', name: 'Суспільне Новини', domain: 'suspilne.media', allowedDomains: ['suspilne.media'], url: 'https://suspilne.media/rss/all.rss', category: 'politics', licenseMode: 'headline_link' },
@@ -101,6 +108,8 @@ export const COMPANY_FEED_CATALOG: FeedDefinition[] = [
   { slug: 'mezha-media', name: 'Mezha.Media', domain: 'mezha.media', allowedDomains: ['mezha.media'], url: 'https://mezha.media/feed/', category: 'global_tech', licenseMode: 'headline_link' },
 ];
 
+export const COMPANY_FEED_CATALOG: FeedDefinition[] = [...BASE_FEED_CATALOG, ...EXTRA_FEED_CATALOG];
+
 export const DEFAULT_FEEDS = COMPANY_FEED_CATALOG;
 
 const refreshInterval = 10 * 60_000;
@@ -142,6 +151,13 @@ export type FeedArticle = {
   views_count?: number;
   likes_count?: number;
   is_youtube_short?: boolean;
+  /** Lead photo found in the feed (enclosure / media:content / first <img>). Hotlinked, never copied. */
+  image_url?: string;
+  image_caption?: string;
+  /** Extra in-article images found in the feed HTML (max 3). */
+  gallery?: Array<{ url: string; caption?: string }>;
+  /** Structured visuals computed by an open-data adapter (e.g. Eurostat / NBU series), no LLM needed. */
+  prebuilt_visuals?: unknown[];
 };
 
 type FeedState = {
@@ -203,6 +219,16 @@ export class CompanyFeedsService implements OnModuleInit, OnModuleDestroy {
 
   getActiveFeeds(): FeedDefinition[] {
     return this.activeFeeds;
+  }
+
+  /** Looks an article up in the in-memory feed cache (image, gallery, prebuilt visuals found while parsing the feed). */
+  findCachedArticle(url: string): FeedArticle | undefined {
+    const canonical = canonicalizeUrl(url);
+    for (const state of this.cache.values()) {
+      const hit = state.items.find((i) => i.url === url || i.canonical_url === canonical);
+      if (hit) return hit;
+    }
+    return undefined;
   }
 
   async seedDefaultSources(): Promise<void> {
@@ -329,6 +355,8 @@ export class CompanyFeedsService implements OnModuleInit, OnModuleDestroy {
             unofficial: row.unofficial,
             autoDiscovered: row.auto_discovered,
             licenseMode: row.license_mode || catalogMatch?.licenseMode || 'headline_link',
+            adapter: catalogMatch?.adapter,
+            upgradeHttps: catalogMatch?.upgradeHttps,
           };
         });
       }
@@ -426,7 +454,10 @@ export class CompanyFeedsService implements OnModuleInit, OnModuleDestroy {
         Number(process.env.FEED_POLL_INTERVAL_MS) || refreshInterval,
         state.ttlMs || 0,
       );
-      state.refreshAt = state.fetchedAt + baseRefresh;
+      // Adaptive cadence: feeds that publish rarely are polled less often, busy ones at the base rate.
+      const adaptive = computeAdaptivePollMs(state.items, baseRefresh);
+      const adapterMin = feed.adapter ? ADAPTER_MIN_INTERVAL_MS[feed.adapter] ?? 0 : 0;
+      state.refreshAt = state.fetchedAt + Math.max(baseRefresh, adaptive, adapterMin);
       state.lastError = undefined;
       state.consecutiveFailures = 0;
       void this.db.query(
@@ -453,6 +484,13 @@ export class CompanyFeedsService implements OnModuleInit, OnModuleDestroy {
         : Math.min(30 * 60_000, retryInterval * Math.min(12, state.consecutiveFailures));
       state.refreshAt = Date.now() + backoff;
       this.logger.warn(`${feed.name} feed (attempt #${state.consecutiveFailures}): ${msg}`);
+      if (shouldAutoDisableFeed(feed, state.consecutiveFailures, (error as { status?: number })?.status)) {
+        this.logger.warn(`Auto-disabling dead feed ${feed.slug} after ${state.consecutiveFailures} failures (${msg})`);
+        void this.db.query(
+          `UPDATE sources SET enabled = false, last_error = $2 WHERE slug = $1 AND auto_discovered = true`,
+          [feed.slug, `Auto-disabled: ${msg}`.slice(0, 300)],
+        ).catch(() => undefined);
+      }
       void this.db.query(
         `UPDATE sources SET last_fetched_at = now(), last_error = $2, consecutive_failures = $3, retry_after = $4 WHERE slug = $1`,
         [feed.slug, msg.slice(0, 300), state.consecutiveFailures, new Date(state.refreshAt).toISOString()],
@@ -470,6 +508,36 @@ export class CompanyFeedsService implements OnModuleInit, OnModuleDestroy {
 
 export async function fetchAndParseFeedUrl(feed: FeedDefinition, state: Partial<FeedState> = {}): Promise<FeedArticle[]> {
   return loadFeed(feed, state as FeedState);
+}
+
+/**
+ * Median gap between the newest items tells how chatty a feed is. Quiet feeds (a few posts per week) do not need a
+ * poll every 10 minutes; capped at 3h so a burst is still picked up within the same day.
+ */
+export function computeAdaptivePollMs(items: Array<{ published_at: string }>, baseMs: number): number {
+  const times = items
+    .map((i) => Date.parse(i.published_at))
+    .filter((t) => Number.isFinite(t))
+    .sort((a, b) => b - a)
+    .slice(0, 12);
+  if (times.length < 4) return baseMs;
+  const gaps: number[] = [];
+  for (let i = 0; i < times.length - 1; i += 1) gaps.push(times[i] - times[i + 1]);
+  gaps.sort((a, b) => a - b);
+  const median = gaps[Math.floor(gaps.length / 2)];
+  const target = Math.round(median / 3);
+  return Math.max(baseMs, Math.min(3 * 60 * 60_000, target));
+}
+
+/** Only auto-discovered feeds are ever auto-disabled, and only on "gone" errors, never on a transient outage. */
+export function shouldAutoDisableFeed(
+  feed: Pick<FeedDefinition, 'autoDiscovered' | 'adapter'>,
+  consecutiveFailures: number,
+  status?: number,
+): boolean {
+  if (!feed.autoDiscovered || feed.adapter) return false;
+  if (status === 404 || status === 410) return consecutiveFailures >= 6;
+  return consecutiveFailures >= 40;
 }
 
 function parseRetryAfterMs(headerValue: string | null): number | undefined {
@@ -563,6 +631,9 @@ export function decodeHtmlEntities(input: string): string {
 }
 
 async function loadFeed(feed: FeedDefinition, state: FeedState): Promise<FeedArticle[]> {
+  if (feed.adapter) {
+    return runApiAdapter(feed, { fetchedAt: state.fetchedAt });
+  }
   const headers: Record<string, string> = {
     'User-Agent': getHonestUserAgent(),
     'Accept': 'application/rss+xml, application/atom+xml, application/rdf+xml, application/xml, text/xml, */*',
@@ -649,6 +720,7 @@ function parseFeedXmlWithMeta(
   let rdfItemAbout = '';
   let guidIsPermaLink: string | undefined;
   let channelTtlText = '';
+  let mediaImage = '';
 
   parser.on('doctype', () => { throw new Error('Unexpected XML doctype'); });
   parser.on('opentag', tag => {
@@ -662,10 +734,18 @@ function parseFeedXmlWithMeta(
     if (mode === 'rss' && stack.length === 3 && name === 'item') {
       fields = {};
       guidIsPermaLink = undefined;
+      mediaImage = '';
+    } else if (mode === 'rss' && stack.length === 4 && stack[2] === 'item' && (name === 'enclosure' || name === 'content' || name === 'thumbnail')) {
+      // <enclosure type="image/jpeg" url>, <media:content medium="image" url>, <media:thumbnail url>
+      const url = String(tag.attributes.url || '');
+      const type = String(tag.attributes.type || tag.attributes.medium || '').toLowerCase();
+      const looksImage = type.startsWith('image') || name === 'thumbnail' || (!type && /\.(jpe?g|png|webp|avif)(\?|$)/i.test(url));
+      if (url && looksImage && !mediaImage) mediaImage = url;
     } else if (mode === 'rss' && stack.length === 4 && stack[2] === 'item' && name === 'guid') {
       guidIsPermaLink = tag.attributes.isPermaLink !== undefined ? String(tag.attributes.isPermaLink).toLowerCase() : undefined;
     } else if (mode === 'rdf' && stack.length === 2 && name === 'item') {
       fields = {};
+      mediaImage = '';
       rdfItemAbout = String(tag.attributes['rdf:about'] || tag.attributes.about || '');
     } else if (mode === 'atom' && stack.length === 2 && name === 'entry') {
       fields = {};
@@ -673,9 +753,14 @@ function parseFeedXmlWithMeta(
       atomThumbnail = '';
       atomViews = undefined;
       atomLikes = undefined;
+      mediaImage = '';
+    } else if (mode === 'atom' && stack.length === 3 && stack[1] === 'entry' && name === 'thumbnail') {
+      const url = String(tag.attributes.url || '');
+      if (url && !mediaImage) mediaImage = url;
     } else if (mode === 'atom' && stack.length === 3 && stack[1] === 'entry' && name === 'link') {
       const rel = String(tag.attributes.rel || 'alternate');
       const href = String(tag.attributes.href || '');
+      if (rel === 'enclosure' && String(tag.attributes.type || '').startsWith('image') && href && !mediaImage) mediaImage = href;
       if (rel === 'alternate' && href) atomLink = href;
       else if (!atomLink && href) atomLink = href;
     } else if (mode === 'atom' && stack[1] === 'entry' && stack[2] === 'group') {
@@ -692,7 +777,9 @@ function parseFeedXmlWithMeta(
   });
 
   const append = (part: string) => {
-    if (mode === 'rss' && stack.length === 3 && stack[1] === 'channel' && stack[2] === 'ttl') {
+    if (mode === 'rss' && stack.length === 5 && stack[2] === 'item' && stack[3] === 'content' && stack[4] === 'description') {
+      fields.mediaCaption = (fields.mediaCaption || '') + part;
+    } else if (mode === 'rss' && stack.length === 3 && stack[1] === 'channel' && stack[2] === 'ttl') {
       channelTtlText += part;
     } else if (mode === 'rss' && stack[1] === 'channel' && stack[2] === 'item') {
       const field = stack[3];
@@ -755,6 +842,9 @@ function parseFeedXmlWithMeta(
         pubDate: fields.pubDate || fields.date,
         description: fields.description || fields.encoded,
         thumbnailUrl: /^https:\/\//i.test(fields.imageurl?.trim()) ? fields.imageurl : undefined,
+        mediaImage,
+        mediaCaption: fields.mediaCaption,
+        html: `${fields.encoded || ''} ${fields.description || ''}`,
       });
       if (item && !items.has(item.canonical_url)) items.set(item.canonical_url, item);
     } else if (mode === 'rdf' && stack.length === 2 && name === 'item') {
@@ -763,6 +853,7 @@ function parseFeedXmlWithMeta(
         link: fields.link || rdfItemAbout,
         pubDate: fields.date || fields.pubDate,
         description: fields.description || fields.encoded,
+        html: `${fields.encoded || ''} ${fields.description || ''}`,
       });
       if (item && !items.has(item.canonical_url)) items.set(item.canonical_url, item);
     } else if (mode === 'atom' && stack.length === 2 && name === 'entry') {
@@ -778,6 +869,8 @@ function parseFeedXmlWithMeta(
         viewsCount: atomViews,
         likesCount: atomLikes,
         preserveRawDescription: Boolean(fields.videoId || fields.mediaDescription),
+        mediaImage,
+        html: `${fields.content || ''} ${fields.summary || ''}`,
       });
       if (item && !items.has(item.canonical_url)) items.set(item.canonical_url, item);
     }
@@ -813,14 +906,18 @@ function normalizeArticle(
     viewsCount?: number;
     likesCount?: number;
     preserveRawDescription?: boolean;
+    mediaImage?: string;
+    mediaCaption?: string;
+    html?: string;
   },
 ): FeedArticle | undefined {
   const originalTitle = decodeHtmlEntities(raw.title || '')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 350);
-  const publishedAt = Date.parse((raw.pubDate || '').trim());
+  const publishedAt = parseFeedDate(raw.pubDate);
   const link = URL.parse((raw.link || '').trim());
+  if (link && link.protocol === 'http:' && feed.upgradeHttps && !link.port) link.protocol = 'https:';
   const allowed = (
     feed.allowedDomains && feed.allowedDomains.length > 0 ? feed.allowedDomains : [feed.domain]
   )
@@ -839,7 +936,7 @@ function normalizeArticle(
     return;
   }
   const host = link.hostname.toLowerCase();
-  const hostOk = allowed.some(d => host === d || host.endsWith(`.${d}`));
+  const hostOk = allowed.includes('*') || allowed.some(d => host === d || host.endsWith(`.${d}`));
   if (!hostOk) return;
 
   link.hash = '';
@@ -854,6 +951,16 @@ function normalizeArticle(
   const videoId = (raw.videoId || '').trim() || undefined;
   const channelId = (raw.channelId || '').trim() || undefined;
   const thumbnailUrl = (raw.thumbnailUrl || '').trim() || undefined;
+  const htmlImages = extractArticleImages(`${raw.html || ''} ${raw.description || ''}`, { baseUrl: url, max: 4 });
+  const feedImage = normalizeFeedImage(raw.mediaImage, url);
+  const leadImage = feedImage ?? htmlImages[0]?.url;
+  const leadCaption = feedImage
+    ? (raw.mediaCaption ? decodeHtmlEntities(raw.mediaCaption).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 280) || undefined : htmlImages.find((i) => i.url === feedImage)?.caption)
+    : htmlImages[0]?.caption;
+  const gallery = htmlImages
+    .filter((i) => i.url !== leadImage)
+    .slice(0, 3)
+    .map((i) => ({ url: i.url, ...(i.caption ? { caption: i.caption } : {}) }));
   return {
     id: `rss-${createHash('sha256').update(canonical).digest('hex').slice(0, 24)}`,
     url,
@@ -873,10 +980,45 @@ function normalizeArticle(
     ...(videoId ? { video_id: videoId } : {}),
     ...(channelId ? { channel_id: channelId } : {}),
     ...(thumbnailUrl ? { thumbnail_url: thumbnailUrl } : {}),
+    ...(leadImage && !videoId ? { image_url: leadImage } : {}),
+    ...(leadImage && leadCaption && !videoId ? { image_caption: leadCaption } : {}),
+    ...(gallery.length > 0 && !videoId ? { gallery } : {}),
     ...(typeof raw.viewsCount === 'number' ? { views_count: raw.viewsCount } : {}),
     ...(typeof raw.likesCount === 'number' ? { likes_count: raw.likesCount } : {}),
     ...(videoId || /\/shorts\//i.test(url) ? { is_youtube_short: /\/shorts\//i.test(url) } : {}),
   };
+}
+
+const UK_MONTHS: Record<string, number> = {
+  січень: 1, січня: 1, лютий: 2, лютого: 2, березень: 3, березня: 3, квітень: 4, квітня: 4, травень: 5, травня: 5,
+  червень: 6, червня: 6, липень: 7, липня: 7, серпень: 8, серпня: 8, вересень: 9, вересня: 9, жовтень: 10, жовтня: 10,
+  листопад: 11, листопада: 11, грудень: 12, грудня: 12,
+};
+
+function kyivOffsetMinutes(utcMs: number): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Kyiv', hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric',
+  }).formatToParts(new Date(utcMs));
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
+  return Math.round((Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute')) - utcMs) / 60_000);
+}
+
+/** Date.parse plus the localized Ukrainian format some state sites use: "13 Листопад 2026, П'ятниця 17:02" (Kyiv time). */
+export function parseFeedDate(raw: string | undefined): number {
+  const text = (raw || '').trim();
+  const direct = Date.parse(text);
+  if (Number.isFinite(direct)) return direct;
+  const m = /^(\d{1,2})\s+([\p{L}]+)\s+(\d{4})(?:[^\d]+(\d{1,2}):(\d{2}))?/u.exec(text);
+  const month = m ? UK_MONTHS[m[2].toLowerCase()] : undefined;
+  if (!m || !month) return Number.NaN;
+  const guess = Date.UTC(Number(m[3]), month - 1, Number(m[1]), Number(m[4] ?? 12), Number(m[5] ?? 0));
+  return guess - kyivOffsetMinutes(guess) * 60_000;
+}
+
+function normalizeFeedImage(raw: string | undefined, articleUrl: string): string | undefined {
+  if (!raw) return undefined;
+  const probe = extractArticleImages(`<img src="${raw.replace(/"/g, '%22')}">`, { baseUrl: articleUrl, max: 1 });
+  return probe[0]?.url;
 }
 
 function matchesBoundaryPattern(haystack: string, pattern: RegExp): boolean {

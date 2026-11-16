@@ -2294,7 +2294,7 @@ test('NewsTtsService sends clean script without spoken style directives or meta 
   }
 });
 
-test('NewsMemesService uses public Bluesky search by default, disables unauthenticated Reddit scraping, caches results, and skips tragic news', async () => {
+test('NewsMemesService uses keyless Lemmy/Mastodon search, never anonymous Bluesky, disables unauthenticated Reddit scraping, caches results, and skips tragic news', async () => {
   const dbCache = new Map();
   let simulateMissingTable = true;
   let redditCalled = false;
@@ -2354,6 +2354,7 @@ test('NewsMemesService uses public Bluesky search by default, disables unauthent
   };
 
   let fetchCalls = 0;
+  let blueskyAnonymousCalled = false;
   const origFetch = globalThis.fetch;
   globalThis.fetch = async (input) => {
     fetchCalls += 1;
@@ -2363,18 +2364,18 @@ test('NewsMemesService uses public Bluesky search by default, disables unauthent
       return new Response(JSON.stringify({}), { status: 403 });
     }
     if (url.includes('public.api.bsky.app')) {
+      blueskyAnonymousCalled = true;
+      return new Response(JSON.stringify({}), { status: 403 });
+    }
+    if (url.includes('lemmy.world/api/v3/search')) {
       return new Response(
         JSON.stringify({
           posts: [
             {
-              uri: 'at://did:plc:xyz/app.bsky.feed.post/joke99',
-              likeCount: 310,
-              repostCount: 45,
-              author: { handle: 'funnydev.bsky.social', displayName: 'Funny Dev' },
-              record: {
-                text: 'My AI coding agent just opened a PR arguing with itself 😂',
-                createdAt: '2026-11-15T08:00:00Z',
-              },
+              post: { id: 991, name: 'My AI coding agent just opened a PR arguing with itself lol', published: '2026-11-15T08:00:00Z', nsfw: false },
+              community: { name: 'programmerhumor' },
+              creator: { name: 'funnydev' },
+              counts: { score: 310 },
             },
           ],
         }),
@@ -2388,26 +2389,28 @@ test('NewsMemesService uses public Bluesky search by default, disables unauthent
     const memesService = new NewsMemesService(mockDb);
     const controller = new NewsController(mockDb, undefined, undefined, undefined, memesService);
 
-    // 1. Queries Bluesky public API only (unauthenticated Reddit scraping disabled by default)
+    // 1. Queries keyless Lemmy (anonymous Bluesky search answers 403 and Reddit scraping is disabled)
     const first = await controller.memesForArticle('ai-meme-1');
     assert.equal(redditCalled, false);
+    assert.equal(blueskyAnonymousCalled, false);
     assert.equal(first.hasMemes, true);
     assert.ok(first.total >= 1);
-    assert.ok(first.items.some((i) => i.platform === 'bluesky' && i.kind === 'joke'));
+    assert.ok(first.items.some((i) => i.platform === 'lemmy'));
     assert.equal(first.cached, false);
-    assert.equal(fetchCalls, 1);
+    const callsAfterFirst = fetchCalls;
+    assert.ok(callsAfterFirst >= 1);
 
     // 2. Second request hits 12h memory cache
     const second = await controller.memesForArticle('ai-meme-1');
     assert.equal(second.cached, true);
-    assert.equal(fetchCalls, 1);
+    assert.equal(fetchCalls, callsAfterFirst);
 
-    // 3. Custom search query (?q=...) runs a distinct Bluesky search & writes DB cache
+    // 3. Custom search query (?q=...) runs a distinct search & writes DB cache
     simulateMissingTable = false;
     const custom = await controller.memesForArticle('ai-meme-1', undefined, 'copilot bugs');
     assert.equal(custom.queryUsed, 'copilot bugs');
     assert.equal(custom.cached, false);
-    assert.equal(fetchCalls, 2);
+    assert.ok(fetchCalls > callsAfterFirst);
     assert.ok(dbCache.size >= 1);
 
     // 4. Tragic casualty news skips memes cleanly
@@ -4229,4 +4232,76 @@ test('story memory finds earlier coverage by shared entities', async () => {
   assert.ok(sqlSeen.includes('120 days'));
   assert.equal(memory.length, 1);
   assert.equal(memory[0].topic, 'openai-model-releases');
+});
+
+test('news visuals sanitizer keeps valid data, drops invented/invalid shapes, enforces limits', async () => {
+  const { sanitizeVisuals } = await import('../dist/news/news-visuals.js');
+  const out = sanitizeVisuals(
+    [
+      { type: 'bar', title: 'Виручка за кварталами', unit: '$ млрд', source: { name: 'Звіт компанії', url: 'http://insecure.example' }, items: [{ label: 'Q1', value: 4.2 }, { label: 'Q2', value: '5,1' }] },
+      { type: 'bar', title: 'Одна точка', source: { name: 'X' }, items: [{ label: 'Q1', value: 1 }] },
+      { type: 'line', title: 'Динаміка', source: { name: 'NBU' }, labels: ['a', 'b', 'c'], series: [{ name: 'USD', values: [1, null, 3] }] },
+      { type: 'donut', title: 'Частки', source: { name: 'S' }, items: [{ label: 'A', value: -1 }, { label: 'B', value: 2 }] },
+      { type: 'table', title: 'Порівняння', source: { name: 'S' }, columns: ['Модель', 'Ціна'], rows: [['A', '1'], ['B', '2'], ['bad']] },
+      { type: 'nonsense', title: 'x', source: { name: 'S' } },
+      { type: 'stat', title: 'Без джерела', items: [{ label: 'n', value: 5 }] },
+    ],
+    'researched',
+  );
+  assert.deepEqual(out.map((v) => v.type), ['bar', 'line', 'table']);
+  assert.equal(out[0].items[1].value, 5.1);
+  assert.equal(out[0].source.url, undefined, 'non-https source urls are dropped');
+  assert.equal(out[2].rows.length, 2, 'malformed rows are dropped');
+  const extracted = sanitizeVisuals([{ type: 'stat', title: 'Ключова цифра', items: [{ label: 'ВВП', value: 3.2, unit: '%', delta: 0.4 }] }], 'extracted');
+  assert.equal(extracted[0].source.name, 'За даними статті');
+});
+
+test('image extraction finds figure captions, skips junk, upgrades to https; RSS media tags and Ukrainian dates parse', async () => {
+  const { extractArticleImages, extractPageImages, normalizeImageUrl } = await import('../dist/news/image-extraction.js');
+  const { parseFeedXml, parseFeedDate } = await import('../dist/news/company-feeds.service.js');
+  const imgs = extractArticleImages(
+    '<figure><img src="//cdn.example.com/a.jpg" width="900"><figcaption>Люди на площі під час святкування ювілею міста</figcaption></figure>' +
+      '<img src="https://cdn.example.com/pixel.gif"><img src="https://cdn.example.com/logo.png"><img src="http://cdn.example.com/b.webp" alt="b.webp">',
+    { baseUrl: 'https://news.example.com/x' },
+  );
+  assert.equal(imgs[0].url, 'https://cdn.example.com/a.jpg');
+  assert.match(imgs[0].caption, /святкування/);
+  assert.equal(imgs.length, 2);
+  assert.equal(imgs[1].caption, undefined, 'a file name is not a caption');
+  assert.equal(normalizeImageUrl('https://127.0.0.1/a.jpg'), null);
+  const page = extractPageImages('<meta property="og:image" content="/img/hero.jpg"><meta property="og:image:alt" content="Президент виступає перед журналістами у Києві">', 'https://news.example.com/a/1');
+  assert.equal(page[0].url, 'https://news.example.com/img/hero.jpg');
+
+  const feed = { slug: 'demo', name: 'Demo', domain: 'example.com', url: 'https://example.com/rss' };
+  const xml = `<?xml version="1.0"?><rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/"><channel><title>t</title>
+    <item><title>Hello world story</title><link>https://example.com/a</link><pubDate>Mon, 16 Nov 2026 09:30:18 +0100</pubDate>
+    <description>text</description><media:content url="https://example.com/p.jpg" medium="image"><media:description>Підпис до світлини зі стрічки</media:description></media:content></item></channel></rss>`;
+  const [item] = parseFeedXml(xml, feed);
+  assert.equal(item.image_url, 'https://example.com/p.jpg');
+  assert.match(item.image_caption, /Підпис/);
+  assert.equal(new Date(parseFeedDate("13 Листопад 2026, П'Ятниця  17:02")).toISOString(), '2026-11-13T15:02:00.000Z');
+});
+
+test('open-data adapters turn API payloads into articles with built-in charts', async () => {
+  const A = await import('../dist/news/api-adapters.js');
+  const feed = { slug: 'f', name: 'F', domain: 'ec.europa.eu', allowedDomains: ['ec.europa.eu', 'bank.gov.ua'], url: 'https://ec.europa.eu/x', category: 'economy' };
+  const now = Date.parse('2026-11-16T12:00:00Z');
+  const eu = A.buildEurostatArticle(
+    feed,
+    A.EUROSTAT_SPECS[0],
+    { dimension: { time: { category: { index: { '2026-08': 0, '2026-09': 1, '2026-10': 2 } } } }, value: { 0: 2.1, 1: 2.2, 2: 2.4 } },
+    now,
+  );
+  assert.match(eu.original_title, /2\.4%/);
+  assert.equal(eu.prebuilt_visuals.length, 2);
+  const nbu = A.buildNbuArticle(feed, { usd: [{ rate: 41.5, exchangedate: '16.11.2026' }, { rate: 41.3, exchangedate: '13.11.2026' }] }, now);
+  assert.match(nbu.original_title, /USD 41,50 \(\+0,20\)/);
+  const kev = A.parseCisaKev(
+    { ...feed, allowedDomains: ['nvd.nist.gov'], domain: 'nvd.nist.gov' },
+    { vulnerabilities: [{ cveID: 'CVE-2026-1', vendorProject: 'V', product: 'P', vulnerabilityName: 'N', dateAdded: '2026-11-15', shortDescription: 'd', dueDate: '2026-12-01' }] },
+    now,
+  );
+  assert.equal(kev.length, 1);
+  assert.equal(kev[0].category, 'cybersecurity');
+  assert.equal(A.reconstructAbstract({ Hello: [0], world: [1] }), 'Hello world');
 });

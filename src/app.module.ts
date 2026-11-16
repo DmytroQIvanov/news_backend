@@ -29,6 +29,7 @@ import { FeedController } from './news/feed.controller';
 import { PersonalizationService } from './news/personalization.service';
 import { StoryBriefingService } from './news/story-briefing.service';
 import { CaricatureService } from './news/caricature.service';
+import { NewsMediaService } from './news/news-media.service';
 import { AudioBriefingService } from './news/audio-briefing.service';
 import { TranslationService } from './news/translation.service';
 import { YoutubeChannelDiscoveryService } from './youtube/youtube-channel-discovery.service';
@@ -76,6 +77,7 @@ import { InsightsService } from './insights/insights.service';
     PersonalizationService,
     StoryBriefingService,
     CaricatureService,
+    NewsMediaService,
     AudioBriefingService,
     TranslationService,
     YoutubeChannelDiscoveryService,

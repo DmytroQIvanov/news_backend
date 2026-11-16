@@ -1,8 +1,8 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { generateJsonWithRouter } from '../common/llm-router';
-import { R2Storage } from '../common/r2-storage';
-import { generateImageWithWorkersAi, getWorkersAiConfig } from '../common/workers-ai';
+import { availableImageProviders, generateImage } from '../common/image-providers';
+import { MediaStorage } from '../common/media-storage';
 import { DatabaseService } from '../database/database.service';
 import { TRAGEDY_SENSITIVITY_RE } from './news-memes.service';
 
@@ -71,19 +71,35 @@ export function sanitizeCaricatureScene(scene: string): string | null {
 @Injectable()
 export class CaricatureService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(CaricatureService.name);
-  private readonly storage = new R2Storage();
+  private readonly storage: MediaStorage;
   private timer?: NodeJS.Timeout;
   private destroyed = false;
   private running = false;
+  private lastKick = 0;
+  private lastError: string | null = null;
+  private lastRunAt: string | null = null;
 
-  constructor(@Optional() private readonly db?: DatabaseService) {}
+  constructor(@Optional() private readonly db?: DatabaseService) {
+    this.storage = new MediaStorage(db);
+  }
 
+  private hasLlm(): boolean {
+    return Boolean(
+      process.env.GEMINI_API_KEY?.trim() ||
+        process.env.groq_api_key?.trim() ||
+        process.env.GROQ_API_KEY?.trim() ||
+        process.env.openrouter_api_key?.trim() ||
+        process.env.OPENROUTER_API_KEY?.trim(),
+    );
+  }
+
+  /** Works with zero Cloudflare setup: Pollinations is the keyless image fallback, Postgres is the storage fallback. */
   get enabled(): boolean {
     return (
       process.env.CARICATURES_ENABLED !== 'false' &&
       this.storage.configured &&
-      Boolean(getWorkersAiConfig()) &&
-      Boolean(process.env.GEMINI_API_KEY?.trim() || process.env.groq_api_key?.trim() || process.env.GROQ_API_KEY?.trim())
+      availableImageProviders().length > 0 &&
+      this.hasLlm()
     );
   }
 
@@ -91,9 +107,38 @@ export class CaricatureService implements OnModuleInit, OnModuleDestroy {
     return this.storage.configured;
   }
 
+  /** Why caricatures are (not) being produced: shown by GET /api/v1/feed/caricatures so "nothing happens" is never a mystery. */
+  diagnostics() {
+    const problems: string[] = [];
+    if (process.env.CARICATURES_ENABLED === 'false') problems.push('CARICATURES_ENABLED=false');
+    if (!this.storage.configured) problems.push('no storage (database unavailable and R2 not configured)');
+    if (availableImageProviders().length === 0) {
+      problems.push('no image provider (set cloudflare_account_id/cloudflare_api_token or leave POLLINATIONS_ENABLED on)');
+    }
+    if (!this.hasLlm()) problems.push('no LLM key for the cartoon idea (GEMINI_API_KEY, groq_api_key or openrouter_api_key)');
+    return {
+      enabled: this.enabled,
+      storageBackend: this.storage.backend,
+      imageProviders: availableImageProviders(),
+      dailyMax: this.dailyMax(),
+      lastRunAt: this.lastRunAt,
+      lastError: this.lastError,
+      problems,
+    };
+  }
+
+  /** Called when the app asks for caricatures and none exist yet: kicks one background batch, at most every 20 minutes. */
+  kickIfStale(): void {
+    if (!this.enabled || this.running || Date.now() - this.lastKick < 20 * 60_000) return;
+    this.lastKick = Date.now();
+    void this.generateBatch().catch((err) => {
+      this.lastError = err instanceof Error ? err.message : String(err);
+    });
+  }
+
   onModuleInit(): void {
     if (process.env.NODE_ENV === 'test' || !this.enabled || !this.db) return;
-    const intervalMs = Math.max(30 * 60_000, Number(process.env.CARICATURE_INTERVAL_MS) || 2 * 60 * 60_000);
+    const intervalMs = Math.max(20 * 60_000, Number(process.env.CARICATURE_INTERVAL_MS) || 90 * 60_000);
     const loop = (delay: number) => {
       this.timer = setTimeout(async () => {
         if (this.destroyed) return;
@@ -106,7 +151,7 @@ export class CaricatureService implements OnModuleInit, OnModuleDestroy {
         }
       }, delay);
     };
-    loop(4 * 60_000);
+    loop(90_000);
   }
 
   onModuleDestroy(): void {
@@ -122,6 +167,7 @@ export class CaricatureService implements OnModuleInit, OnModuleDestroy {
   async generateBatch(maxThisRun = 3): Promise<{ generated: number; skipped: number }> {
     if (!this.enabled || !this.db || this.running) return { generated: 0, skipped: 0 };
     this.running = true;
+    this.lastRunAt = new Date().toISOString();
     let generated = 0;
     let skipped = 0;
     try {
@@ -161,8 +207,9 @@ export class CaricatureService implements OnModuleInit, OnModuleDestroy {
         const ok = await this.generateForNews(row).catch((err) => {
           const msg = err instanceof Error ? err.message : String(err);
           this.logger.warn(`Caricature for news ${row.id} failed: ${msg}`);
-          // Image already uploaded and rejected (e.g. NoSuchBucket): don't upload the next one too.
-          if (/^R2 /.test(msg)) storageFailed = true;
+          this.lastError = msg.slice(0, 300);
+          // Every image provider is down: stop burning time on the remaining rows.
+          if (/No image provider succeeded/.test(msg)) storageFailed = true;
           return false;
         });
         if (storageFailed) break;
@@ -172,7 +219,10 @@ export class CaricatureService implements OnModuleInit, OnModuleDestroy {
     } finally {
       this.running = false;
     }
-    if (generated > 0) this.logger.log(`Generated ${generated} AI caricature(s)`);
+    if (generated > 0) {
+      this.logger.log(`Generated ${generated} AI caricature(s)`);
+      void this.storage.prune();
+    }
     return { generated, skipped };
   }
 
@@ -216,11 +266,11 @@ Write captionUk (Ukrainian, max 120 chars) and captionEn (English, max 120 chars
     if (!scene) return false;
 
     const imagePrompt = `${STYLE_PREFIX}${scene}`;
-    const { image, contentType, model } = await generateImageWithWorkersAi(imagePrompt);
+    const { image, contentType, model } = await generateImage(imagePrompt);
     const ext = contentType.includes('png') ? 'png' : 'jpg';
     const hash = createHash('sha256').update(image).digest('hex').slice(0, 16);
-    const objectKey = `caricatures/${row.id}-${hash}.${ext}`;
-    await this.storage.putObject(objectKey, image, contentType);
+    const objectKey = await this.storage.putObject(`caricatures/${row.id}-${hash}.${ext}`, image, contentType);
+    this.lastError = null;
 
     await this.db.query(
       `INSERT INTO news_caricatures (news_item_id, cluster_id, object_key, caption_uk, caption_en, image_prompt, image_model, category)
@@ -245,6 +295,7 @@ Write captionUk (Ukrainian, max 120 chars) and captionEn (English, max 120 chars
          LIMIT $1`,
         [options.limit, options.newsIds?.length ? options.newsIds : null],
       );
+      if (rows.length === 0) this.kickIfStale();
       return rows.map((r) => this.toItem(r, options.lang, options.apiBase));
     } catch {
       return [];

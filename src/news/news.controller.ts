@@ -160,6 +160,8 @@ export class NewsController {
                 ${ENGLISH_FIELDS_SQL},
                 n.ai_metadata->>'source_type' AS source_type,
                 n.ai_metadata->>'thumbnail_url' AS thumbnail_url,
+                n.media->'hero' AS hero_image,
+                jsonb_array_length(COALESCE(n.media->'visuals', '[]'::jsonb)) AS visuals_count,
                 NULLIF(n.ai_metadata->'article'->>'content_warning', 'none') AS content_warning,
                 n.ai_metadata->'article'->'headline_check' AS headline_check
          FROM news_items n JOIN sources s ON s.id=n.source_id
@@ -529,7 +531,7 @@ export class NewsController {
           `SELECT n.id,n.url,n.original_title,n.original_summary,n.title_uk,n.summary_uk,n.published_at,
                   n.category,n.importance,n.why_it_matters,n.free_access,
                   n.credibility_tier,n.is_retracted,n.correction_note,n.corrected_at,n.fact_claims,
-                  n.ai_metadata,n.ai_metadata->'article' AS article,
+                  n.ai_metadata,n.ai_metadata->'article' AS article,n.media AS media,
                   ${ENGLISH_FIELDS_SQL}, tr.body AS body_en,
                   s.name AS source_name,s.slug AS source_slug,s.homepage_url,s.unofficial AS source_is_unofficial,
                   n.cluster_id,COALESCE(n.cluster_sources, '[]'::jsonb) AS cluster_sources,
@@ -544,7 +546,7 @@ export class NewsController {
             `SELECT n.id,n.url,n.original_title,n.original_summary,n.title_uk,n.summary_uk,n.published_at,
                     n.category,n.importance,n.why_it_matters,n.free_access,
                     n.credibility_tier,n.is_retracted,n.correction_note,n.corrected_at,n.fact_claims,
-                    n.ai_metadata,n.ai_metadata->'article' AS article,
+                    n.ai_metadata,n.ai_metadata->'article' AS article,n.media AS media,
                     s.name AS source_name,s.slug AS source_slug,s.homepage_url,s.unofficial AS source_is_unofficial
              FROM news_items n JOIN sources s ON s.id=n.source_id
              WHERE n.external_id=$1 AND n.status='published' LIMIT 1`,
@@ -579,7 +581,7 @@ export class NewsController {
           `SELECT n.id,n.url,n.original_title,n.original_summary,n.title_uk,n.summary_uk,n.published_at,
                   n.category,n.importance,n.why_it_matters,n.free_access,
                   n.credibility_tier,n.is_retracted,n.correction_note,n.corrected_at,n.fact_claims,
-                  n.ai_metadata,n.ai_metadata->'article' AS article,
+                  n.ai_metadata,n.ai_metadata->'article' AS article,n.media AS media,
                   ${ENGLISH_FIELDS_SQL}, tr.body AS body_en,
                   s.name AS source_name,s.slug AS source_slug,s.homepage_url,s.unofficial AS source_is_unofficial,
                   n.cluster_id,COALESCE(n.cluster_sources, '[]'::jsonb) AS cluster_sources,
@@ -594,7 +596,7 @@ export class NewsController {
             `SELECT n.id,n.url,n.original_title,n.original_summary,n.title_uk,n.summary_uk,n.published_at,
                     n.category,n.importance,n.why_it_matters,n.free_access,
                     n.credibility_tier,n.is_retracted,n.correction_note,n.corrected_at,n.fact_claims,
-                    n.ai_metadata,n.ai_metadata->'article' AS article,
+                    n.ai_metadata,n.ai_metadata->'article' AS article,n.media AS media,
                     s.name AS source_name,s.slug AS source_slug,s.homepage_url,s.unofficial AS source_is_unofficial
              FROM news_items n JOIN sources s ON s.id=n.source_id
              WHERE n.id=$1 AND n.status='published'`,

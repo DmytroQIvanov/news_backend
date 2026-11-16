@@ -1,11 +1,12 @@
 import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { DEFAULT_GEMINI_MODEL, postGeminiGenerateContent } from '../common/gemini-client';
+import { generateJsonWithRouter } from '../common/llm-router';
 import { DatabaseService } from '../database/database.service';
 import { CompanyFeedsService } from './company-feeds.service';
 
 export type MemeKind = 'meme' | 'joke' | 'satire';
-export type MemePlatform = 'reddit' | 'bluesky' | 'x' | 'threads' | 'telegram' | 'web';
+export type MemePlatform = 'reddit' | 'bluesky' | 'x' | 'threads' | 'telegram' | 'web' | 'lemmy' | 'mastodon' | 'imgflip';
 
 export interface NewsMemeItem {
   id: string;
@@ -21,7 +22,10 @@ export interface NewsMemeItem {
   sourceUrl: string;
   upvotes?: number | null;
   publishedAt: string;
-  verificationStatus: 'live_public_api' | 'gemini_search_grounded';
+  verificationStatus: 'live_public_api' | 'gemini_search_grounded' | 'ai_generated';
+  /** AI memes: caption text is drawn by the app over a public meme template, never baked into the image. */
+  overlayTop?: string | null;
+  overlayBottom?: string | null;
   /** Official embed / oEmbed page of the original post. Images are never copied to our storage. */
   embedUrl?: string | null;
   /** Human readable credit line shown under the meme ("@handle · Bluesky"). */
@@ -91,6 +95,12 @@ const ALLOWED_MEME_HOSTS = [
   'i.imgur.com',
   '9gag.com',
   'news.ycombinator.com',
+  'lemmy.world',
+  'lemmy.ml',
+  'sh.itjust.works',
+  'lemmy.zip',
+  'mastodon.social',
+  'imgflip.com',
 ];
 
 const HUMOR_SUBREDDITS = new Set([
@@ -155,13 +165,15 @@ function normalizeKind(raw: unknown): MemeKind {
 
 function normalizePlatform(raw: unknown, url?: string): MemePlatform {
   const s = String(raw || '').toLowerCase();
-  if (s === 'reddit' || s === 'bluesky' || s === 'x' || s === 'threads' || s === 'telegram') return s;
+  if (s === 'reddit' || s === 'bluesky' || s === 'x' || s === 'threads' || s === 'telegram' || s === 'lemmy' || s === 'mastodon' || s === 'imgflip') return s;
   const host = url ? (URL.parse(url)?.hostname.toLowerCase() || '') : '';
   if (host.includes('reddit.com') || host.includes('redd.it')) return 'reddit';
   if (host.includes('bsky.app')) return 'bluesky';
   if (host.includes('x.com') || host.includes('twitter.com')) return 'x';
   if (host.includes('threads.net')) return 'threads';
   if (host.includes('t.me')) return 'telegram';
+  if (host.includes('lemmy') || host.includes('itjust.works')) return 'lemmy';
+  if (host.includes('mastodon')) return 'mastodon';
   return 'web';
 }
 
@@ -189,7 +201,19 @@ export function extractMemeSearchQuery(title: string, maxTokens = 3): string {
 
 function attributionFor(platform: MemePlatform, author: string, community?: string | null): string {
   const where =
-    platform === 'reddit' ? community || 'Reddit' : platform === 'bluesky' ? 'Bluesky' : platform === 'x' ? 'X' : platform;
+    platform === 'reddit'
+      ? community || 'Reddit'
+      : platform === 'bluesky'
+        ? 'Bluesky'
+        : platform === 'x'
+          ? 'X'
+          : platform === 'lemmy'
+            ? community || 'Lemmy'
+            : platform === 'mastodon'
+              ? 'Mastodon'
+              : platform === 'imgflip'
+                ? 'Imgflip template'
+                : platform;
   return `${author} · ${where}`;
 }
 
@@ -287,7 +311,12 @@ export class NewsMemesService {
       const redditOAuthEnabled = Boolean(process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET);
 
       const runSearch = async (q: string) => {
-        const tasks: Array<Promise<NewsMemeItem[]>> = [this.fetchBlueskyJokes(q, context)];
+        // Keyless public sources first (Lemmy, Mastodon); Bluesky and Reddit only work with credentials now.
+        const tasks: Array<Promise<NewsMemeItem[]>> = [
+          this.fetchLemmyMemes(q),
+          this.fetchMastodonJokes(q),
+          this.fetchBlueskyJokes(q, context),
+        ];
         if (redditOAuthEnabled) tasks.unshift(this.fetchRedditMemes(q, context));
         const settled = await Promise.allSettled(tasks);
         for (const r of settled) {
@@ -310,6 +339,11 @@ export class NewsMemesService {
         const geminiItems = await this.discoverMemesWithGemini(queryUsed, context).catch(() => []);
         collected.push(...geminiItems);
       }
+    }
+
+    // Nothing real found: write original, clearly labelled AI memes on public Imgflip templates so the tab is never empty.
+    if (collected.length < 2 && !options.skipLiveFetch && process.env.AI_MEMES_ENABLED !== 'false' && process.env.NODE_ENV !== 'test') {
+      collected.push(...(await this.generateAiMemes(context).catch(() => [])));
     }
 
     const items = deduplicateMemeItems(collected).slice(0, MAX_MEMES_PER_ARTICLE).map(withMemeAttribution);
@@ -579,7 +613,9 @@ export class NewsMemesService {
   private async fetchBlueskyJokes(query: string, context: NewsMemeContext): Promise<NewsMemeItem[]> {
     try {
       const session = await this.getBlueskySession();
-      const base = session ? session.service : 'https://public.api.bsky.app';
+      // public.api.bsky.app/searchPosts answers 403 to anonymous clients: only search when credentials are configured.
+      if (!session) return [];
+      const base = session.service;
       const apiUrl = `${base}/xrpc/app.bsky.feed.searchPosts?q=${encodeURIComponent(query)}&limit=25&sort=top`;
       const resp = await fetch(apiUrl, {
         method: 'GET',
@@ -649,6 +685,204 @@ export class NewsMemesService {
     } catch {
       return [];
     }
+  }
+
+  /** Lemmy (federated Reddit alternative): public JSON search, no key. Humour communities and joke-like titles only. */
+  private async fetchLemmyMemes(query: string): Promise<NewsMemeItem[]> {
+    const instances = ['https://lemmy.world', 'https://lemmy.ml'];
+    const settled = await Promise.allSettled(
+      instances.map(async (base) => {
+        const resp = await fetch(
+          `${base}/api/v3/search?q=${encodeURIComponent(query)}&type_=Posts&sort=TopMonth&limit=25&listing_type=All`,
+          { headers: { 'User-Agent': 'AINewsRadar/1.0', Accept: 'application/json' }, signal: AbortSignal.timeout(7_000) },
+        );
+        if (!resp.ok) {
+          await resp.body?.cancel().catch(() => undefined);
+          return [] as NewsMemeItem[];
+        }
+        const data = (await resp.json()) as {
+          posts?: Array<{
+            post?: { id?: number; name?: string; url?: string; body?: string; thumbnail_url?: string; published?: string; nsfw?: boolean; ap_id?: string };
+            community?: { name?: string };
+            creator?: { name?: string };
+            counts?: { score?: number; upvotes?: number };
+          }>;
+        };
+        const out: NewsMemeItem[] = [];
+        for (const row of data.posts ?? []) {
+          const post = row.post;
+          const title = (post?.name || '').replace(/\s+/g, ' ').trim();
+          if (!post?.id || post.nsfw || title.length < 15) continue;
+          const community = row.community?.name || '';
+          const isHumorCommunity = /(meme|humou?r|funny|joke|shitpost|satire|onion|lol)/i.test(community);
+          const link = safeHttpsUrl(post.url);
+          const image = safeHttpsUrl(link && /\.(jpe?g|png|webp|gif)(\?|$)/i.test(link) ? link : post.thumbnail_url);
+          const score = row.counts?.score ?? row.counts?.upvotes ?? 0;
+          if (!isHumorCommunity && !HUMOR_SIGNAL_RE.test(title) && !(image && score >= 25)) continue;
+          if (TRAGEDY_SENSITIVITY_RE.test(`${title} ${post.body || ''}`)) continue;
+          const sourceUrl = safeHttpsUrl(`${base}/post/${post.id}`);
+          if (!sourceUrl) continue;
+          out.push({
+            id: makeItemId(sourceUrl, title),
+            kind: image ? 'meme' : 'joke',
+            platform: 'lemmy',
+            titleUk: title.slice(0, 160),
+            originalText: title.slice(0, 420),
+            captionUk: title.slice(0, 320),
+            punchlineUk: null,
+            author: row.creator?.name ? `@${row.creator.name}` : 'Lemmy',
+            community: community ? `c/${community}` : 'Lemmy',
+            imageUrl: image,
+            sourceUrl,
+            upvotes: score || null,
+            publishedAt: post.published ? new Date(post.published.endsWith('Z') ? post.published : `${post.published}Z`).toISOString() : new Date().toISOString(),
+            verificationStatus: 'live_public_api',
+          });
+        }
+        return out;
+      }),
+    );
+    return settled
+      .flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
+      .sort((a, b) => (b.upvotes ?? 0) - (a.upvotes ?? 0))
+      .slice(0, 4);
+  }
+
+  /** Mastodon hashtag timeline (public, no key): posts about the news that look like jokes or carry an image. */
+  private async fetchMastodonJokes(query: string): Promise<NewsMemeItem[]> {
+    const tags = query
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+      .split(/\s+/)
+      .filter((t) => t.length >= 3)
+      .slice(0, 2);
+    if (tags.length === 0) return [];
+    const out: NewsMemeItem[] = [];
+    for (const tag of tags) {
+      try {
+        const resp = await fetch(`https://mastodon.social/api/v1/timelines/tag/${encodeURIComponent(tag)}?limit=40`, {
+          headers: { 'User-Agent': 'AINewsRadar/1.0', Accept: 'application/json' },
+          signal: AbortSignal.timeout(6_000),
+        });
+        if (!resp.ok) {
+          await resp.body?.cancel().catch(() => undefined);
+          continue;
+        }
+        const posts = (await resp.json()) as Array<{
+          url?: string; created_at?: string; content?: string; sensitive?: boolean; favourites_count?: number; reblogs_count?: number;
+          account?: { acct?: string; display_name?: string };
+          media_attachments?: Array<{ type?: string; url?: string; preview_url?: string }>;
+        }>;
+        for (const post of posts) {
+          const text = (post.content || '').replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, ' ').trim();
+          const sourceUrl = safeHttpsUrl(post.url);
+          if (!sourceUrl || post.sensitive || text.length < 25) continue;
+          const image = safeHttpsUrl(post.media_attachments?.find((m) => m.type === 'image')?.preview_url || post.media_attachments?.find((m) => m.type === 'image')?.url);
+          const engagement = (post.favourites_count ?? 0) + (post.reblogs_count ?? 0) * 2;
+          if (!HUMOR_SIGNAL_RE.test(text) && !(image && engagement >= 8)) continue;
+          if (TRAGEDY_SENSITIVITY_RE.test(text)) continue;
+          out.push({
+            id: makeItemId(sourceUrl, text),
+            kind: image ? 'meme' : 'joke',
+            platform: 'mastodon',
+            titleUk: post.account?.display_name || `@${post.account?.acct || 'mastodon'}`,
+            originalText: text.slice(0, 420),
+            captionUk: text.slice(0, 320),
+            punchlineUk: null,
+            author: post.account?.acct ? `@${post.account.acct}` : 'Mastodon',
+            community: 'Mastodon',
+            imageUrl: image,
+            sourceUrl,
+            upvotes: engagement || null,
+            publishedAt: post.created_at || new Date().toISOString(),
+            verificationStatus: 'live_public_api',
+          });
+        }
+      } catch {
+        // one tag failing must not lose the others
+      }
+    }
+    return out.sort((a, b) => (b.upvotes ?? 0) - (a.upvotes ?? 0)).slice(0, 3);
+  }
+
+  private imgflipTemplates: { at: number; items: Array<{ id: string; name: string; url: string; boxCount: number }> } | null = null;
+
+  private async loadImgflipTemplates() {
+    if (this.imgflipTemplates && Date.now() - this.imgflipTemplates.at < 24 * 60 * 60_000) return this.imgflipTemplates.items;
+    const resp = await fetch('https://api.imgflip.com/get_memes', { headers: { 'User-Agent': 'AINewsRadar/1.0' }, signal: AbortSignal.timeout(8_000) });
+    if (!resp.ok) throw new Error(`Imgflip HTTP ${resp.status}`);
+    const json = (await resp.json()) as { success?: boolean; data?: { memes?: Array<{ id: string; name: string; url: string; box_count: number }> } };
+    const items = (json.data?.memes ?? [])
+      .filter((m) => m.box_count <= 2 && safeHttpsUrl(m.url))
+      .slice(0, 80)
+      .map((m) => ({ id: m.id, name: m.name, url: m.url, boxCount: m.box_count }));
+    this.imgflipTemplates = { at: Date.now(), items };
+    return items;
+  }
+
+  /**
+   * Fallback when no real public memes exist: an LLM writes short original captions and picks the best-fitting public
+   * Imgflip template. Clearly labelled as AI-generated; the app draws the text over the template image.
+   */
+  private async generateAiMemes(context: NewsMemeContext): Promise<NewsMemeItem[]> {
+    const templates = await this.loadImgflipTemplates();
+    if (templates.length === 0) return [];
+    const routed = await generateJsonWithRouter<{ memes?: Array<{ template?: string; topUk?: string; bottomUk?: string }> }>({
+      task: 'creative',
+      maxTokens: 700,
+      temperature: 0.9,
+      timeoutMs: 25_000,
+      schemaName: 'ai_memes',
+      schema: {
+        type: 'object',
+        properties: {
+          memes: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: { template: { type: 'string' }, topUk: { type: 'string' }, bottomUk: { type: 'string' } },
+              required: ['template', 'topUk', 'bottomUk'],
+            },
+          },
+        },
+        required: ['memes'],
+      },
+      prompt: `You write gentle, clever meme captions for a tech/news app. Never insult people, never mock victims, no politics, no real people by name.
+News title: ${context.searchTitle || context.title}
+Ukrainian title: ${context.title}
+Summary: ${context.summary.slice(0, 500)}
+
+Pick 2 DIFFERENT templates from this exact list (copy the name exactly) and write Ukrainian captions (max 55 characters each line, bottomUk may be empty for one-box templates) that make a witty point about THIS news:
+${templates.map((t) => t.name).join(' | ')}`,
+    });
+    const out: NewsMemeItem[] = [];
+    for (const m of routed?.data?.memes ?? []) {
+      const tpl = templates.find((t) => t.name.toLowerCase() === String(m.template || '').trim().toLowerCase());
+      const top = String(m.topUk || '').replace(/\s+/g, ' ').trim().slice(0, 70);
+      const bottom = String(m.bottomUk || '').replace(/\s+/g, ' ').trim().slice(0, 70);
+      if (!tpl || (!top && !bottom) || TRAGEDY_SENSITIVITY_RE.test(`${top} ${bottom}`)) continue;
+      const sourceUrl = safeHttpsUrl(`https://imgflip.com/memetemplate/${tpl.id}`);
+      if (!sourceUrl) continue;
+      out.push({
+        id: makeItemId(sourceUrl, `${context.newsKey}${top}${bottom}`),
+        kind: 'meme',
+        platform: 'imgflip',
+        titleUk: tpl.name,
+        originalText: `${top} ${bottom}`.trim(),
+        captionUk: [top, bottom].filter(Boolean).join(' — '),
+        punchlineUk: bottom || null,
+        author: 'AI Radar',
+        community: tpl.name,
+        imageUrl: safeHttpsUrl(tpl.url),
+        sourceUrl,
+        upvotes: null,
+        publishedAt: new Date().toISOString(),
+        verificationStatus: 'ai_generated',
+        overlayTop: top || null,
+        overlayBottom: bottom || null,
+      });
+    }
+    return out.slice(0, 2);
   }
 
   private async discoverMemesWithGemini(query: string, context: NewsMemeContext): Promise<NewsMemeItem[]> {

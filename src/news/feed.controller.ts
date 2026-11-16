@@ -248,6 +248,7 @@ export class FeedController {
     if (!Number.isInteger(limit) || limit < 1 || limit > 40) throw new BadRequestException('limit: 1–40');
     return {
       enabled: this.caricatures.enabled,
+      diagnostics: this.caricatures.diagnostics(),
       items: await this.caricatures.list({ limit, lang: parseLang(langRaw), apiBase: apiBase(req) }),
     };
   }
