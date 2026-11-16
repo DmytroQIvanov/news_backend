@@ -920,8 +920,8 @@ export class GeminiEditorService {
           'Never invent facts, numbers, quotes or URLs. Keep the [n] source references; n must stay within 1..' +
           `${Math.max(1, article.sources.length)}. Plain text paragraphs separated by blank lines. ` +
           'Also return body_uk: a full, faithful Ukrainian translation of the new body (same paragraphs, same [n]). Answer JSON only.',
-        prompt: `${JSON.stringify({ MATERIAL: material, DRAFT_BODY: article.body })}\n\nReturn {"body":"...","body_uk":"..."}`,
-        maxTokens: 6000,
+        prompt: `${JSON.stringify({ MATERIAL: JSON.stringify(material).slice(0, 12_000), DRAFT_BODY: article.body })}\n\nReturn {"body":"...","body_uk":"..."}`,
+        maxTokens: 3500,
         temperature: 0.2,
         timeoutMs: 90_000,
       }).catch((err) => {
@@ -937,24 +937,149 @@ export class GeminiEditorService {
       }
     }
     if (translationTooShort(article.body, article.body_uk)) {
-      const res = await generateJsonWithRouter<{ body_uk?: string }>({
-        task: 'translate',
-        system:
-          'Translate the English news text into natural modern Ukrainian. Translate EVERY sentence and paragraph; ' +
-          'do not shorten, summarise or add anything. Keep [n] references and paragraph breaks. Answer JSON only.',
-        prompt: `${JSON.stringify({ text: article.body })}\n\nReturn {"body_uk":"..."}`,
-        maxTokens: 6000,
-        temperature: 0.1,
-        timeoutMs: 90_000,
-      }).catch((err) => {
-        this.logger.warn(`Body re-translation failed: ${err instanceof Error ? err.message : String(err)}`);
-        return null;
-      });
-      const bodyUk = typeof res?.data?.body_uk === 'string' ? res.data.body_uk.trim() : '';
+      const bodyUk = await this.translateChunked(article.body);
       if (bodyUk && bodyUk.length > (article.body_uk?.length ?? 0)) {
         article.body_uk = bodyUk.slice(0, 16000);
         steps.push('translate');
       }
+    }
+    return steps;
+  }
+
+  /**
+   * Translates paragraph chunks one call at a time. Small requests fit the Groq free-tier cap (8k tokens
+   * per request) and a model cannot "summarise" a 2-paragraph chunk the way it compresses a whole article.
+   * Returns null when any chunk fails, so a half-translated body never replaces the existing one.
+   */
+  private async translateChunked(body: string): Promise<string | null> {
+    const out: string[] = [];
+    for (const chunk of splitParagraphChunks(body, 2400)) {
+      const res = await generateWithRouter({
+        task: 'translate',
+        system:
+          'Translate the English text into natural modern Ukrainian. Translate EVERY sentence; do not shorten, ' +
+          'summarise, explain or add anything. Keep [n] references, "## " headings and paragraph breaks exactly. ' +
+          'Return only the translation.',
+        prompt: chunk,
+        maxTokens: Math.min(3000, Math.ceil(chunk.length / 1.6)),
+        temperature: 0.1,
+        timeoutMs: 60_000,
+      }).catch((err) => {
+        this.logger.warn(`Chunk translation failed: ${err instanceof Error ? err.message : String(err)}`);
+        return null;
+      });
+      const text = cleanPlainText(res?.text || '');
+      if (!text || text.length < chunk.length * 0.6) return null;
+      out.push(text);
+    }
+    return out.join('\n\n');
+  }
+
+  private sectionedDay = '';
+  private sectionedCount = 0;
+
+  /** Articles written section by section today (in-process counter, resets on restart). */
+  private takeSectionedQuota(): boolean {
+    const day = new Date().toISOString().slice(0, 10);
+    if (day !== this.sectionedDay) {
+      this.sectionedDay = day;
+      this.sectionedCount = 0;
+    }
+    const maxEnv = Number(process.env.EDITORIAL_SECTIONED_DAILY_MAX);
+    const max = Number.isInteger(maxEnv) && maxEnv >= 0 ? maxEnv : 40;
+    if (process.env.EDITORIAL_SECTIONED === 'false' || this.sectionedCount >= max) return false;
+    this.sectionedCount += 1;
+    return true;
+  }
+
+  /**
+   * Long-form body for big stories: one call plans 4-7 sections with their own facts and sources,
+   * then each section is written as plain text (150-250 words, fits every free model), checked,
+   * assembled with "## " headings and translated chunk by chunk. Replaces the body only when the
+   * result is longer and every [n] reference is valid. Mutates `article`.
+   */
+  private async writeSectioned(
+    article: { title: string; summary: string; body: string; body_uk?: string; sources: unknown[]; facts?: unknown[] },
+    material: Record<string, unknown>,
+  ): Promise<string[]> {
+    if (!this.takeSectionedQuota()) return [];
+    const sourceCount = Math.max(1, article.sources.length);
+    const sourceList = article.sources.map((s, i) => {
+      const o = (s && typeof s === 'object' ? s : {}) as Record<string, unknown>;
+      return `[${i + 1}] ${String(o.title || '').slice(0, 160)} — ${String(o.url || '')}`;
+    });
+    const compactMaterial = JSON.stringify(material).slice(0, 14_000);
+    const plan = await generateJsonWithRouter<{ sections?: Array<{ heading?: string; focus?: string; refs?: number[] }> }>({
+      task: 'editorial',
+      system:
+        'You plan a long, well-structured news article. Split it into 4-7 sections that do not overlap. ' +
+        'Each section gets a short heading, a focus (2-3 sentences: exactly which facts it covers) and the source ' +
+        `numbers it relies on (1..${sourceCount}). Typical order: what happened, details and numbers, background, ` +
+        'players and their positions, how sources differ, consequences, what to watch. Skip a section when the ' +
+        'material has nothing for it. Use ONLY the given material. Answer JSON only.',
+      prompt:
+        `TITLE: ${article.title}\nSUMMARY: ${article.summary}\nSOURCES:\n${sourceList.join('\n')}\n` +
+        `CURRENT_DRAFT:\n${article.body.slice(0, 4000)}\nMATERIAL:\n${compactMaterial}\n\n` +
+        'Return {"sections":[{"heading":"...","focus":"...","refs":[1,2]}]}',
+      maxTokens: 1200,
+      temperature: 0.2,
+      timeoutMs: 60_000,
+    });
+    const sections = (plan?.data?.sections ?? [])
+      .filter((s) => typeof s?.heading === 'string' && typeof s?.focus === 'string')
+      .slice(0, 7);
+    if (sections.length < 3) return [];
+
+    const written: Array<{ heading: string; text: string }> = [];
+    for (const section of sections) {
+      const refs = (Array.isArray(section.refs) ? section.refs : []).filter((n) => Number.isInteger(n) && n >= 1 && n <= sourceCount);
+      const previous = written.length ? written[written.length - 1].text.split(/\n\s*\n/).pop() || '' : '';
+      const ask = (extra = '') =>
+        generateWithRouter({
+          task: 'editorial',
+          system:
+            'You write ONE section of a news article in clear international English. Use ONLY facts from the material. ' +
+            'Write exactly 3 paragraphs, each 4-6 full sentences, separated by blank lines. Every factual sentence ends ' +
+            `with a source reference like [2]; allowed numbers: 1..${sourceCount}. No heading, no list, no conclusion ` +
+            'about the whole article, do not repeat earlier sections, never invent facts, quotes or numbers.' + extra,
+          prompt:
+            `ARTICLE: ${article.title}\nSECTION: ${section.heading}\nFOCUS: ${section.focus}\n` +
+            `PREFERRED SOURCES: ${refs.join(', ') || 'any'}\nSOURCES:\n${sourceList.join('\n')}\n` +
+            `SECTIONS ALREADY WRITTEN: ${written.map((w) => w.heading).join('; ') || 'none'}\n` +
+            `PREVIOUS PARAGRAPH: ${previous.slice(0, 800)}\nMATERIAL:\n${compactMaterial.slice(0, 10_000)}`,
+          maxTokens: 900,
+          temperature: 0.3,
+          timeoutMs: 60_000,
+        }).catch(() => null);
+      let text = cleanPlainText((await ask())?.text || '');
+      if (countWords(text) < 90 || !referencesWithin(text, sourceCount)) {
+        text = cleanPlainText((await ask(' The previous attempt was too short or cited wrong numbers; follow the rules exactly.'))?.text || '');
+      }
+      if (!text || !referencesWithin(text, sourceCount)) continue;
+      if (!endsCleanly(text)) {
+        const cont = await generateWithRouter({
+          task: 'editorial',
+          system: 'Finish the unfinished last paragraph in the same style (1-3 sentences). Return only the continuation.',
+          prompt: text.slice(-1500),
+          maxTokens: 300,
+          temperature: 0.2,
+          timeoutMs: 30_000,
+        }).catch(() => null);
+        const tail = cleanPlainText(cont?.text || '');
+        if (tail && referencesWithin(tail, sourceCount)) text = `${text} ${tail}`;
+      }
+      if (countWords(text) >= 60) written.push({ heading: section.heading!.trim().slice(0, 120), text });
+    }
+    if (written.length < 3) return [];
+    const body = assembleSections(written);
+    if (countWords(body) <= countWords(article.body) * 1.2) return [];
+
+    article.body = body.slice(0, 16000);
+    const steps = ['sections'];
+    const bodyUk = await this.translateChunked(article.body);
+    if (bodyUk) {
+      article.body_uk = bodyUk.slice(0, 16000);
+      steps.push('translate');
     }
     return steps;
   }
@@ -1065,8 +1190,16 @@ export class GeminiEditorService {
       }
 
       let modelUsed = result.modelUsed;
+      // Big stories: write the body section by section (plan → sections → chunked translation).
+      const sectioned = isBigStory || article.important
+        ? await this.writeSectioned(article, userPayload).catch((err) => {
+            this.logger.warn(`Sectioned writing skipped for ${item.externalId}: ${err instanceof Error ? err.message : String(err)}`);
+            return [] as string[];
+          })
+        : [];
       const lengthFix = await this.ensureFullLength(article, userPayload, (options?.clusterSources?.length ?? 0) >= 2);
-      if (lengthFix.length) modelUsed = `${modelUsed}+${lengthFix.join('+')}`;
+      const repairSteps = [...sectioned, ...lengthFix];
+      if (repairSteps.length) modelUsed = `${modelUsed}+${repairSteps.join('+')}`;
       let hydrogenInsight = article.hydrogen_insight;
       let hydrogenDeepAnalysis = false;
       let finalWhyItMatters = article.importance_reason;
@@ -1522,4 +1655,43 @@ export function referencesWithin(text: string, sourceCount: number): boolean {
 export function translationTooShort(body: string, bodyUk: string | undefined): boolean {
   if (!body || body.length < 400) return false;
   return !bodyUk || bodyUk.length < body.length * 0.75;
+}
+
+/** Splits text at paragraph boundaries into chunks of at most ~maxChars (a single long paragraph stays whole). */
+export function splitParagraphChunks(text: string, maxChars = 2400): string[] {
+  const paragraphs = text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  const chunks: string[] = [];
+  let current = '';
+  for (const p of paragraphs) {
+    if (current && current.length + p.length + 2 > maxChars) {
+      chunks.push(current);
+      current = p;
+    } else {
+      current = current ? `${current}\n\n${p}` : p;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+/** Removes code fences, markdown headings/bold and preambles like "Here is the section:". */
+export function cleanPlainText(text: string): string {
+  return text
+    .replace(/^```[a-z]*\s*|\s*```$/gi, '')
+    .replace(/^\s*(here is|here's|sure[,!]|ось|звісно)[^\n]*:\s*\n/i, '')
+    .split('\n')
+    .filter((line) => !/^\s*#{1,6}\s/.test(line))
+    .join('\n')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/** True when the text ends with sentence punctuation or a source reference (not cut off mid-sentence). */
+export function endsCleanly(text: string): boolean {
+  return /[.!?…»”")\]]\s*$/.test(text.trim());
+}
+
+export function assembleSections(sections: Array<{ heading: string; text: string }>): string {
+  return sections.map((s) => `## ${s.heading}\n\n${s.text}`).join('\n\n');
 }

@@ -133,3 +133,57 @@ test('editorial length checks', () => {
   assert.ok(translationTooShort(en, undefined));
   assert.ok(!translationTooShort('short text', undefined));
 });
+
+import {
+  assembleSections, cleanPlainText, endsCleanly, GeminiEditorService, splitParagraphChunks,
+} from '../dist/ingest/gemini-editor.service.js';
+
+test('plain-text helpers for sectioned writing', () => {
+  const chunks = splitParagraphChunks(['a'.repeat(1000), 'b'.repeat(1000), 'c'.repeat(1000)].join('\n\n'), 2400);
+  assert.equal(chunks.length, 2);
+  assert.equal(cleanPlainText('```\nHere is the section:\n## Head\n**Bold** text [1].\n```'), 'Bold text [1].');
+  assert.ok(endsCleanly('Done [2].'));
+  assert.ok(!endsCleanly('The company said that'));
+  assert.equal(assembleSections([{ heading: 'A', text: 'x' }]), '## A\n\nx');
+});
+
+test('sectioned writing: plan, sections, chunked translation (mocked model)', async () => {
+  const saved = { fetch: globalThis.fetch, groq: process.env.GROQ_API_KEY, gem: process.env.GEMINI_API_KEY };
+  delete process.env.GEMINI_API_KEY;
+  process.env.GROQ_API_KEY = 'test-key';
+  const para = 'NVIDIA agreed to supply chips to the startup under a multi-year deal [1]. The deal covers several data centers in Europe [2]. Analysts said the volume is large for a company of this size [1]. The companies did not disclose the price [2].';
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    const req = JSON.parse(init.body);
+    const system = req.messages.find((m) => m.role === 'system')?.content || '';
+    calls.push(system.slice(0, 30));
+    let content;
+    if (system.startsWith('You plan')) {
+      content = JSON.stringify({ sections: [
+        { heading: 'What happened', focus: 'deal', refs: [1] },
+        { heading: 'Details', focus: 'numbers', refs: [2] },
+        { heading: 'Context', focus: 'background', refs: [1, 2] },
+        { heading: 'What next', focus: 'next', refs: [1] },
+      ] });
+    } else if (system.startsWith('You write ONE section')) {
+      content = `${para}\n\n${para}\n\n${para}`;
+    } else if (system.startsWith('Translate')) {
+      content = 'Український переклад абзацу з посиланням [1], достатньо довгий, щоб пройти перевірку довжини. '.repeat(Math.ceil(req.messages.at(-1).content.length / 90));
+    } else content = '{}';
+    return new Response(JSON.stringify({ choices: [{ message: { content }, finish_reason: 'stop' }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const svc = new GeminiEditorService();
+    const article = { title: 'NVIDIA deal', summary: 's', body: 'Short body [1].', body_uk: 'Коротко [1].', sources: [{ url: 'https://a', title: 'A' }, { url: 'https://b', title: 'B' }] };
+    const steps = await svc.writeSectioned(article, { title: 'NVIDIA deal' });
+    assert.deepEqual(steps, ['sections', 'translate']);
+    assert.equal((article.body.match(/^## /gm) || []).length, 4);
+    assert.ok(article.body.split(/\s+/).length > 500);
+    assert.ok(article.body_uk.length >= article.body.length * 0.75);
+    assert.ok(calls.filter((c) => c.startsWith('Translate')).length >= 2, 'translated in chunks');
+  } finally {
+    globalThis.fetch = saved.fetch;
+    if (saved.groq === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = saved.groq;
+    if (saved.gem !== undefined) process.env.GEMINI_API_KEY = saved.gem;
+  }
+});
