@@ -36,6 +36,8 @@ import { AiRankingsController } from './ai-rankings/ai-rankings.controller';
 import { AiRankingsService } from './ai-rankings/ai-rankings.service';
 import { ObjectivityController } from './news/objectivity.controller';
 import { TopicsService } from './news/topics.service';
+import { InsightsController } from './insights/insights.controller';
+import { InsightsService } from './insights/insights.service';
 
 @Module({
   controllers: [
@@ -51,6 +53,7 @@ import { TopicsService } from './news/topics.service';
     FeedController,
     AiRankingsController,
     ObjectivityController,
+    InsightsController,
   ],
   providers: [
     DatabaseService,
@@ -78,6 +81,7 @@ import { TopicsService } from './news/topics.service';
     YoutubeChannelDiscoveryService,
     AiRankingsService,
     TopicsService,
+    InsightsService,
   ],
 })
 export class AppModule {}

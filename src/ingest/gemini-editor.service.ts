@@ -17,7 +17,7 @@ import {
   LicenseMode,
 } from '../common/source-compliance';
 import { DatabaseService } from '../database/database.service';
-import { generateWithRouter } from '../common/llm-router';
+import { generateJsonWithRouter, generateWithRouter } from '../common/llm-router';
 import { ClusterSource, extractClusterSignature } from '../news/news-clustering.service';
 import { ArticleDto, CATEGORIES, SourceDto } from './ingest.dto';
 
@@ -898,6 +898,67 @@ export class GeminiEditorService {
     };
   }
 
+  /**
+   * Free-tier fallback models often return a body far shorter than the prompt asks for, and the Ukrainian
+   * translation is often a compressed retelling. Expands a short body from the same material and
+   * re-translates a short body_uk. Mutates `article`; returns the repair steps that ran.
+   */
+  private async ensureFullLength(
+    article: { body: string; body_uk?: string; sources: unknown[] },
+    material: Record<string, unknown>,
+    multiSource: boolean,
+  ): Promise<string[]> {
+    const steps: string[] = [];
+    const target = bodyLengthTarget(multiSource);
+    const words = countWords(article.body);
+    if (words < target.min) {
+      const res = await generateJsonWithRouter<{ body?: string; body_uk?: string }>({
+        task: 'editorial',
+        system:
+          'You are a news editor. The DRAFT_BODY is too short. Rewrite it into a complete article body of ' +
+          `${target.min}-${target.max} words in English, using ONLY facts from MATERIAL and DRAFT_BODY. ` +
+          'Never invent facts, numbers, quotes or URLs. Keep the [n] source references; n must stay within 1..' +
+          `${Math.max(1, article.sources.length)}. Plain text paragraphs separated by blank lines. ` +
+          'Also return body_uk: a full, faithful Ukrainian translation of the new body (same paragraphs, same [n]). Answer JSON only.',
+        prompt: `${JSON.stringify({ MATERIAL: material, DRAFT_BODY: article.body })}\n\nReturn {"body":"...","body_uk":"..."}`,
+        maxTokens: 6000,
+        temperature: 0.2,
+        timeoutMs: 90_000,
+      }).catch((err) => {
+        this.logger.warn(`Body expansion failed: ${err instanceof Error ? err.message : String(err)}`);
+        return null;
+      });
+      const body = typeof res?.data?.body === 'string' ? res.data.body.trim() : '';
+      if (body && countWords(body) >= words * 1.2 && referencesWithin(body, article.sources.length)) {
+        article.body = body.slice(0, 16000);
+        const bodyUk = typeof res?.data?.body_uk === 'string' ? res.data.body_uk.trim() : '';
+        if (bodyUk) article.body_uk = bodyUk.slice(0, 16000);
+        steps.push('expand');
+      }
+    }
+    if (translationTooShort(article.body, article.body_uk)) {
+      const res = await generateJsonWithRouter<{ body_uk?: string }>({
+        task: 'translate',
+        system:
+          'Translate the English news text into natural modern Ukrainian. Translate EVERY sentence and paragraph; ' +
+          'do not shorten, summarise or add anything. Keep [n] references and paragraph breaks. Answer JSON only.',
+        prompt: `${JSON.stringify({ text: article.body })}\n\nReturn {"body_uk":"..."}`,
+        maxTokens: 6000,
+        temperature: 0.1,
+        timeoutMs: 90_000,
+      }).catch((err) => {
+        this.logger.warn(`Body re-translation failed: ${err instanceof Error ? err.message : String(err)}`);
+        return null;
+      });
+      const bodyUk = typeof res?.data?.body_uk === 'string' ? res.data.body_uk.trim() : '';
+      if (bodyUk && bodyUk.length > (article.body_uk?.length ?? 0)) {
+        article.body_uk = bodyUk.slice(0, 16000);
+        steps.push('translate');
+      }
+    }
+    return steps;
+  }
+
   async edit(
     source: SourceDto,
     item: ArticleDto,
@@ -1004,6 +1065,8 @@ export class GeminiEditorService {
       }
 
       let modelUsed = result.modelUsed;
+      const lengthFix = await this.ensureFullLength(article, userPayload, (options?.clusterSources?.length ?? 0) >= 2);
+      if (lengthFix.length) modelUsed = `${modelUsed}+${lengthFix.join('+')}`;
       let hydrogenInsight = article.hydrogen_insight;
       let hydrogenDeepAnalysis = false;
       let finalWhyItMatters = article.importance_reason;
@@ -1433,4 +1496,30 @@ export function detectCanonicalLang(title: string, summary: string): 'en' | 'uk'
   const cyr = (text.match(/[\u0400-\u04FF]/g) || []).length;
   const lat = (text.match(/[A-Za-z]/g) || []).length;
   return cyr > lat ? 'uk' : 'en';
+}
+
+/** Minimum and target length of an article body; the prompt asks 250-450 (single source) or 450-800 words. */
+export function bodyLengthTarget(multiSource: boolean): { min: number; max: number } {
+  const minEnv = Number(process.env.EDITORIAL_MIN_BODY_WORDS);
+  const min = Number.isInteger(minEnv) && minEnv >= 50 ? minEnv : multiSource ? 380 : 220;
+  return { min, max: multiSource ? 800 : 450 };
+}
+
+export function countWords(text: string | undefined): number {
+  return (text || '').replace(/\[\d+\]/g, ' ').match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu)?.length ?? 0;
+}
+
+/** Every [n] reference points at an existing source. */
+export function referencesWithin(text: string, sourceCount: number): boolean {
+  for (const m of text.matchAll(/\[(\d+)\]/g)) {
+    const n = Number(m[1]);
+    if (n < 1 || n > Math.max(1, sourceCount)) return false;
+  }
+  return true;
+}
+
+/** Ukrainian text is usually as long as English in characters; under 75% means parts were dropped. */
+export function translationTooShort(body: string, bodyUk: string | undefined): boolean {
+  if (!body || body.length < 400) return false;
+  return !bodyUk || bodyUk.length < body.length * 0.75;
 }

@@ -170,6 +170,45 @@ Data contract of POST `/api/v1/ingest/news`:
 
 All AI-derived data requires human review. Re-sending the same record and unchanged fields doesn't rewrite it. Changes reset an approved item back to `needs_review`.
 
+### Insights: non-obvious links (migration 024)
+
+`InsightsService` runs every hour (first run 4 minutes after start) and mostly uses scripts, not AI:
+
+1. **Scan**: every new article is matched against entity aliases in `kg_entities.aliases`. Latin names match whole words; Ukrainian names match by word prefix, so case endings still match. Event types (funding, acquisition, partnership, launch, lawsuit, ...) and dollar amounts come from regex patterns in `news_event_tags`. New proper names from titles go to `entity_candidates`.
+2. **Statistics**: articles are grouped into stories through `cluster_id`, so one press release counts once. For each entity pair the service computes co-mentions, PMI, NPMI and lift (`entity_pair_stats`).
+3. **Graph**: it finds Louvain communities, PageRank, betweenness ("bridges") and Adamic-Adar scores, which suggest likely links that have not been mentioned yet (`entity_metrics`).
+4. **Time**: it detects mention spikes (Poisson z-score), finds pairs where one entity's activity leads another's by a few days, and finds event sequences such as "funding → launch in about N days" (`event_sequence_stats`). It also links topics that share rare entities but no articles.
+5. **Findings**: results go to `insight_links`, one per subject per day. Each finding has a title in Ukrainian and English and links to the articles behind it.
+
+AI is used only when an LLM key is configured, and stays within `INSIGHTS_AI_DAILY_MAX` calls per day. It classifies repeated new names (whether each is a new entity or another name for an existing one) and writes a two-sentence explanation for a few top findings, using only the articles behind them. When a finding is not supported by those articles, it is hidden.
+
+Public routes (`lang=uk|en`):
+
+```text
+GET /insights?kind=novel_pair|surprising_pair|predicted|bridge|burst|lead_lag|topic_link|sequence&days=7&limit=30
+GET /insights/trends
+GET /insights/patterns
+GET /insights/entity/:slug
+GET /insights/path?from=nvidia&to=mistral
+GET /insights/news/:id/related
+GET /insights/topics/:slug/related
+GET /insights/status
+```
+
+Admin routes (header `x-ingest-key`):
+
+```powershell
+$h = @{ 'x-ingest-key' = $env:INGEST_API_KEY }
+Invoke-RestMethod -Method Post -Headers $h http://127.0.0.1:3000/insights/run
+Invoke-RestMethod -Headers $h http://127.0.0.1:3000/insights/candidates
+# accept as a new entity, as an alias of an existing one, or reject
+Invoke-RestMethod -Method Post -Headers $h -ContentType 'application/json' -Body '{"action":"accept","type":"company","name":"Perplexity"}' http://127.0.0.1:3000/insights/candidates/12
+Invoke-RestMethod -Method Post -Headers $h -ContentType 'application/json' -Body '{"action":"accept","aliasOf":"google"}' http://127.0.0.1:3000/insights/candidates/13
+Invoke-RestMethod -Method Post -Headers $h -ContentType 'application/json' -Body '{"action":"reject"}' http://127.0.0.1:3000/insights/candidates/14
+```
+
+Settings are listed under "Insights" in `.env.example`.
+
 ## 9. Validation / limitations
 
 - Run `npm run preflight`, `npm run typecheck`, `npm run build`, `python -m unittest discover -s tests -v`.

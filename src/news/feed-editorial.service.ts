@@ -102,7 +102,9 @@ export class FeedEditorialService implements OnModuleInit, OnModuleDestroy {
         this.discovery?.triggerDiscoveryIfNeeded(sparseCategories);
       }
 
-      const maxPerCycle = 6;
+      // Articles turned into full AI text per 5-minute cycle; raise it when the free AI quota allows.
+      const maxEnv = Number(process.env.EDITORIAL_MAX_PER_CYCLE);
+      const maxPerCycle = Number.isInteger(maxEnv) && maxEnv >= 1 && maxEnv <= 30 ? maxEnv : 6;
       const freshUnprocessed = items.filter(
         entry =>
           feedBySlug.has(entry.source_slug) &&
