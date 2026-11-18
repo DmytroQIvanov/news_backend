@@ -8,7 +8,10 @@ dist
 *.log
 *.zip
 __pycache__
-knowledge
+knowledge/*
+!knowledge/kb
+knowledge/kb/*
+!knowledge/kb/quotas.v1.json
 backups
 compose.server.yaml
 .env.server*
