@@ -317,3 +317,14 @@ test('related news: link direction decides the label', () => {
   assert.equal(directedKind('reaction_to', false), 'precedent');
   assert.equal(directedKind('contradicts', false), 'contradicts');
 });
+
+test('review parsing tolerates string ids and case from non-JSON-mode models, but not missing or duplicate verdicts', () => {
+  const { eventReviews } = require('../dist/kb/kb-review.js');
+  const arts = [{ event_id: 7 }];
+  assert.equal(eventReviews([{ event_id: '7', verdict: 'OK', issues: [] }], arts, [7]).get(7).verdict, 'ok');
+  assert.equal(eventReviews([{ verdict: 'ok', issues: [] }], arts, [7]).get(7).verdict, 'ok');
+  assert.equal(eventReviews([{ event_id: 7, verdict: 'ok' }], arts, [7]).get(7).verdict, 'missing_or_invalid');
+  assert.equal(eventReviews([], arts, [7]).get(7).verdict, 'missing_or_invalid');
+  assert.equal(eventReviews([{ event_id: 7, verdict: 'ok', issues: [] }, { event_id: 7, verdict: 'ok', issues: [] }], arts, [7]).get(7).verdict, 'missing_or_invalid');
+  assert.equal(eventReviews([{ event_id: 7, verdict: 'ok', issues: [{ location: 'a', problem: 'b', fix: 'c' }] }], arts, [7]).get(7).verdict, 'missing_or_invalid');
+});

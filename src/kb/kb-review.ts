@@ -12,7 +12,11 @@ export function reviewHash(article: unknown): string {
 
 /** Exactly one well-formed verdict for each expected event; absence and duplicates are holds. */
 export function eventReviews(raw: unknown, articles: Array<{ event_id: number }>, eventIds: number[]): Map<number, ArticleReview> {
-  const rows = Array.isArray(raw) ? raw : [];
+  // Models other than Gemini's JSON mode may answer event_id as a string; a single review for a single expected event needs no id.
+  const rows = (Array.isArray(raw) ? raw : []).filter((r) => r && typeof r === 'object').map((r: any) => ({
+    ...r, event_id: Number.isFinite(Number(r.event_id)) ? Number(r.event_id) : eventIds.length === 1 ? eventIds[0] : r.event_id,
+    verdict: typeof r.verdict === 'string' ? r.verdict.trim().toLowerCase() : r.verdict,
+  }));
   return new Map(eventIds.map((id) => {
     const mine = rows.filter((r) => r && r.event_id === id);
     const r = mine[0];
