@@ -66,6 +66,16 @@ export function sentenceScore(sentence: string, index: number, total: number, ct
   return focus * 1.6 + numbers * 0.6 + entities * 0.5 + quote + position * 0.9 + length;
 }
 
+const NEGATION = /\b(not|no|never|none|neither|nor|without|denied|denies|deny|refused|cannot|can't|won't|didn't|isn't|wasn't|не|ні|немає|заперечив|спростував|без)\b/giu;
+
+/** Numbers, negations and quoted text of a sentence: two sentences are the same claim only when these match. */
+export function claimSignature(sentence: string): string {
+  const numbers = (sentence.match(/\d[\d.,]*/g) ?? []).map((n) => n.replace(/[.,]$/, '')).sort().join('|');
+  const neg = (sentence.match(NEGATION) ?? []).length;
+  const quotes = (sentence.match(/["«“][^"»”]{3,}["»”]/g) ?? []).join('').toLowerCase();
+  return `${numbers}#${neg}#${quotes}`;
+}
+
 export interface DocForMinify {
   ref: string;
   text: string;
@@ -89,7 +99,7 @@ export interface MinifiedDoc {
  * `seen` (shingles of already-kept sentences of other documents) already contains.
  */
 export function minifyDocument(
-  doc: DocForMinify, budgetChars: number, ctx: SalienceContext, seen: Array<{ ref: string; sh: Set<string> }>,
+  doc: DocForMinify, budgetChars: number, ctx: SalienceContext, seen: Array<{ ref: string; sh: Set<string>; sig: string }>,
 ): MinifiedDoc {
   const sentences = splitSentences(doc.text).filter((s) => !isBoilerplate(s));
   const alsoIn: Record<string, string[]> = {};
@@ -97,8 +107,10 @@ export function minifyDocument(
     const sh = shingles(s, 4);
     let dup: string | null = null;
     if (sh.size >= 3) {
+      const sig = claimSignature(s);
       for (const other of seen) {
-        if (jaccard(sh, other.sh) >= 0.5) {
+        // the same words AND the same numbers, polarity and quoted text: a different figure is a different claim
+        if (jaccard(sh, other.sh) >= 0.6 && sig === other.sig) {
           dup = other.ref;
           break;
         }
@@ -115,13 +127,21 @@ export function minifyDocument(
       (alsoIn[c.dup] ??= []).push(c.s.slice(0, 60));
       continue;
     }
-    if (used + c.s.length + 1 > budgetChars && keep.size > 0) continue;
+    if (used + c.s.length + 1 > budgetChars) {
+      if (keep.size === 0 && budgetChars > 60) {
+        const cut = c.s.slice(0, budgetChars - 1);
+        c.s = `${cut.slice(0, Math.max(cut.lastIndexOf(' '), 40))}…`;
+        keep.add(c.i);
+        used += c.s.length + 1;
+      }
+      continue;
+    }
     if (c.score < 0.35 && keep.size >= 2) continue;
     keep.add(c.i);
     used += c.s.length + 1;
   }
   const kept = candidates.filter((c) => keep.has(c.i)).map((c) => c.s);
-  for (const s of kept) seen.push({ ref: doc.ref, sh: shingles(s, 4) });
+  for (const s of kept) seen.push({ ref: doc.ref, sh: shingles(s, 4), sig: claimSignature(s) });
   const text = kept.join(' ');
   return { ref: doc.ref, text, originalChars: doc.text.length, keptChars: text.length, alsoIn };
 }
@@ -145,14 +165,16 @@ export function minifyDossierDocs(docs: DocForMinify[], totalChars: number, ctx:
   const ranked = [...docs].sort((a, b) => Number(!!b.primary) - Number(!!a.primary) || b.weight - a.weight || a.order - b.order);
   const weights = ranked.map((d) => 0.4 + d.weight + (d.primary ? 0.6 : 0));
   const sum = weights.reduce((a, b) => a + b, 0) || 1;
-  const seen: Array<{ ref: string; sh: Set<string> }> = [];
+  const seen: Array<{ ref: string; sh: Set<string>; sig: string }> = [];
   const out: MinifiedDoc[] = [];
   const overflow: string[] = [];
   let remaining = totalChars;
   ranked.forEach((d, idx) => {
     const share = Math.floor((totalChars * weights[idx]) / sum);
-    const budget = Math.max(d.primary ? floor : minPerDoc, Math.min(share, remaining));
-    if (remaining < minPerDoc && !d.primary) {
+    // primary documents get their floor only while the global budget still has room; the total never exceeds totalChars
+    const want = Math.max(d.primary ? floor : minPerDoc, share);
+    const budget = Math.min(want, remaining);
+    if (budget < Math.min(minPerDoc, 200)) {
       overflow.push(d.ref);
       return;
     }

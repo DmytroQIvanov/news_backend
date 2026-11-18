@@ -259,3 +259,26 @@ test('narrator: speech text drops citations and markup and ends on a whole sente
   assert.ok(!spoken.includes('third sentence'));
   assert.equal(speechFromBody('', 100), '');
 });
+
+test('review fixes: claims with different numbers are not duplicates; budgets hold; decimals survive speech; syntax patches cannot change facts', async () => {
+  const m = require('../dist/kb/kb-minify.js');
+  const ctx = { focus: m.focusTokens('million dollars budget') };
+  const docs = [
+    { ref: 'D1', text: 'The ministry allocated 100 million dollars to the programme this year according to the budget.', weight: 0.9, order: 0 },
+    { ref: 'D2', text: 'The ministry allocated 900 million dollars to the programme this year according to the budget.', weight: 0.6, order: 1 },
+  ];
+  const r = m.minifyDossierDocs(docs, 5000, ctx);
+  assert.ok(r.docs.find((d) => d.ref === 'D2').text.includes('900 million'), 'a different figure is a different claim');
+  const tiny = m.minifyDossierDocs([{ ref: 'D1', text: 'A'.repeat(50) + ' sentence one is long enough to count here. '.repeat(40), weight: 1, primary: true, order: 0 }], 300, ctx);
+  assert.ok(tiny.keptChars <= 300, `kept ${tiny.keptChars}`);
+  const { speechFromBody } = require('../dist/news/audio-briefing.service.js');
+  assert.ok(speechFromBody('The bank raised rates by 0.5 points on Tuesday. Next sentence follows here.', 200).includes('by 0.5 points'));
+  const { parseJsonRobust } = require('../dist/kb/kb-repair.js');
+  const bad = '{"a": 100 "b": 2}';
+  await assert.rejects(() => parseJsonRobust(bad, async () => '{"a": 900, "b": 2}'));
+  const ok = await parseJsonRobust(bad, async () => '{"a": 100, "b": 2}');
+  assert.equal(ok.a, 100);
+  const e = require('../dist/kb/kb-article-edit.js');
+  const mapped = e.remapCitations(['Rates rose [D1][F2].', 'Unknown source [D9].'], (ref) => ({ D1: [1], F2: [2] }[ref] ?? null));
+  assert.deepEqual(mapped, ['Rates rose [1][2].']);
+});

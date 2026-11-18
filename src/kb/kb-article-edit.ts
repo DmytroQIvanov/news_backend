@@ -124,3 +124,25 @@ export function dossierRefs(rendered: string): Set<string> {
   for (const m of rendered.matchAll(/\[([A-Z]\d+)\]/g)) out.add(m[1]);
   return out;
 }
+
+/**
+ * Rewrites dossier references in new paragraphs ([D3], [F2]) into the numbered citations of an already published article.
+ * `resolve` returns the citation number for a reference or null; a paragraph with any unresolved reference is dropped.
+ */
+export function remapCitations(paragraphs: string[], resolve: (ref: string) => number[] | null): string[] {
+  const out: string[] = [];
+  for (const p of paragraphs) {
+    let ok = true;
+    const text = p.replace(/\[([A-Z]\d+(?:\s*[,;]\s*[A-Z]\d+)*)\]/g, (_all, inner: string) => {
+      const nums = new Set<number>();
+      for (const ref of inner.split(/\s*[,;]\s*/)) {
+        const n = resolve(ref);
+        if (!n || !n.length) ok = false;
+        else n.forEach((x) => nums.add(x));
+      }
+      return [...nums].sort((a, b) => a - b).map((n) => `[${n}]`).join('');
+    });
+    if (ok && /\[\d+\]/.test(text)) out.push(text);
+  }
+  return out;
+}

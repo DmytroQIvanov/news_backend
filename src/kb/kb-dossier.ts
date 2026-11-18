@@ -29,6 +29,7 @@ export interface DossierDoc {
   extraction: string;
   excerpt: string;
   newsId: number | null;
+  reliability?: number;
   data?: DataAttachment;
 }
 
@@ -182,7 +183,7 @@ export async function buildDossier(db: DatabaseService, eventId: number, opts: {
       ref, documentId: Number(d.id), sourceName: d.source_name ?? 'Unknown', sourceSlug: d.source_slug, tier: d.tier,
       evidenceRoot: d.evidence_root, role: d.role, title: d.title, url: d.url, publishedAt: iso(d.published_at), lang: d.lang,
       extraction: d.extraction_status, excerpt: teaser ? String(d.excerpt || '').slice(0, 400) : String(d.excerpt || ''),
-      newsId: d.legacy_news_id ? Number(d.legacy_news_id) : null,
+      newsId: d.legacy_news_id ? Number(d.legacy_news_id) : null, reliability: d.reliability !== undefined ? Number(d.reliability) : undefined,
     };
   });
 
@@ -410,7 +411,7 @@ export function applyMinify(d: EventDossier, totalChars: number): { originalChar
   const targets = d.docs.filter((x) => x.excerpt && x.excerpt.length > 600 && !x.data && (x.extraction === 'full' || x.extraction === 'partial'));
   const inputs: DocForMinify[] = targets.map((x, i) => ({
     ref: x.ref, text: x.excerpt, order: i, primary: x.tier === 'primary' || x.role === 'primary',
-    weight: TIER_WEIGHT[x.tier ?? ''] ?? (x.role === 'corroboration' ? 0.65 : 0.6),
+    weight: typeof x.reliability === 'number' && Number.isFinite(x.reliability) ? Math.max(0.2, Math.min(1, x.reliability)) : TIER_WEIGHT[x.tier ?? ''] ?? (x.role === 'corroboration' ? 0.65 : 0.6),
   }));
   if (inputs.length < 2 && !inputs.some((x) => x.text.length > totalChars)) return { originalChars: 0, keptChars: 0, docs: 0 };
   const res = minifyDossierDocs(inputs, totalChars, ctx);

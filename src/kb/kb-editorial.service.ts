@@ -26,7 +26,7 @@ import { DatabaseService } from '../database/database.service';
 import { validateArticle } from '../ingest/gemini-editor.service';
 import { CATEGORIES } from '../ingest/ingest.dto';
 import { applyMinify, buildDossier, EventDossier, renderDossier } from './kb-dossier';
-import { applyPatches, countWords, dossierRefs, EXPAND_SCHEMA, insertParagraphs, PATCH_SCHEMA, validateParagraphs, validatePatches } from './kb-article-edit';
+import { applyPatches, countWords, dossierRefs, EXPAND_SCHEMA, insertParagraphs, PATCH_SCHEMA, remapCitations, validateParagraphs, validatePatches } from './kb-article-edit';
 import { gemmaJson } from './kb-gemma';
 import { geminiJson, JsonLlm, models } from './kb-llm';
 
@@ -430,7 +430,7 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
         const outcome = await this.publish(item.cand, item.dossier, art, written.model, {
           tier,
           extraMeta: review ? { review: { verdict: review.verdict, issues: review.issues.length } } : undefined,
-          forceReview: review?.verdict === 'reject',
+          forceReview: review?.verdict === 'reject' || review?.verdict === 'fix',
         });
         detail[item.cand.eventId] = outcome;
         if (item.cand.isUpdate) result.updated += 1;
@@ -474,7 +474,35 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
       let body: string = String(article.body ?? '');
       if (dossier) {
         if (process.env.KB_MINIFY !== 'false') applyMinify(dossier, tier === 'big' ? envInt('KB_MINIFY_BIG_CHARS', 70_000, 8_000) : envInt('KB_MINIFY_MEDIUM_CHARS', 28_000, 4_000));
-        body = await this.expandShort({ ...article, body } as GeneratedArticle, dossier, minWords).catch(() => body);
+        const expanded = await this.expandShort({ ...article, body } as GeneratedArticle, dossier, minWords).catch(() => body);
+        if (expanded !== body) {
+          // new paragraphs cite dossier references; map them onto the numbered sources the published article already has
+          const sources: Array<{ title: string; url: string }> = Array.isArray(article.sources) ? [...article.sources] : [];
+          const numberFor = (url: string): number | null => {
+            const i = sources.findIndex((x) => x.url === url);
+            if (i >= 0) return i + 1;
+            if (sources.length >= 12) return null;
+            const d = dossier.docs.find((x) => x.url === url);
+            sources.push({ title: d ? `${d.sourceName}: ${d.title}`.slice(0, 240) : url, url });
+            return sources.length;
+          };
+          const docNums = (ref: string): number[] | null => {
+            const d = dossier.docs.find((x) => x.ref === ref);
+            if (d) {
+              const n = numberFor(d.url);
+              return n ? [n] : null;
+            }
+            const f = [...dossier.facts, ...dossier.background].find((x) => x.ref === ref);
+            if (!f?.docRefs?.length) return null;
+            const nums = f.docRefs.flatMap((r) => docNums(r) ?? []);
+            return nums.length ? nums : null;
+          };
+          const added = expanded.slice(body.length > 0 && expanded.startsWith(body.trimEnd()) ? body.trimEnd().length : 0);
+          const paras = added.split(/\n{2,}/).map((x) => x.trim()).filter((x) => /\[[A-Z]\d+\]/.test(x));
+          const mapped = remapCitations(paras, docNums);
+          if (mapped.length) body = insertParagraphs(body, mapped);
+          article.sources = sources;
+        }
       }
       const words = countWords(body);
       if (words >= minWords) {
@@ -551,17 +579,22 @@ Fix only what the issue lists, using only the dossier; keep citations like [D1] 
         });
         if (appliedTotal > 0) {
           fixer = `${patched.model}+patch`;
+          // only articles that really received patches count as fixed; the rest stay 'fix' and are held for review
           for (const it of toFix) {
+            const mine = all.filter((p) => p.event_id === it.eventId);
+            const before = articles.find((a) => Number(a.event_id) === it.eventId);
+            const after = out.find((a) => Number(a.event_id) === it.eventId);
             const r = reviews.get(it.eventId);
-            if (r) r.verdict = 'ok';
+            if (r && mine.length && before && after && (before.body !== after.body || before.title !== after.title || before.summary !== after.summary)) r.verdict = 'ok';
           }
           return { articles: out, reviews, reviewer: review.model, fixer };
         }
+        if (process.env.KB_FIX_REWRITE !== 'true') return { articles: out, reviews, reviewer: review.model, fixer };
       } catch {
-        /* fall through to the full rewrite below */
+        if (process.env.KB_FIX_REWRITE !== 'true') return { articles: out, reviews, reviewer: review.model, fixer };
       }
     }
-    if (toFix.length) {
+    if (toFix.length && (process.env.KB_FIX_PATCH === 'false' || process.env.KB_FIX_REWRITE === 'true')) {
       const fixPrompt = toFix.map((it) => {
         const art = articles.find((a) => Number(a.event_id) === it.eventId)!;
         const issues = reviews.get(it.eventId)!.issues.map((i, n) => `${n + 1}. [${i.location}] ${i.problem} -> ${i.fix}`).join('\n');
@@ -605,6 +638,11 @@ Fix only what the issue lists, using only the dossier; keep citations like [D1] 
   /** Map dossier references to real sources, check the text, write/update the news item and link the event. */
   async publish(cand: Candidate, dossier: EventDossier, art: GeneratedArticle, model: string, opts: PublishOptions = {}) {
     const tier: Tier = opts.tier ?? cand.tier ?? 'medium';
+    // Too short for its tier: add cited paragraphs from unused dossier material instead of rejecting or rewriting the article.
+    const tierMin = tier === 'flagship' ? 1100 : tier === 'big' ? 650 : 250;
+    if (this.llm === geminiJson && process.env.KB_EXPAND !== 'false' && countWords(art.body || '') < tierMin) {
+      art.body = await this.expandShort(art, dossier, tierMin).catch(() => art.body);
+    }
     const historyRefs = new Set(opts.historyRefs ?? []);
     const docByRef = new Map(dossier.docs.map((d) => [d.ref, d]));
     const factByRef = new Map([...dossier.facts, ...dossier.background].map((f) => [f.ref, f]));
@@ -648,11 +686,6 @@ Fix only what the issue lists, using only the dossier; keep citations like [D1] 
         })
         .replace(/[ \t]+([.,;:!?])/g, '$1') // a removed [E#] must not leave "reopened ."
         .replace(/[ \t]+\n/g, '\n');
-    // Too short for its tier: add cited paragraphs from unused dossier material instead of rejecting or rewriting the article.
-    const tierMin = tier === 'flagship' ? 1100 : tier === 'big' ? 650 : 250;
-    if (this.llm === geminiJson && process.env.KB_EXPAND !== 'false' && countWords(art.body || '') < tierMin) {
-      art.body = await this.expandShort(art, dossier, tierMin).catch(() => art.body);
-    }
     const body = rewrite(art.body || '');
 
     const sources = order.slice(0, 12).map((ref) => {

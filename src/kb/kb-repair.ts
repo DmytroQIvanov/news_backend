@@ -94,7 +94,10 @@ export async function parseJsonRobust(text: string, fixer?: SnippetFixer, maxPat
       const from = Math.max(0, pos - 220);
       const to = Math.min(current.length, pos + 220);
       const fixed = await fixer(current.slice(from, to), err instanceof Error ? err.message : String(err)).catch(() => null);
-      if (!fixed || fixed.length > (to - from) * 1.5 || fixed.length < (to - from) * 0.5) throw new Error('JSON syntax patch was rejected');
+      const content = (x: string) => x.replace(/[\s,"'\[\]{}:\\]/g, '');
+      if (!fixed || fixed.length > (to - from) * 1.5 || fixed.length < (to - from) * 0.5 || content(fixed) !== content(current.slice(from, to))) {
+        throw new Error('JSON syntax patch was rejected (it changed more than syntax)');
+      }
       current = current.slice(0, from) + fixed + current.slice(to);
       current = repairJsonDeterministic(current);
     }

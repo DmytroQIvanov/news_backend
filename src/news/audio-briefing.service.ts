@@ -141,7 +141,7 @@ export function cleanForSpeech(text: string): string {
 export function speechFromBody(body: string | null | undefined, maxChars: number): string {
   const clean = cleanForSpeech(body ?? '');
   if (!clean) return '';
-  const sentences = clean.match(/[^.!?…]+[.!?…]+(?=\s|$)/g) ?? [clean];
+  const sentences = clean.split(/(?<=[.!?…])\s+(?=[\p{Lu}\p{N}«“"(])/u).map((x) => x.trim()).filter(Boolean);
   let out = '';
   for (const sentence of sentences) {
     if ((out + sentence).length > maxChars) break;
@@ -290,6 +290,7 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
   /** Important / top stories of the last 36 h, every configured language, in priority order. */
   async scanAndEnqueue(limit = 12): Promise<number> {
     if (!this.db || this.storageBlocked) return 0;
+    await this.expireOld().catch(() => undefined); // retention runs on every scan, not only after a new file is stored
     const { depth, style } = resolveNewsBriefMode(undefined);
     const { rows } = await this.db.query<ArticleRow>(this.articleSql(`
          WHERE n.status = 'published'
@@ -680,15 +681,15 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Audio is kept for AUDIO_RETENTION_DAYS (default 92, about three months), then removed from the bucket and the index. */
-  private async expireOld(): Promise<void> {
+  async expireOld(): Promise<void> {
     if (!this.db) return;
     const days = Math.max(1, Number(readEnv('AUDIO_RETENTION_DAYS')) || 92);
     const { rows } = await this.db.query<{ cache_key: string; object_key: string }>(
       `SELECT cache_key, object_key FROM audio_briefings WHERE created_at < now() - ($1::int * interval '1 day') LIMIT 200`, [days],
     ).catch(() => ({ rows: [] as Array<{ cache_key: string; object_key: string }> }));
     for (const r of rows) {
-      await this.storage.deleteObject(r.object_key).catch(() => undefined);
-      await this.db.query(`DELETE FROM audio_briefings WHERE cache_key = $1`, [r.cache_key]).catch(() => undefined);
+      const deleted = await this.storage.deleteObject(r.object_key).then(() => true).catch(() => false);
+      if (deleted) await this.db.query(`DELETE FROM audio_briefings WHERE cache_key = $1`, [r.cache_key]).catch(() => undefined); // keep the row to retry when the bucket call failed
     }
     if (rows.length) this.logger.log(`Removed ${rows.length} audio briefing(s) older than ${days} days`);
   }
