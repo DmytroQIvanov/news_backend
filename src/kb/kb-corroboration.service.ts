@@ -137,7 +137,7 @@ export class KbCorroborationService implements OnModuleInit, OnModuleDestroy {
     out.vetted = vet.vetted;
     out.accepted = vet.accepted;
     let calls = 0;
-    for (const m of models('KB_CORROBORATE_MODELS', 'gemini-3.1-flash-lite,gemini-2.5-flash-lite')) {
+    for (const m of models('KB_CORROBORATE_MODELS', 'gemini-2.5-flash-lite,gemini-2.5-flash')) {
       calls += Math.min(1000, await remainingLlmCalls(m, 'kb_corroborate'));
     }
     if (calls > 0) {
@@ -193,7 +193,7 @@ export class KbCorroborationService implements OnModuleInit, OnModuleDestroy {
       `ALREADY HAVE: ${dossier.docs.map((d) => `${d.sourceName}: ${d.title} (${d.url})`).join(' | ')}`,
     ].filter(Boolean).join('\n');
     const res = await this.search({
-      models: models('KB_CORROBORATE_MODELS', 'gemini-3.1-flash-lite,gemini-2.5-flash-lite'),
+      models: models('KB_CORROBORATE_MODELS', 'gemini-2.5-flash-lite,gemini-2.5-flash'),
       purpose: 'kb_corroborate',
       timeoutMs: 120_000,
       prompt: `Find independent reports of EXACTLY this event from other reputable outlets, news agencies, official

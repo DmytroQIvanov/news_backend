@@ -18,7 +18,7 @@ const DEFAULT_LIMITS = 'gemini-3.1-flash-lite=500,gemini-3-flash=20,gemini-2.5-f
 // Hydrogen: 10 kept for flagships (1 call each), the rest writes big articles 3 per call.
 // 3 Flash: writer of big articles and fixes; 2.5 Flash Lite: fact-checks; 3.1 Flash Lite (500/day): everything else.
 const DEFAULT_RESERVED =
-  'gemini-4-hydrogen=kb_flagship:10,gemini-3-flash=kb_big:12,gemini-2.5-flash-lite=kb_review:12';
+  'gemini-4-hydrogen=kb_flagship:10,gemini-3-flash=kb_big:12,gemini-2.5-flash-lite=kb_corroborate:14';
 
 let pool: Pool | null = null;
 let tableMissing = false;

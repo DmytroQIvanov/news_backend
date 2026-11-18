@@ -438,7 +438,7 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
       return art ? `=== EVENT ${it.eventId} ===\n--- DOSSIER ---\n${it.material}\n--- ARTICLE ---\n# ${art.title}\n${art.summary}\n\n${art.body}` : '';
     }).filter(Boolean).join('\n\n');
     const review = await this.llm({
-      models: models('KB_REVIEW_MODELS', 'gemini-2.5-flash-lite,gemini-3.1-flash-lite'), system: REVIEW_SYSTEM,
+      models: models('KB_REVIEW_MODELS', 'gemini-3.1-flash-lite,gemini-2.5-flash-lite'), system: REVIEW_SYSTEM,
       prompt: reviewPrompt, schema: REVIEW_SCHEMA, maxOutputTokens: 6_000, purpose: 'kb_review', timeoutMs,
     });
     const reviews = new Map<number, { verdict: string; issues: Array<{ location: string; problem: string; fix: string }> }>();

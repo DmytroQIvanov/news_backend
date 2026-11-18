@@ -300,7 +300,7 @@ export class KbFlagshipService implements OnModuleInit, OnModuleDestroy {
     for (const focus of SEARCH_FOCUS.slice(0, envInt('KB_FLAGSHIP_SEARCH_CALLS', 2, 1, 4))) {
       try {
         const res = await this.search({
-          models: models('KB_RESEARCH_MODELS', 'gemini-3.1-flash-lite,gemini-2.5-flash-lite'),
+          models: models('KB_RESEARCH_MODELS', 'gemini-2.5-flash-lite,gemini-2.5-flash'),
           purpose: 'kb_research', timeoutMs: 120_000,
           prompt: `You research for a journalist writing an in-depth article. Search the web for: ${focus}.
 Prefer original sources (official sites, documents, data, reputable agencies) over aggregators. Do not repeat what is
