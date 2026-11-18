@@ -104,3 +104,33 @@ test('corroboration: sensitive events need high-reliability sources', () => {
   assert.equal(isSensitiveEvent('politics', 'Missile strike kills 5 in Kharkiv'), true);
   assert.equal(isSensitiveEvent('health', 'New guidance published'), true);
 });
+
+test('world discovery: proposals, judgements and outlet acceptance are validated', () => {
+  const w = require('../dist/news/world-source-discovery.service.js');
+  const props = w.validateProposals({ outlets: [{ name: 'Gazeta', homepage: 'https://gazeta.pl' }, { name: 'Bad', homepage: 'http://insecure.pl' }, { homepage: 'https://x.pl' }, 5] });
+  assert.deepEqual(props.map((p) => p.name), ['Gazeta']);
+  assert.equal(w.validateProposals('nope'), null);
+  const j = { is_news_outlet: true, country_matches: 'true', outlet_type: 'national_daily', language: 'pl', state_affiliated: false, reliability: 'high', category: 'politics', spam: false, characterization: 'daily', reason: '' };
+  const judged = w.validateJudgement(j);
+  assert.equal(judged.country_matches, true);
+  assert.equal(w.acceptOutlet(judged).accepted, true);
+  assert.equal(w.acceptOutlet({ ...judged, reliability: 'low' }).accepted, false);
+  assert.equal(w.acceptOutlet({ ...judged, spam: true }).accepted, false);
+  assert.equal(w.acceptOutlet({ ...judged, country_matches: false }).accepted, false);
+  assert.equal(w.acceptOutlet({ ...judged, country_matches: false, outlet_type: 'international' }).accepted, true);
+  assert.equal(w.validateJudgement({ ...j, reliability: 'great' }), null);
+  assert.equal(w.dominantScript('Київ повідомляє про нові атаки'), 'cyrillic');
+  assert.equal(w.dominantScript('東京都は新しい発表を行った'), 'han');
+  const { WORLD_COUNTRIES } = require('../dist/news/world-countries.js');
+  assert.ok(WORLD_COUNTRIES.length > 150 && new Set(WORLD_COUNTRIES.map((c) => c.code)).size === WORLD_COUNTRIES.length);
+});
+
+test('people discovery: only plausible human bylines pass', () => {
+  const { looksLikePersonName } = require('../dist/news/people-discovery.service.js');
+  assert.equal(looksLikePersonName('Maria Lopez'), true);
+  assert.equal(looksLikePersonName('Олена Петренко'), true);
+  assert.equal(looksLikePersonName('Reuters Staff'), false);
+  assert.equal(looksLikePersonName('Редакція Української правди'), false);
+  assert.equal(looksLikePersonName('admin'), false);
+  assert.equal(looksLikePersonName('John'), false);
+});

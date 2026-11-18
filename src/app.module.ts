@@ -48,6 +48,9 @@ import { KbController } from './kb/kb.controller';
 import { KbEditorialService } from './kb/kb-editorial.service';
 import { KbFlagshipService } from './kb/kb-flagship.service';
 import { KbCorroborationService } from './kb/kb-corroboration.service';
+import { WorldSourceDiscoveryService } from './news/world-source-discovery.service';
+import { PeopleDiscoveryService } from './news/people-discovery.service';
+import { DiscoveryController } from './news/discovery.controller';
 import { KbTranslationService } from './kb/kb-translation.service';
 import { KbReadService } from './kb/kb-read.service';
 import { KbDataService } from './kb/kb-data.service';
@@ -56,6 +59,7 @@ import { KbDataService } from './kb/kb-data.service';
   controllers: [
     HealthController,
     SourcesController,
+    DiscoveryController,
     NewsController,
     IngestController,
     CatalogController,
@@ -106,6 +110,8 @@ import { KbDataService } from './kb/kb-data.service';
     KbEditorialService,
     KbFlagshipService,
     KbCorroborationService,
+    WorldSourceDiscoveryService,
+    PeopleDiscoveryService,
     KbTranslationService,
   ],
 })

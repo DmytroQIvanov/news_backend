@@ -243,7 +243,7 @@ export class KbCorroborationService implements OnModuleInit, OnModuleDestroy {
       calls += Math.min(1000, await remainingLlmCalls(m, 'kb_corroborate'));
     }
     if (calls > 0) {
-      for (const eventId of await this.thinEvents(envInt('KB_CORROBORATE_PER_CYCLE', 2, 1, 10))) {
+      for (const eventId of await this.thinEvents(envInt('KB_CORROBORATE_PER_CYCLE', 6, 1, 20))) {
         if (this.stopped) break;
         try {
           await this.searchFor(eventId);
@@ -264,7 +264,7 @@ export class KbCorroborationService implements OnModuleInit, OnModuleDestroy {
   async thinEvents(limit: number): Promise<number[]> {
     const min = envInt('KB_READY_MIN_SOURCES', 2, 2, 20);
     const minImportance = Number(process.env.KB_CORROBORATE_MIN_IMPORTANCE) || 0;
-    const daily = envInt('KB_CORROBORATE_DAILY', 40, 0, 500);
+    const daily = envInt('KB_CORROBORATE_DAILY', 200, 0, 2000);
     const today = Number(
       (await this.db.query(`SELECT count(*) AS n FROM kb.events WHERE corroboration_at > date_trunc('day', now())`)).rows[0]?.n ?? 0,
     );
