@@ -293,6 +293,13 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
         summary.rejected += res.rejected;
       }
     }
+    if (this.llm === geminiJson && process.env.KB_EXPAND !== 'false') {
+      const rescued = await this.rescueShort(envInt('KB_RESCUE_PER_CYCLE', 4, 0, 20)).catch((err) => {
+        this.logger.debug(`rescueShort failed: ${err instanceof Error ? err.message : err}`);
+        return 0;
+      });
+      if (rescued) summary.waiting.push(`rescued ${rescued} short articles`);
+    }
     this.logger.log(`KB editorial: ${JSON.stringify(summary)}`);
     return summary;
   }
@@ -437,6 +444,53 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
     }
     await this.finishRun(run, written.model, result, null, detail);
     return result;
+  }
+
+  /**
+   * Articles that were held back only because they were too short get their missing paragraphs and go to translation again.
+   * They are never rewritten: paragraphs are added from dossier material the article did not use.
+   */
+  async rescueShort(limit: number): Promise<number> {
+    if (limit <= 0) return 0;
+    const rows = (await this.db.query(
+      `SELECT id, kb_event_id, editorial_tier, ai_metadata
+       FROM news_items
+       WHERE kb_event_id IS NOT NULL AND status = 'needs_review'
+         AND jsonb_typeof(ai_metadata->'kb'->'validation'->'problems') = 'array'
+         AND jsonb_array_length(ai_metadata->'kb'->'validation'->'problems') = 1
+         AND ai_metadata->'kb'->'validation'->'problems'->>0 LIKE 'too short%'
+         AND COALESCE((ai_metadata->'kb'->>'rescue_attempts')::int, 0) < 2
+       ORDER BY id DESC LIMIT $1`,
+      [limit],
+    )).rows;
+    let done = 0;
+    for (const r of rows) {
+      const meta = r.ai_metadata ?? {};
+      const article = meta.article ?? {};
+      const tier: Tier = (r.editorial_tier as Tier) || 'medium';
+      const minWords = tier === 'flagship' ? 1100 : tier === 'big' ? 650 : 250;
+      const attempts = Number(meta.kb?.rescue_attempts ?? 0) + 1;
+      const dossier = await buildDossier(this.db, Number(r.kb_event_id), tier === 'big' ? { excerptChars: 9_000, maxDocs: 24 } : { excerptChars: 4_500, maxDocs: 14 });
+      let body: string = String(article.body ?? '');
+      if (dossier) {
+        if (process.env.KB_MINIFY !== 'false') applyMinify(dossier, tier === 'big' ? envInt('KB_MINIFY_BIG_CHARS', 70_000, 8_000) : envInt('KB_MINIFY_MEDIUM_CHARS', 28_000, 4_000));
+        body = await this.expandShort({ ...article, body } as GeneratedArticle, dossier, minWords).catch(() => body);
+      }
+      const words = countWords(body);
+      if (words >= minWords) {
+        const next = {
+          ...meta,
+          article: { ...article, body },
+          kb: { ...meta.kb, checks_passed: true, awaiting_translation: true, rescued_short: true, rescue_attempts: attempts, translation_attempts: 0,
+            validation: { ...(meta.kb?.validation ?? {}), words, problems: [] } },
+        };
+        await this.db.query(`UPDATE news_items SET ai_metadata = $2::jsonb, updated_at = now() WHERE id = $1`, [r.id, JSON.stringify(next)]);
+        done += 1;
+      } else {
+        await this.db.query(`UPDATE news_items SET ai_metadata = jsonb_set(ai_metadata, '{kb,rescue_attempts}', to_jsonb($2::int)) WHERE id = $1`, [r.id, attempts]);
+      }
+    }
+    return done;
   }
 
   /** Gemma (no daily cap) writes the missing paragraphs; only paragraphs that cite real dossier references are inserted. */
