@@ -7,7 +7,7 @@ import { label, PREDICATE_LABELS } from '../kb/kb-labels';
 import { NEWS_ELIGIBILITY_SQL, sourceCounts } from '../news/eligibility';
 import {
   boundedNumber, buildSections, Citation, decodeCursor, deriveCategories, evidenceHash,
-  introGrounding, iso, Relation, slugPart, Statement, TimelineItem, unique, validateGeneratedIntro,
+  introGrounding, iso, presentSummary, Relation, slugPart, Statement, TimelineItem, unique, validateGeneratedIntro,
 } from './encyclopedia-pure';
 
 const setting = (key: string, fallback: number, min: number, max: number) => boundedNumber(process.env[key], fallback, min, max);
@@ -248,15 +248,43 @@ export class EncyclopediaService implements OnModuleInit, OnModuleDestroy {
          related=EXCLUDED.related,sources=EXCLUDED.sources,importance=EXCLUDED.importance,mentions=EXCLUDED.mentions,
          first_seen=EXCLUDED.first_seen,last_seen=EXCLUDED.last_seen,evidence_hash=EXCLUDED.evidence_hash,status='auto',updated_at=now()`,
       [`${slugPart(e.name) || 'entity'}-${id}`,id,e.kind,e.name,e.name_uk || people.find(p => p.name_uk)?.name_uk || null,
-        categories[0].slug,JSON.stringify(categories),intro?.value.summary || fallback.summary,intro?.value.summary_uk || fallback.summary_uk,
+        categories[0].slug,JSON.stringify(categories),presentSummary(intro?.value.summary || fallback.summary),presentSummary(intro?.value.summary_uk || fallback.summary_uk),
         JSON.stringify(sections),JSON.stringify({ items: facts, timeline }),JSON.stringify(relations),JSON.stringify(sources),
         importance,mentions,firstSeen,lastSeen,hash],
     );
     return true;
   }
 
+  /** Category labels that were never translated (label_uk equals the English label) are translated once by the cheapest model and stored. */
+  private async translateCategoryLabels(rows: Array<Record<string, any>>): Promise<void> {
+    const todo = rows.filter(c => c.label && (!c.label_uk || c.label_uk === c.label) && /[a-z]/i.test(c.label)).slice(0, 40);
+    if (!todo.length || process.env.ENCYCLOPEDIA_TRANSLATE_LABELS === 'false') return;
+    const res = await gemmaJson<Record<string, string>>({
+      purpose: 'encyclopedia_labels', schema: { type: 'object', properties: Object.fromEntries(todo.map(c => [c.slug, { type: 'string' }])) }, maxOutputTokens: 900,
+      system: 'Translate short encyclopedia category names into natural Ukrainian (a noun phrase, 1-3 words, no quotes). Keep proper nouns.',
+      prompt: JSON.stringify(Object.fromEntries(todo.map(c => [c.slug, c.label]))),
+      validate: raw => {
+        if (!raw || typeof raw !== 'object') return null;
+        const out: Record<string, string> = {};
+        for (const c of todo) {
+          const v = (raw as Record<string, unknown>)[c.slug];
+          if (typeof v === 'string' && v.trim().length >= 2 && v.length <= 60 && /\p{Script=Cyrillic}/u.test(v)) out[c.slug] = v.trim();
+        }
+        return Object.keys(out).length ? out : null;
+      },
+    }).catch(() => null);
+    if (!res) return;
+    for (const c of todo) {
+      const uk = res.value[c.slug];
+      if (!uk) continue;
+      c.label_uk = uk;
+      await this.db.query(`UPDATE encyclopedia_categories SET label_uk=$2 WHERE slug=$1`, [c.slug, uk]).catch(() => undefined);
+    }
+  }
+
   async categories(lang: string) {
     const items = (await this.db.query(`SELECT slug,label,label_uk,count FROM encyclopedia_categories ORDER BY importance DESC,count DESC,slug`)).rows;
+    if (lang === 'uk') await this.translateCategoryLabels(items);
     return { items: items.map(c => ({ ...c, label: lang === 'uk' ? c.label_uk || c.label : c.label })) };
   }
   async list(filters: { q?: string; category?: string; kind?: string; limit?: string; cursor?: string }, lang: string) {

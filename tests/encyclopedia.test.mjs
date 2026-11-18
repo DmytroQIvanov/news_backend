@@ -142,3 +142,10 @@ test('listing uses keyset order, literal ILIKE fallback and optional trigram mat
     assert.match(sql.at(-1).q,/\(importance,id\)</);
   }
 });
+
+test('encyclopedia: neutral status brackets are dropped from summaries, qualifiers stay', async () => {
+  const { presentSummary } = await import('../dist/encyclopedia/encyclopedia-pure.js').catch(() => require('../dist/encyclopedia/encyclopedia-pure.js'));
+  assert.equal(presentSummary('Nvidia reported revenue [published reporting].'), 'Nvidia reported revenue');
+  assert.equal(presentSummary('Нвідіа — партнерство [опубліковане повідомлення].'), 'Нвідіа — партнерство');
+  assert.ok(presentSummary('Company denied the claim [denial].').endsWith('[denial].'));
+});

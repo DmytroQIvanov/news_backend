@@ -26,6 +26,15 @@ const STATUS_LABELS = { ...FACT_STATUS_LABELS,
   denial: { en: 'denial', uk: 'заперечення' },
 };
 
+// Neutral evidence labels that are noise in a one-line summary; everything else (disputed, retracted, denial, plan, ...) changes the meaning and stays.
+const NEUTRAL = new Set(['confirmed', 'corroborated', 'single_source', 'registry', 'published', 'fact']);
+/** Summary for display: neutral evidence-status brackets ("[published reporting]") are dropped, qualifiers stay. */
+export function presentSummary(text: string): string {
+  const drop = new Set<string>();
+  for (const key of NEUTRAL) for (const lang of ['en', 'uk'] as const) drop.add(normalize((STATUS_LABELS as any)[key][lang]));
+  return text.replace(/\s*\[([^\]]+)\]\.?\s*$/, (all, inner: string) => (drop.has(normalize(inner)) ? '' : all)).replace(/\s+/g, ' ').trim();
+}
+
 /** Values, including labels, come only from evidence/registry metadata, never from a topic dictionary. */
 export function deriveCategories(kind: string, events: Array<{ category?: string | null }>, attributes: Record<string, any> = {}): Category[] {
   const out = new Map<string, Category>();
