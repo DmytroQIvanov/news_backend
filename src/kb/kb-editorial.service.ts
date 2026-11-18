@@ -302,6 +302,13 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
         summary.rejected += res.rejected;
       }
     }
+    if (this.llm === geminiJson && process.env.KB_REREVIEW !== 'false') {
+      const approved = await this.rereviewHeld(envInt('KB_REREVIEW_PER_CYCLE', 3, 0, 10)).catch((err) => {
+        this.logger.debug(`rereviewHeld failed: ${err instanceof Error ? err.message : err}`);
+        return 0;
+      });
+      if (approved) summary.waiting.push(`re-reviewed ${approved} held articles`);
+    }
     if (this.llm === geminiJson && process.env.KB_EXPAND !== 'false') {
       const rescued = await this.rescueShort(envInt('KB_RESCUE_PER_CYCLE', 4, 0, 20)).catch((err) => {
         this.logger.debug(`rescueShort failed: ${err instanceof Error ? err.message : err}`);
@@ -456,6 +463,46 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Articles that passed every algorithmic check but were held only because the fact-check reviewer could not answer at the time
+   * (quota, overload) are reviewed again, unchanged. Only an explicit 'ok' approves them; anything else keeps the hold.
+   */
+  async rereviewHeld(limit: number): Promise<number> {
+    if (limit <= 0) return 0;
+    const rows = (await this.db.query(
+      `SELECT id, kb_event_id, editorial_tier, content_hash, ai_metadata
+       FROM news_items
+       WHERE kb_event_id IS NOT NULL AND status = 'needs_review'
+         AND ai_metadata->'kb'->'review'->>'verdict' = 'missing'
+         AND jsonb_array_length(COALESCE(ai_metadata->'kb'->'validation'->'problems', '[]'::jsonb)) = 0
+         AND COALESCE((ai_metadata->'kb'->>'rereview_attempts')::int, 0) < 3
+       ORDER BY id DESC LIMIT $1`, [limit],
+    )).rows;
+    let approved = 0;
+    for (const r of rows) {
+      const meta = r.ai_metadata ?? {};
+      const attempts = Number(meta.kb?.rereview_attempts ?? 0) + 1;
+      const tier: Tier = (r.editorial_tier as Tier) || 'medium';
+      const dossier = await buildDossier(this.db, Number(r.kb_event_id), tier === 'big' ? { excerptChars: 9_000, maxDocs: 24 } : { excerptChars: 4_500, maxDocs: 14 });
+      const article = meta.article;
+      let ok = false;
+      if (dossier && article?.body) {
+        if (process.env.KB_MINIFY !== 'false') applyMinify(dossier, tier === 'big' ? envInt('KB_MINIFY_BIG_CHARS', 70_000, 8_000) : envInt('KB_MINIFY_MEDIUM_CHARS', 28_000, 4_000));
+        const eventId = Number(r.kb_event_id);
+        const res = await this.reviewAndFix([{ eventId, material: renderDossier(dossier) }], [{ ...article, event_id: eventId } as GeneratedArticle], envInt('KB_EDITORIAL_TIMEOUT_MS', 300_000, 30_000)).catch(() => null);
+        const unchanged = res && res.articles[0]?.body === article.body && res.articles[0]?.title === article.title;
+        ok = Boolean(res && unchanged && res.reviews.get(eventId)?.verdict === 'ok');
+      }
+      const next = ok
+        ? { ...meta, kb: { ...meta.kb, checks_passed: true, awaiting_translation: true, translation_attempts: 0, rereview_attempts: attempts,
+            review: { state: 'approved', verdict: 'ok', issues: [], article_hash: r.content_hash, rereviewed: true } } }
+        : { ...meta, kb: { ...meta.kb, rereview_attempts: attempts } };
+      await this.db.query(`UPDATE news_items SET ai_metadata = $2::jsonb, updated_at = now() WHERE id = $1`, [r.id, JSON.stringify(next)]);
+      if (ok) approved += 1;
+    }
+    return approved;
+  }
+
+  /**
    * Articles that were held back only because they were too short get their missing paragraphs and go to translation again.
    * They are never rewritten: paragraphs are added from dossier material the article did not use.
    */
@@ -552,10 +599,23 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
       const art = articles.find((a) => Number(a.event_id) === it.eventId);
       return art ? `=== EVENT ${it.eventId} ===\n--- DOSSIER ---\n${it.material}\n--- ARTICLE ---\n# ${art.title}\n${art.summary}\n\n${art.body}` : '';
     }).filter(Boolean).join('\n\n');
-    const review = await this.llm({
-      models: models('KB_REVIEW_MODELS', 'gemini-3.1-flash-lite,gemini-2.5-flash-lite'), system: REVIEW_SYSTEM,
-      prompt: reviewPrompt, schema: REVIEW_SCHEMA, maxOutputTokens: 6_000, purpose: 'kb_review', timeoutMs,
-    });
+    // The reviewer must always be able to answer, otherwise every article is held. If the Gemini models are out of quota or
+    // overloaded, Gemma (uncapped, a different model family from the writer) judges the same material.
+    let review: { json: any; model: string };
+    try {
+      review = await this.llm({
+        models: models('KB_REVIEW_MODELS', 'gemini-3.1-flash-lite,gemini-2.5-flash-lite'), system: REVIEW_SYSTEM,
+        prompt: reviewPrompt, schema: REVIEW_SCHEMA, maxOutputTokens: 6_000, purpose: 'kb_review', timeoutMs,
+      });
+    } catch (primaryError) {
+      if (this.llm !== geminiJson || process.env.KB_REVIEW_GEMMA === 'false') throw primaryError;
+      const g = await gemmaJson<{ reviews: unknown[] }>({
+        purpose: 'kb_review', schema: REVIEW_SCHEMA, system: REVIEW_SYSTEM, prompt: reviewPrompt, maxOutputTokens: 6_000, timeoutMs, temperature: 0.1,
+        validate: (raw) => (raw && typeof raw === 'object' && Array.isArray((raw as { reviews?: unknown }).reviews) ? (raw as { reviews: unknown[] }) : null),
+      });
+      if (!g) throw primaryError;
+      review = { json: g.value, model: `${g.model}(fallback)` };
+    }
     const reviews = eventReviews(review.json?.reviews, articles, items.map((it) => it.eventId));
     const toFix = items.filter((it) => reviews.get(it.eventId)?.verdict === 'fix' && reviews.get(it.eventId)!.issues.length);
     let fixer: string | null = null;
