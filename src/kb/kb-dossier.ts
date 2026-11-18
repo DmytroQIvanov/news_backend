@@ -144,7 +144,7 @@ export async function buildDossier(db: DatabaseService, eventId: number, opts: {
          FROM kb.event_research r JOIN kb.documents d ON d.id = r.document_id
          WHERE r.event_id = $1 AND r.accepted = true AND r.query = 'corroboration'
            AND d.extraction_status IN ('full', 'partial')
-         ORDER BY r.added_at LIMIT 6`,
+         ORDER BY r.added_at LIMIT 12`,
         [eventId, excerptChars],
       )
       .catch(() => ({ rows: [] as Record<string, any>[] }))

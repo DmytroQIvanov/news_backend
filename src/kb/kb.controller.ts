@@ -4,6 +4,7 @@ import { llmBudgetStatus } from '../common/llm-budget';
 import { DatabaseService } from '../database/database.service';
 import { isKbEditorialActive, KbEditorialService } from './kb-editorial.service';
 import { KbFlagshipService } from './kb-flagship.service';
+import { corroborationReport } from './kb-corroboration.service';
 import { KbReadService } from './kb-read.service';
 import { buildDataDocs } from './kb-data';
 
@@ -34,6 +35,14 @@ export class KbController {
     if (state && !STATES.has(state)) throw new BadRequestException('Unknown state');
     const n = Math.min(100, Math.max(1, Number(limit) || 30));
     return this.read.events(state, n, lang(l));
+  }
+
+  /** Pages the AI found as extra sources: accepted ones (cited) and rejected ones (hidden by default, kept for review). */
+  @Get('events/:id/corroboration')
+  @Header('Cache-Control', 'public, max-age=60')
+  async corroboration(@Param('id', ParseIntPipe) id: number, @Query('rejected') rejected?: string) {
+    const report = await corroborationReport(this.db, id);
+    return rejected === 'true' ? report : { ...report, rejected: undefined, rejectedCount: report.rejected.length };
   }
 
   @Get('events/:id')
