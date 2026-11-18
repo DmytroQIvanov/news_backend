@@ -14,7 +14,7 @@ test('llm budget: model families map to their daily limit key', () => {
   assert.equal(budgetKey('gemini-2.5-flash-lite'), 'gemini-2.5-flash-lite');
 });
 
-test('llm budget: 20 per day, reserved share protected from other purposes (memory fallback)', async () => {
+test('llm budget: accounting outage defers budgeted calls', async () => {
   const saved = process.env.DATABASE_URL;
   delete process.env.DATABASE_URL;
   process.env.LLM_DAILY_LIMITS = 'gemini-3.8-flash=5';
@@ -24,12 +24,13 @@ test('llm budget: 20 per day, reserved share protected from other purposes (memo
   const noon = Date.parse('2026-11-17T12:00:00Z');
   let granted = 0;
   for (let i = 0; i < 8; i += 1) if (await reserveLlmCall('gemini-3.8-flash', 'kb_editorial', noon)) granted += 1;
-  assert.equal(granted, 5, 'never more than the daily limit');
+  assert.equal(granted, 0, 'no process-local fallback during accounting outage');
   assert.equal(await reserveLlmCall('gemini-3.8-flash', 'memes', noon), false);
   assert.equal(await reserveLlmCall('gemini-3.5-flash-lite', 'memes', noon), true, 'unbudgeted models pass');
   // next day starts fresh
-  assert.equal(await reserveLlmCall('gemini-3.8-flash', 'memes', noon + 24 * 3600_000), true);
-  process.env.DATABASE_URL = saved;
+  assert.equal(await reserveLlmCall('gemini-3.8-flash', 'memes', noon + 24 * 3600_000), false);
+  if (saved === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = saved;
   delete process.env.LLM_DAILY_LIMITS;
   delete process.env.LLM_BUDGET_RESERVED;
 });

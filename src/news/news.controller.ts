@@ -1,8 +1,9 @@
-import { Controller, Get, Optional, Param, ParseIntPipe, Patch, Post, Query, UseGuards, BadRequestException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { NEWS_ELIGIBILITY_SQL, NEWS_SOURCE_COUNTS_SQL, independentOriginsSql, publicationReadySql } from './eligibility';
+import { Controller, Get, Header, Optional, Param, ParseIntPipe, Patch, Post, Query, UseGuards, BadRequestException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { RelatedNewsService } from './related-news.service';
 import { IngestKeyGuard } from '../common/ingest-key.guard';
 import { CATEGORIES } from '../ingest/ingest.dto';
-import { isKbEditorialActive } from '../kb/kb-editorial.service';
 import { CompanyFeedsService, isPublishedWithinHours, maxFeedArticles } from './company-feeds.service';
 import { EXPERT_DIRECTORY } from './expert-directory';
 import { ExpertOpinionsService } from './expert-opinions.service';
@@ -12,19 +13,7 @@ import { NEWS_AUDIO_STYLES, NEWS_DEPTHS, NewsTtsService } from './news-tts.servi
 import { SourceDiscoveryService } from './source-discovery.service';
 import { analyzeCoverage, localizeProfile, resolveProfile } from './source-profiles';
 
-/**
- * Feed quality gate: only articles written by the AI editor (ai_generated) AND backed by a knowledge-base event or at
- * least FEED_MIN_SOURCES independent sources are listed. Single-source retellings and raw RSS rows stay out.
- */
-const FEED_MIN_SOURCES = (() => {
-  const n = Number(process.env.FEED_MIN_SOURCES);
-  return Number.isInteger(n) && n >= 1 && n <= 10 ? n : 2;
-})();
-/** "high" only when confirmed by >= 3 sources (or written by the knowledge base, which applies its own rule). */
-const FEED_IMPORTANCE_SQL = `(CASE WHEN n.importance = 'high' AND (n.kb_event_id IS NOT NULL
-  OR jsonb_array_length(COALESCE(n.cluster_sources, '[]'::jsonb)) >= 3) THEN 'high' ELSE 'low' END)`;
-const FEED_QUALITY_GATE_SQL = `(COALESCE(n.ai_generated, false) = true
-  AND (n.kb_event_id IS NOT NULL OR jsonb_array_length(COALESCE(n.cluster_sources, '[]'::jsonb)) >= ${FEED_MIN_SOURCES}))`;
+const FEED_IMPORTANCE_SQL = `(CASE WHEN n.importance = 'high' AND ${independentOriginsSql()} >= 3 THEN 'high' ELSE 'low' END)`;
 
 const ENGLISH_FIELDS_SQL = `
   COALESCE(CASE WHEN n.ai_metadata->'article'->>'canonical_lang' = 'en'
@@ -43,6 +32,8 @@ const ENGLISH_TRANSLATION_JOIN = `LEFT JOIN news_translations tr ON tr.news_id =
 export class NewsController {
   private readonly clustering: NewsClusteringService;
 
+  private readonly relatedNews: RelatedNewsService;
+
   constructor(
     private readonly db: DatabaseService,
     private readonly companyFeeds: CompanyFeedsService,
@@ -51,7 +42,9 @@ export class NewsController {
     @Optional() private readonly newsMemes?: NewsMemesService,
     @Optional() clustering?: NewsClusteringService,
     @Optional() private readonly discovery?: SourceDiscoveryService,
+    @Optional() private readonly relatedNewsSvc?: RelatedNewsService,
   ) {
+    this.relatedNews = relatedNewsSvc ?? new RelatedNewsService(db);
     this.clustering = clustering ?? new NewsClusteringService();
   }
 
@@ -123,13 +116,8 @@ export class NewsController {
     if (important !== undefined && important !== 'true' && important !== 'false') {
       throw new BadRequestException('important must be true or false');
     }
-    // Task 1: while the knowledge base writes one article per event, raw single-source RSS items are not shown
-    // in the feed (they are the "garbage news" the KB replaces); legacy mode keeps the old RSS fallback.
-    // Quality policy: the feed is built from analysed articles only. Raw single-source RSS items are shown solely
-    // when FEED_RAW_RSS=true is set explicitly (emergency fallback).
-    const onlyDatabase = process.env.FEED_RAW_RSS !== 'true' || !!category || important === 'true' || (await isKbEditorialActive(this.db));
     const sqlLimit =
-      onlyDatabase && topics.length === 0 && effectiveMaxAgeHours === null ? offset + limit + 50 : offset + limit + maxFeedArticles;
+      topics.length === 0 && effectiveMaxAgeHours === null ? offset + limit + 50 : offset + limit + maxFeedArticles;
     const sqlOffset = 0;
 
     type NewsRow = {
@@ -175,7 +163,7 @@ export class NewsController {
                 COALESCE((n.ai_metadata->>'hydrogen_deep_analysis')::boolean, false) AS hydrogen_deep_analysis,
                 n.ai_metadata->>'hydrogen_insight' AS hydrogen_insight,
                 n.cluster_id,
-                COALESCE(n.cluster_sources, '[]'::jsonb) AS cluster_sources,
+                COALESCE(n.cluster_sources, '[]'::jsonb) AS cluster_sources, ${NEWS_SOURCE_COUNTS_SQL},
                 COALESCE(n.ai_generated, n.ai_metadata ? 'editorial_fingerprint') AS ai_generated,
                 n.why_it_matters,
                 ${ENGLISH_FIELDS_SQL},
@@ -188,8 +176,7 @@ export class NewsController {
                 n.ai_metadata->'article'->'headline_check' AS headline_check
          FROM news_items n JOIN sources s ON s.id=n.source_id
          ${ENGLISH_TRANSLATION_JOIN}
-         WHERE n.status='published' AND ($1::text IS NULL OR n.category=$1)
-           AND ${FEED_QUALITY_GATE_SQL}
+         WHERE ${NEWS_ELIGIBILITY_SQL} AND ($1::text IS NULL OR n.category=$1)
            AND ($4::text[] IS NULL OR s.slug = ANY($4::text[]))
            AND (NOT $5::boolean OR n.ai_metadata->'article'->'important' = 'true'::jsonb)
            AND ($6::int IS NULL OR n.published_at >= now() - ($6::int * interval '1 hour'))
@@ -212,8 +199,7 @@ export class NewsController {
                   COALESCE((n.ai_metadata->>'hydrogen_deep_analysis')::boolean, false) AS hydrogen_deep_analysis,
                   n.ai_metadata->>'hydrogen_insight' AS hydrogen_insight
            FROM news_items n JOIN sources s ON s.id=n.source_id
-           WHERE n.status='published' AND ($1::text IS NULL OR n.category=$1)
-           AND ${FEED_QUALITY_GATE_SQL}
+           WHERE ${NEWS_ELIGIBILITY_SQL} AND ($1::text IS NULL OR n.category=$1)
              AND ($4::text[] IS NULL OR s.slug = ANY($4::text[]))
              AND (NOT $5::boolean OR n.ai_metadata->'article'->'important' = 'true'::jsonb)
              AND ($6::int IS NULL OR n.published_at >= now() - ($6::int * interval '1 hour'))
@@ -307,59 +293,17 @@ export class NewsController {
       });
     };
 
-    if (onlyDatabase) {
-      const rows = (await published).rows;
-      const ranked = filterClusterAndSortItems(rows);
-      if (category && ranked.length < 3 && offset === 0) {
-        this.discovery?.triggerDiscoveryIfNeeded([category]);
-      }
-      const page = poolSize ? ranked.slice(0, poolSize) : ranked.slice(offset, offset + limit);
-      return {
-        items: page,
-        limit,
-        offset,
-        hasMore: offset + page.length < ranked.length,
-        sort: sortOrder,
-        ...(depthRaw ? { depth: depthRaw } : {}),
-      };
+    const rows = (await published).rows;
+    const ranked = filterClusterAndSortItems(rows);
+    if (category && ranked.length < 3 && offset === 0) {
+      this.discovery?.triggerDiscoveryIfNeeded([category]);
     }
-
-    const result = await published;
-    let feeds = await this.companyFeeds.list(sources, result.rows.length === 0);
-    if (feeds.unavailable && result.rows.length && topics.length && !filterClusterAndSortItems(result.rows).length) {
-      feeds = await this.companyFeeds.list(sources);
-    }
-    if (feeds.unavailable && !result.rows.length) {
-      throw new ServiceUnavailableException('Company feeds are temporarily unavailable');
-    }
-
-    const publishedUrls = new Set(result.rows.map(item => articleKey(item.url)));
-    const feedMetaBySlug = new Map((this.companyFeeds.getActiveFeeds?.() ?? []).map(f => [f.slug, f]));
-    const fresh = feeds.items.filter(item => !publishedUrls.has(articleKey(item.url)))
-      .map(item => {
-        const meta = feedMetaBySlug.get(item.source_slug);
-        return {
-          ...item,
-          title_uk: null,
-          summary_uk: null,
-          important: false,
-          importance: 'medium',
-          ai_model: null,
-          ai_generated: false,
-          hydrogen_polished: false,
-          hydrogen_deep_analysis: false,
-          hydrogen_insight: null,
-          source_is_unofficial: item.source_is_unofficial ?? Boolean(meta?.unofficial || meta?.alias),
-        };
-      });
-    const combined = [...result.rows, ...fresh];
-    const items = filterClusterAndSortItems(combined);
-    const page = poolSize ? items.slice(0, poolSize) : items.slice(offset, offset + limit);
+    const page = poolSize ? ranked.slice(0, poolSize) : ranked.slice(offset, offset + limit);
     return {
       items: page,
       limit,
       offset,
-      hasMore: offset + page.length < items.length,
+      hasMore: offset + page.length < ranked.length,
       sort: sortOrder,
       ...(depthRaw ? { depth: depthRaw } : {}),
     };
@@ -558,11 +502,11 @@ export class NewsController {
                   n.ai_metadata,n.ai_metadata->'article' AS article,n.media AS media,
                   ${ENGLISH_FIELDS_SQL}, tr.body AS body_en,
                   s.name AS source_name,s.slug AS source_slug,s.homepage_url,s.unofficial AS source_is_unofficial,
-                  n.cluster_id,COALESCE(n.cluster_sources, '[]'::jsonb) AS cluster_sources,
+                  n.cluster_id,COALESCE(n.cluster_sources, '[]'::jsonb) AS cluster_sources, ${NEWS_SOURCE_COUNTS_SQL},
                   COALESCE(n.ai_generated, n.ai_metadata ? 'editorial_fingerprint') AS ai_generated
            FROM news_items n JOIN sources s ON s.id=n.source_id
            ${ENGLISH_TRANSLATION_JOIN}
-           WHERE n.external_id=$1 AND n.status='published' LIMIT 1`,
+           WHERE n.external_id=$1 AND ${NEWS_ELIGIBILITY_SQL} LIMIT 1`,
           [id],
         )
         .catch(() =>
@@ -573,31 +517,12 @@ export class NewsController {
                     n.ai_metadata,n.ai_metadata->'article' AS article,n.media AS media,
                     s.name AS source_name,s.slug AS source_slug,s.homepage_url,s.unofficial AS source_is_unofficial
              FROM news_items n JOIN sources s ON s.id=n.source_id
-             WHERE n.external_id=$1 AND n.status='published' LIMIT 1`,
+             WHERE n.external_id=$1 AND ${NEWS_ELIGIBILITY_SQL} LIMIT 1`,
             [id],
           ),
         );
       if (result.rows[0]) {
         resolved = result.rows[0];
-      } else {
-        const feeds = await this.companyFeeds.list(source ? [source] : []);
-        const item = feeds.items.find(article => article.id === id);
-        if (item) {
-          const activeFeed = (this.companyFeeds.getActiveFeeds?.() ?? []).find(f => f.slug === item.source_slug);
-          resolved = {
-            ...item,
-            category: item.category || 'other',
-            importance: 'unknown',
-            why_it_matters: null,
-            free_access: 'unknown',
-            article: null,
-            ai_metadata: null,
-            ai_generated: false,
-            source_is_unofficial: item.source_is_unofficial ?? Boolean(activeFeed?.unofficial || activeFeed?.alias),
-          };
-        } else if (feeds.unavailable) {
-          throw new ServiceUnavailableException('Company feeds are temporarily unavailable');
-        }
       }
     } else if (/^\d{1,18}$/.test(id)) {
       const { rows } = await this.db
@@ -608,11 +533,11 @@ export class NewsController {
                   n.ai_metadata,n.ai_metadata->'article' AS article,n.media AS media,
                   ${ENGLISH_FIELDS_SQL}, tr.body AS body_en,
                   s.name AS source_name,s.slug AS source_slug,s.homepage_url,s.unofficial AS source_is_unofficial,
-                  n.cluster_id,COALESCE(n.cluster_sources, '[]'::jsonb) AS cluster_sources,
+                  n.cluster_id,COALESCE(n.cluster_sources, '[]'::jsonb) AS cluster_sources, ${NEWS_SOURCE_COUNTS_SQL},
                   COALESCE(n.ai_generated, n.ai_metadata ? 'editorial_fingerprint') AS ai_generated
            FROM news_items n JOIN sources s ON s.id=n.source_id
            ${ENGLISH_TRANSLATION_JOIN}
-           WHERE n.id=$1 AND n.status='published'`,
+           WHERE n.id=$1 AND ${NEWS_ELIGIBILITY_SQL}`,
           [id],
         )
         .catch(() =>
@@ -623,7 +548,7 @@ export class NewsController {
                     n.ai_metadata,n.ai_metadata->'article' AS article,n.media AS media,
                     s.name AS source_name,s.slug AS source_slug,s.homepage_url,s.unofficial AS source_is_unofficial
              FROM news_items n JOIN sources s ON s.id=n.source_id
-             WHERE n.id=$1 AND n.status='published'`,
+             WHERE n.id=$1 AND ${NEWS_ELIGIBILITY_SQL}`,
             [id],
           ),
         );
@@ -644,7 +569,7 @@ export class NewsController {
                     s.name AS source_name, s.slug AS source_slug, s.unofficial AS source_is_unofficial,
                     n.cluster_id, COALESCE(n.cluster_sources, '[]'::jsonb) AS cluster_sources
              FROM news_items n JOIN sources s ON s.id = n.source_id
-             WHERE n.status = 'published'
+             WHERE ${NEWS_ELIGIBILITY_SQL}
                AND COALESCE(n.published_at, n.created_at) >= now() - interval '48 hours'
              ORDER BY n.published_at DESC NULLS LAST
              LIMIT 150`,
@@ -674,51 +599,17 @@ export class NewsController {
   }
 
   @Get(':id/related')
-  async related(@Param('id') id: string, @Query('source') source?: string) {
-    const { rows: targetRows } = await this.db.query<{
-      id: string;
-      category: string;
-      source_slug: string;
-    }>(`
-      SELECT n.id::text, n.category, s.slug AS source_slug
-      FROM news_items n JOIN sources s ON s.id = n.source_id
-      WHERE (n.external_id = $1 OR n.id::text = $1) AND n.status = 'published'
-      LIMIT 1
-    `, [id]);
-
-    const target = targetRows[0];
-    const targetCategory = target?.category || null;
-    const targetSource = target?.source_slug || source || null;
-
-    const { rows } = await this.db.query(`
-      SELECT n.id, n.url, n.title_uk, n.summary_uk, n.original_title, n.category, n.importance,
-             ${ENGLISH_FIELDS_SQL},
-             COALESCE(n.ai_metadata->'article'->'important' = 'true'::jsonb, false) AS important,
-             n.published_at, s.name AS source_name, s.slug AS source_slug
-      FROM news_items n JOIN sources s ON s.id = n.source_id
-      ${ENGLISH_TRANSLATION_JOIN}
-      WHERE n.status = 'published'
-        AND n.id::text <> COALESCE($1, '')
-        AND n.external_id <> $2
-        AND (
-          ($3::text IS NOT NULL AND n.category = $3)
-          OR ($4::text IS NOT NULL AND s.slug = $4)
-        )
-      ORDER BY
-        (CASE WHEN s.slug = $4 THEN 0 ELSE 1 END),
-        n.published_at DESC NULLS LAST,
-        n.id DESC
-      LIMIT 5
-    `, [target?.id || null, id, targetCategory, targetSource]);
-
-    return { items: rows };
+  @Header('Cache-Control', 'public, max-age=120')
+  async related(@Param('id') id: string, @Query('source') _source?: string) {
+    return this.relatedNews.related(id);
   }
 
   @Patch(':id/publish')
   @UseGuards(IngestKeyGuard)
   async publish(@Param('id', ParseIntPipe) id: number) {
-    const result = await this.db.query(`UPDATE news_items SET status='published',updated_at=now()
-      WHERE id=$1 AND status='needs_review' RETURNING id,status`,[id]);
+    const result = await this.db.query(`UPDATE news_items n SET status='published',updated_at=now()
+      WHERE id=$1 AND status='needs_review' AND ${publicationReadySql()}
+        AND (n.kb_event_id IS NULL OR n.ai_metadata->'kb'->>'awaiting_translation' = 'false') RETURNING id,status`,[id]);
     if (!result.rowCount) throw new BadRequestException('Unknown id or not awaiting review');
     return result.rows[0];
   }

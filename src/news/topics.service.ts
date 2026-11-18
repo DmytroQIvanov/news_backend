@@ -1,3 +1,4 @@
+import { NEWS_ELIGIBILITY_SQL } from './eligibility';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { generateJsonWithRouter, generateWithRouter, parseJsonLoose } from '../common/llm-router';
 import { readEnv } from '../common/r2-storage';
@@ -189,7 +190,7 @@ export class TopicsService implements OnModuleInit, OnModuleDestroy {
        FROM topic_news tn
        JOIN news_items n ON n.id = tn.news_id
        JOIN sources s ON s.id = n.source_id
-       WHERE tn.topic_slug = $1 AND n.status = 'published'
+       WHERE tn.topic_slug = $1 AND ${NEWS_ELIGIBILITY_SQL}
        ORDER BY n.published_at DESC NULLS LAST
        LIMIT 18`,
       [slug],
@@ -267,7 +268,7 @@ Also give title_uk: the topic name in Ukrainian.`;
         `SELECT n.id::text, COALESCE(n.ai_metadata->'article'->>'title', n.original_title) AS title,
                 COALESCE(n.ai_metadata->'article'->>'summary', n.summary_uk) AS summary, n.published_at, s.name AS source_name
          FROM news_items n JOIN sources s ON s.id = n.source_id
-         WHERE n.status = 'published' AND n.published_at > $2
+         WHERE ${NEWS_ELIGIBILITY_SQL} AND n.published_at > $2
            AND ($1::text IS NOT NULL AND n.id IN (SELECT news_id FROM topic_news WHERE topic_slug = $1))
          ORDER BY n.published_at DESC LIMIT 10`,
         [p.topic_slug, p.created_at],
@@ -323,7 +324,7 @@ evidence_index: the number of the article that shows it (0 if none). note: one n
     const { rows } = await this.db
       .query<{ slug: string; title_en: string; title_uk: string | null; category: string | null; news_count: number; last_news_at: Date | null; summary: Record<string, TopicExplainer> }>(
         `SELECT slug, title_en, title_uk, category, news_count, last_news_at, summary
-         FROM topics WHERE news_count >= 2
+         FROM topics t WHERE news_count >= 2 AND EXISTS (SELECT 1 FROM topic_news tn JOIN news_items n ON n.id = tn.news_id WHERE tn.topic_slug = t.slug AND ${NEWS_ELIGIBILITY_SQL})
          ORDER BY last_news_at DESC NULLS LAST LIMIT $1`,
         [limit],
       )
@@ -343,7 +344,7 @@ evidence_index: the number of the article that shows it (0 if none). note: one n
     const { rows } = await this.db
       .query<{ slug: string; title_en: string; title_uk: string | null; category: string | null; news_count: number; first_news_at: Date | null; last_news_at: Date | null; summary: Record<string, TopicExplainer>; summarized_at: Date | null; summary_model: string | null }>(
         `SELECT slug, title_en, title_uk, category, news_count, first_news_at, last_news_at, summary, summarized_at, summary_model
-         FROM topics WHERE slug = $1`,
+         FROM topics t WHERE slug = $1 AND EXISTS (SELECT 1 FROM topic_news tn JOIN news_items n ON n.id = tn.news_id WHERE tn.topic_slug = t.slug AND ${NEWS_ELIGIBILITY_SQL})`,
         [slug],
       )
       .catch(() => ({ rows: [] as never[] }));
@@ -355,7 +356,7 @@ evidence_index: the number of the article that shows it (0 if none). note: one n
                 s.name AS source_name, s.slug AS source_slug, n.published_at, n.url,
                 ${lang === 'en' ? 'tn.update_en' : 'COALESCE(tn.update_uk, tn.update_en)'} AS update_text
          FROM topic_news tn JOIN news_items n ON n.id = tn.news_id JOIN sources s ON s.id = n.source_id
-         WHERE tn.topic_slug = $1 AND n.status = 'published'
+         WHERE tn.topic_slug = $1 AND ${NEWS_ELIGIBILITY_SQL}
          ORDER BY n.published_at DESC NULLS LAST LIMIT 40`,
         [slug],
       ),
@@ -386,7 +387,7 @@ evidence_index: the number of the article that shows it (0 if none). note: one n
     const { rows } = await this.db
       .query<{ slug: string; title_en: string; title_uk: string | null; news_count: number }>(
         `SELECT t.slug, t.title_en, t.title_uk, t.news_count FROM topic_news tn JOIN topics t ON t.slug = tn.topic_slug
-         WHERE tn.news_id = $1::bigint LIMIT 1`,
+         JOIN news_items n ON n.id = tn.news_id WHERE tn.news_id = $1::bigint AND ${NEWS_ELIGIBILITY_SQL} LIMIT 1`,
         [newsId],
       )
       .catch(() => ({ rows: [] as never[] }));
@@ -405,7 +406,7 @@ evidence_index: the number of the article that shows it (0 if none). note: one n
                   COUNT(*) OVER (PARTITION BY tn.topic_slug) AS total,
                   ROW_NUMBER() OVER (PARTITION BY tn.topic_slug ORDER BY tn.published_at DESC) AS rn
            FROM topic_news tn JOIN news_items n ON n.id = tn.news_id
-           WHERE n.status = 'published' AND tn.published_at > $1
+           WHERE ${NEWS_ELIGIBILITY_SQL} AND tn.published_at > $1
          )
          SELECT f.topic_slug AS slug, ${lang === 'en' ? 't.title_en' : 'COALESCE(t.title_uk, t.title_en)'} AS title,
                 f.news_id::text, f.update_text, f.published_at, f.total::int
@@ -422,7 +423,7 @@ evidence_index: the number of the article that shows it (0 if none). note: one n
       bySlug.set(r.slug, entry);
     }
     const { rows: countRows } = await this.db
-      .query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM news_items WHERE status = 'published' AND published_at > $1`, [since.toISOString()])
+      .query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM news_items n WHERE ${NEWS_ELIGIBILITY_SQL} AND n.published_at > $1`, [since.toISOString()])
       .catch(() => ({ rows: [{ n: 0 }] }));
     return {
       since: since.toISOString(),

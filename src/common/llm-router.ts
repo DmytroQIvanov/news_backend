@@ -1,3 +1,4 @@
+import { dailyLlmLimit, reserveLlmCall } from './llm-budget';
 import { DEFAULT_GEMINI_MODEL, postGeminiGenerateContent } from './gemini-client';
 import { recordLlmEvent, LlmOutcome } from './llm-stats';
 import { readEnv } from './r2-storage';
@@ -81,9 +82,11 @@ export function getTargets(): Record<LlmProvider, LlmTarget[]> {
   const groqFast = readEnv('GROQ_MODEL_FAST') || 'qwen/qwen3.8-27b';
   const openrouterModel = readEnv('OPENROUTER_MODEL') || 'openrouter/free';
   const openrouterDaily = envInt('OPENROUTER_DAILY_LIMIT', 50);
+  const geminiModel = readEnv('GEMINI_MODEL') || DEFAULT_GEMINI_MODEL;
+  const geminiDaily = /^gemma-/i.test(geminiModel) ? Infinity : dailyLlmLimit(geminiModel) ?? 1000;
   return {
     gemini: [
-      { provider: 'gemini', model: readEnv('GEMINI_MODEL') || DEFAULT_GEMINI_MODEL, rpm: 4, rpd: envInt('GEMINI_DAILY_LIMIT', 1000), tpm: 250_000, maxRequestTokens: 900_000 },
+      { provider: 'gemini', model: geminiModel, rpm: 4, rpd: /^gemma-/i.test(geminiModel) ? Infinity : Math.min(geminiDaily, envInt('GEMINI_DAILY_LIMIT', geminiDaily)), tpm: 250_000, maxRequestTokens: 900_000 },
     ],
     // Groq free tier (per model): gpt-oss-120b/20b and qwen3.8-27b 30 rpm, 1K rpd, 8K tpm, 200K tpd;
     // allam-2-7b 30 rpm, 7K rpd, 6K tpm, 500K tpd; gpt-oss-safeguard-20b 3 rpm, 1K rpd, 2K tpm. Guard and audio models are not chat targets.
@@ -95,13 +98,13 @@ export function getTargets(): Record<LlmProvider, LlmTarget[]> {
     ].filter((t, i, all) => all.findIndex((x) => x.model === t.model) === i) as LlmTarget[],
     openrouter: [
       // Free models (ids checked against openrouter.ai/api/v1/models). The 50 requests/day cap is per account, so the
-      // per-model counters are a safety net; the chain stops on the first 429 anyway.
+      // shared PostgreSQL reservation is made before each attempt, including fallbacks.
       ...['nvidia/nemotron-3-ultra-550b-a55b:free', 'inclusionai/ling-3.2-flash:free', 'nvidia/nemotron-3.5-super-vl:free',
         'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'].map((model): LlmTarget => ({
         provider: 'openrouter', model, rpm: 20, rpd: openrouterDaily, tpm: 1_000_000, maxRequestTokens: 120_000,
       })),
       { provider: 'openrouter', model: openrouterModel, rpm: 20, rpd: openrouterDaily, tpm: 1_000_000, maxRequestTokens: 120_000 },
-    ],
+    ].filter((t) => t.model === 'openrouter/free' || t.model.endsWith(':free')) as LlmTarget[],
   };
 }
 
@@ -131,7 +134,7 @@ function hasKey(provider: LlmProvider): boolean {
 }
 
 function usageFor(target: LlmTarget, now = Date.now()): Usage {
-  const key = `${target.provider}:${target.model}`;
+  const key = target.provider === 'openrouter' ? 'openrouter:account' : `${target.provider}:${target.model}`;
   let u = usage.get(key);
   if (!u) {
     u = { minuteStart: now, minuteRequests: 0, minuteTokens: 0, day: utcDay(now), dayRequests: 0, cooldownUntil: 0, failures: 0, successes: 0 };
@@ -151,6 +154,7 @@ function usageFor(target: LlmTarget, now = Date.now()): Usage {
 
 /** Why the call does not fit the target's free budget right now (null = it fits). */
 export function blockReason(target: LlmTarget, tokens: number, now = Date.now()): LlmOutcome | null {
+  if (target.provider === 'openrouter' && target.model !== 'openrouter/free' && !target.model.endsWith(':free')) return 'skipped_local';
   const u = usageFor(target, now);
   if (u.cooldownUntil > now) return 'skipped_cooldown';
   if (tokens > target.maxRequestTokens) return 'skipped_size';
@@ -294,6 +298,10 @@ export async function generateWithRouter(req: LlmJsonRequest): Promise<LlmResult
       if (blocked) {
         recordLlmEvent({ provider, model: target.model, task: req.task, outcome: blocked });
         continue;
+      }
+      if (provider === 'openrouter' && !(await reserveLlmCall('openrouter:account', req.task))) {
+        recordLlmEvent({ provider, model: target.model, task: req.task, outcome: 'skipped_daily' });
+        break;
       }
       const startedAt = Date.now();
       try {

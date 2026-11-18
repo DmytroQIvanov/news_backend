@@ -1,3 +1,4 @@
+import { NEWS_ELIGIBILITY_SQL } from './eligibility';
 import { Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { canUseHydrogenQuota, DEFAULT_GEMINI_MODEL, DEFAULT_HYDROGEN_MODEL, postGeminiGenerateContent } from '../common/gemini-client';
 import { DatabaseService } from '../database/database.service';
@@ -873,7 +874,7 @@ export class ExpertOpinionsService implements OnModuleInit, OnModuleDestroy {
                   n.summary_uk, n.original_summary, n.category, n.importance, s.name AS source_name
            FROM news_items n
            JOIN sources s ON s.id = n.source_id
-           WHERE (n.external_id = $1 OR n.id::text = $1) AND n.status = 'published'
+           WHERE (n.external_id = $1 OR n.id::text = $1) AND ${NEWS_ELIGIBILITY_SQL}
            LIMIT 1`,
           [id],
         );

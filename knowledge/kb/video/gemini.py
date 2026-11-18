@@ -1,8 +1,7 @@
 """Minimal Gemini REST client for the video worker, sharing the daily budget with the backend (llm_budget_days).
 
-Budgeted models (LLM_DAILY_LIMITS, e.g. 3.8/3.6/2.5 Flash = 20 a day) are reserved atomically with the same rules as
-src/common/llm-budget.ts (advisory lock per day+model, LLM_BUDGET_RESERVED owners). Flash-Lite models are not in the
-limits, so the worker uses them by default: KB_VIDEO_TRANSCRIBE_MODELS / KB_VIDEO_ANALYZE_MODELS.
+Budgeted models (versioned quotas.v1.json) are reserved atomically with the same rules as
+src/common/llm-budget.ts (advisory lock per day+model, LLM_BUDGET_RESERVED owners). Flash-Lite calls also require reservations: KB_VIDEO_TRANSCRIBE_MODELS / KB_VIDEO_ANALYZE_MODELS.
 The API key is sent in a header, never in the URL, and never logged.
 """
 from __future__ import annotations
@@ -11,6 +10,7 @@ import base64
 import json
 import logging
 import os
+from pathlib import Path
 from datetime import datetime, timezone
 
 import httpx
@@ -19,7 +19,9 @@ from .. import db
 
 log = logging.getLogger(__name__)
 API = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-DEFAULT_LIMITS = "gemini-3.8-flash=20,gemini-3.6-flash=20,gemini-2.5-flash=20,gemini-4-hydrogen=20"
+QUOTA_CONFIG = json.loads((Path(__file__).resolve().parents[1] / "quotas.v1.json").read_text(encoding="utf-8"))
+DEFAULT_LIMITS = QUOTA_CONFIG["limits"]
+DEFAULT_RESERVED = QUOTA_CONFIG["reserved"]
 
 
 class BudgetExhausted(Exception):
@@ -37,7 +39,10 @@ def _pairs(raw: str) -> dict[str, str]:
 
 def budget_key(model: str) -> str | None:
     m = model.lower().replace("models/", "")
-    for key in _pairs(os.environ.get("LLM_DAILY_LIMITS", DEFAULT_LIMITS)):
+    limits = _pairs((os.environ.get("LLM_DAILY_LIMITS", "").strip() or DEFAULT_LIMITS))
+    if "hydrogen" in m:
+        return next((k for k in limits if "hydrogen" in k), None)
+    for key in sorted(limits, key=len, reverse=True):
         if m == key or (m.startswith(f"{key}-") and not m.startswith(f"{key}-lite")):
             return key
     return None
@@ -47,27 +52,31 @@ def reserve(model: str, purpose: str) -> bool:
     key = budget_key(model)
     if not key:
         return True
-    limit = int(_pairs(os.environ.get("LLM_DAILY_LIMITS", DEFAULT_LIMITS)).get(key, "0") or 0)
-    owner = _pairs(os.environ.get("LLM_BUDGET_RESERVED", "")).get(key)
+    limit = int(_pairs((os.environ.get("LLM_DAILY_LIMITS", "").strip() or DEFAULT_LIMITS)).get(key, "0") or 0)
+    owner = _pairs((os.environ.get("LLM_BUDGET_RESERVED", "").strip() or DEFAULT_RESERVED)).get(key)
     now = datetime.now(timezone.utc)
     day = now.date().isoformat()
-    with db.tx() as conn:
-        conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"llm:{day}:{key}",))
-        rows = conn.execute("SELECT purpose, used FROM llm_budget_days WHERE day = %s AND model = %s", (day, key)).fetchall()
-        total = sum(int(r["used"]) for r in rows)
-        allowed = total < limit
-        if allowed and owner and ":" in owner:
-            o_purpose, o_count = owner.split(":", 1)
-            if purpose != o_purpose:
-                owners = sum(int(r["used"]) for r in rows if r["purpose"] == o_purpose)
-                cap = limit - owners if now.hour >= 20 else limit - int(o_count)
-                allowed = total - owners < max(0, cap)
-        if allowed:
-            conn.execute(
-                """INSERT INTO llm_budget_days (day, model, purpose, used) VALUES (%s, %s, %s, 1)
-                   ON CONFLICT (day, model, purpose) DO UPDATE SET used = llm_budget_days.used + 1, updated_at = now()""",
-                (day, key, purpose[:40]))
-    return allowed
+    try:
+        with db.tx() as conn:
+            conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"llm:{day}:{key}",))
+            rows = conn.execute("SELECT purpose, used FROM llm_budget_days WHERE day = %s AND model = %s", (day, key)).fetchall()
+            total = sum(int(r["used"]) for r in rows)
+            allowed = total < limit
+            if allowed and owner and ":" in owner:
+                o_purpose, o_count = owner.split(":", 1)
+                if purpose not in o_purpose.split("|"):
+                    owners = sum(int(r["used"]) for r in rows if r["purpose"] in o_purpose.split("|"))
+                    cap = limit - owners if now.hour >= 20 else limit - int(o_count)
+                    allowed = total - owners < max(0, cap)
+            if allowed:
+                conn.execute(
+                    """INSERT INTO llm_budget_days (day, model, purpose, used) VALUES (%s, %s, %s, 1)
+                       ON CONFLICT (day, model, purpose) DO UPDATE SET used = llm_budget_days.used + 1, updated_at = now()""",
+                    (day, key, purpose[:40]))
+        return allowed
+    except Exception:  # accounting unavailable: defer, never send an uncounted call
+        return False
+
 
 
 def record_tokens(model: str, purpose: str, usage: dict) -> None:

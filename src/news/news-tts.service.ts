@@ -1,3 +1,4 @@
+import { NEWS_ELIGIBILITY_SQL } from './eligibility';
 import {
   BadRequestException,
   Injectable,
@@ -700,7 +701,7 @@ export class NewsTtsService implements OnModuleInit, OnModuleDestroy {
               n.ai_metadata->'article'->'facts' AS facts
        FROM news_items n
        JOIN sources s ON s.id = n.source_id
-       WHERE (n.external_id = $1 OR n.id::text = $1) AND n.status = 'published'
+       WHERE (n.external_id = $1 OR n.id::text = $1) AND ${NEWS_ELIGIBILITY_SQL}
        LIMIT 1`,
       [trimmedId],
     );
@@ -880,7 +881,7 @@ export class NewsTtsService implements OnModuleInit, OnModuleDestroy {
               n.ai_metadata->'article'->'facts' AS facts
        FROM news_items n
        JOIN sources s ON s.id = n.source_id
-       WHERE n.status = 'published'
+       WHERE ${NEWS_ELIGIBILITY_SQL}
          AND (COALESCE(n.ai_metadata->'article'->'important' = 'true'::jsonb, false) OR n.importance = 'high')
          AND COALESCE(n.published_at, n.created_at) >= now() - interval '48 hours'
        ORDER BY n.published_at DESC NULLS LAST, n.id DESC
@@ -983,7 +984,7 @@ export class NewsTtsService implements OnModuleInit, OnModuleDestroy {
                 n.ai_metadata->'article'->'facts' AS facts
          FROM news_items n
          JOIN sources s ON s.id = n.source_id
-         WHERE n.status = 'published'
+         WHERE ${NEWS_ELIGIBILITY_SQL}
            AND (COALESCE(n.ai_metadata->'article'->'important' = 'true'::jsonb, false) OR n.importance = 'high')
            AND COALESCE(n.published_at, n.created_at) >= now() - interval '48 hours'
          ORDER BY n.published_at DESC NULLS LAST, n.id DESC

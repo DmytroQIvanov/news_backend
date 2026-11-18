@@ -8,6 +8,7 @@ COPY tsconfig*.json nest-cli.json ./
 COPY src ./src
 COPY scripts ./scripts
 COPY migrations ./migrations
+COPY knowledge/kb/quotas.v1.json ./knowledge/kb/quotas.v1.json
 RUN npm run build && npm prune --omit=dev --no-audit --no-fund
 
 FROM node:22-alpine
@@ -18,6 +19,7 @@ COPY --from=builder --chown=node:node /app/dist ./dist
 COPY --from=builder --chown=node:node /app/scripts ./scripts
 COPY --from=builder --chown=node:node /app/migrations ./migrations
 COPY --from=builder --chown=node:node /app/package.json ./package.json
+COPY --from=builder --chown=node:node /app/knowledge/kb/quotas.v1.json ./knowledge/kb/quotas.v1.json
 USER node
 EXPOSE 3000
 CMD ["sh", "-c", "node scripts/migrate.cjs && node dist/main.js"]

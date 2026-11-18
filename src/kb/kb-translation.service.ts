@@ -1,3 +1,4 @@
+import { publicationReadySql } from '../news/eligibility';
 /**
  * Translations of knowledge-base articles. The editor writes only the English canonical text; this worker translates
  * it with cheap models (the router's 'translate' chain: Groq, Gemini Flash-Lite, OpenRouter) into Ukrainian and the
@@ -81,6 +82,9 @@ export class KbTranslationService implements OnModuleInit, OnModuleDestroy {
     if (this.running) return { translated: 0, published: 0, failed: 0 };
     this.running = true;
     const out = { translated: 0, published: 0, failed: 0 };
+    const run = await this.db.query<{ id: string }>(`INSERT INTO kb.pipeline_runs (worker) VALUES ('translation') RETURNING id`)
+      .then((r) => r.rows[0]?.id).catch(() => undefined);
+    let completed = false;
     try {
       const rows = (await this.db.query(
         `SELECT id, status, ai_metadata->'article' AS article, COALESCE((ai_metadata->'kb'->>'translation_attempts')::int, 0) AS attempts,
@@ -107,20 +111,21 @@ export class KbTranslationService implements OnModuleInit, OnModuleDestroy {
           continue;
         }
         const goLive = r.status === 'needs_review' && r.checks_passed;
-        await this.db.query(
-          `UPDATE news_items SET title_uk = $2::text, summary_uk = $3::text, why_it_matters = $4::text,
+        const translated = await this.db.query<{ status: string }>(
+          `UPDATE news_items n SET title_uk = $2::text, summary_uk = $3::text, why_it_matters = $4::text,
                   ai_metadata = jsonb_set(
                     jsonb_set(ai_metadata, '{article}', (ai_metadata->'article') || jsonb_build_object(
                       'title_uk', $2::text, 'summary_uk', $3::text, 'why_it_matters_uk', $4::text, 'body_uk', $5::text)),
                     '{kb,awaiting_translation}', 'false'::jsonb) || jsonb_build_object('translation_model', $6::text),
-                  status = CASE WHEN $7 THEN 'published' ELSE status END,
-                  published_at = CASE WHEN $7 THEN GREATEST(COALESCE(published_at, now()), now() - interval '6 hours') ELSE published_at END,
+                  status = CASE WHEN $7 AND status = 'needs_review' AND ${publicationReadySql()} THEN 'published' ELSE status END,
+                  published_at = CASE WHEN $7 AND status = 'needs_review' AND ${publicationReadySql()} THEN GREATEST(COALESCE(published_at, now()), now() - interval '6 hours') ELSE published_at END,
                   updated_at = now()
-           WHERE id = $1`,
-          [r.id, uk.title.slice(0, 350), uk.summary.slice(0, 2500), uk.why.slice(0, 1500), uk.body.slice(0, 20_000), uk.model, goLive],
+           WHERE id = $1 AND status <> 'rejected' AND ai_metadata->'article' = $8::jsonb RETURNING status`,
+          [r.id, uk.title.slice(0, 350), uk.summary.slice(0, 2500), uk.why.slice(0, 1500), uk.body.slice(0, 20_000), uk.model, goLive, JSON.stringify(a)],
         );
+        if (!translated.rows[0]) continue; // Concurrent replacement/rejection: discard this result.
         out.translated += 1;
-        if (goLive) out.published += 1;
+        if (goLive && translated.rows[0].status === 'published') out.published += 1;
         for (const lang of getExtraLangs()) {
           const tr = await this.translator(lang, head, body).catch(() => null);
           if (!tr) continue;
@@ -132,7 +137,10 @@ export class KbTranslationService implements OnModuleInit, OnModuleDestroy {
           ).catch(() => undefined);
         }
       }
+      completed = true;
     } finally {
+      if (run) await this.db.query(`UPDATE kb.pipeline_runs SET finished_at = now(), stats = $2::jsonb, error = $3 WHERE id = $1`,
+        [run, JSON.stringify(out), completed && !out.failed ? null : 'translation_failed']).catch(() => undefined);
       this.running = false;
     }
     if (out.translated || out.failed) this.logger.log(`KB translation: ${JSON.stringify(out)}`);

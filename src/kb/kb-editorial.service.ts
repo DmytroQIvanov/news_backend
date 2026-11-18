@@ -1,3 +1,5 @@
+import { publicationReadySql, sourceCounts } from '../news/eligibility';
+import { ArticleReview, eventReviews, reviewApproved } from './kb-review';
 /**
  * Tasks 1 and 4: articles are written per real event from the knowledge base, never as a rewrite of one source.
  *
@@ -66,7 +68,7 @@ export async function isKbEditorialActive(db: DatabaseService): Promise<boolean>
   if (activeCache && Date.now() - activeCache.at < 60_000) return activeCache.value;
   const row = await db
     .query<{ alive: boolean }>(
-      `SELECT EXISTS (SELECT 1 FROM kb.pipeline_runs WHERE worker = 'nlp' AND started_at > now() - interval '30 minutes') AS alive`,
+      `SELECT EXISTS (SELECT 1 FROM kb.pipeline_runs WHERE worker = 'nlp' AND error IS NULL AND finished_at > now() - interval '30 minutes') AS alive`,
     )
     .then((r) => r.rows[0])
     .catch(() => null);
@@ -83,6 +85,7 @@ export interface PublishOptions {
   extraMeta?: Record<string, unknown>;
   /** A reviewer rejected the article: keep it out of the feed until a human looks at it. */
   forceReview?: boolean;
+  review?: ArticleReview;
 }
 
 export interface Candidate {
@@ -403,8 +406,8 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
     const detail: Record<string, unknown> = { tier, writer: written.model };
 
     // big: cheap fact-check of every article against its dossier, then one Flash pass fixes what was flagged
-    let reviews = new Map<number, { verdict: string; issues: unknown[] }>();
-    if ((tier === 'big' || process.env.KB_REVIEW_MEDIUM !== 'false') && articles.length) {
+    let reviews = new Map<number, ArticleReview>();
+    if (articles.length) {
       const fixed = await this.reviewAndFix(batch.map((b) => ({ eventId: b.cand.eventId, material: b.text })), articles, timeoutMs).catch((err) => {
         detail.review_error = err instanceof Error ? err.message : String(err);
         return null;
@@ -429,8 +432,8 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
       try {
         const outcome = await this.publish(item.cand, item.dossier, art, written.model, {
           tier,
-          extraMeta: review ? { review: { verdict: review.verdict, issues: review.issues.length } } : undefined,
-          forceReview: review?.verdict === 'reject' || review?.verdict === 'fix',
+          review,
+          forceReview: !reviewApproved(review, art),
         });
         detail[item.cand.eventId] = outcome;
         if (item.cand.isUpdate) result.updated += 1;
@@ -509,7 +512,7 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
         const next = {
           ...meta,
           article: { ...article, body },
-          kb: { ...meta.kb, checks_passed: true, awaiting_translation: true, rescued_short: true, rescue_attempts: attempts, translation_attempts: 0,
+          kb: { ...meta.kb, checks_passed: false, review: { ...(meta.kb?.review ?? {}), state: 'changed_requires_review' }, awaiting_translation: true, rescued_short: true, rescue_attempts: attempts, translation_attempts: 0,
             validation: { ...(meta.kb?.validation ?? {}), words, problems: [] } },
         };
         await this.db.query(`UPDATE news_items SET ai_metadata = $2::jsonb, updated_at = now() WHERE id = $1`, [r.id, JSON.stringify(next)]);
@@ -547,8 +550,7 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
       models: models('KB_REVIEW_MODELS', 'gemini-3.1-flash-lite,gemini-2.5-flash-lite'), system: REVIEW_SYSTEM,
       prompt: reviewPrompt, schema: REVIEW_SCHEMA, maxOutputTokens: 6_000, purpose: 'kb_review', timeoutMs,
     });
-    const reviews = new Map<number, { verdict: string; issues: Array<{ location: string; problem: string; fix: string }> }>();
-    for (const r of review.json?.reviews ?? []) reviews.set(Number(r.event_id), { verdict: r.verdict, issues: Array.isArray(r.issues) ? r.issues : [] });
+    const reviews = eventReviews(review.json?.reviews, articles, items.map((it) => it.eventId));
     const toFix = items.filter((it) => reviews.get(it.eventId)?.verdict === 'fix' && reviews.get(it.eventId)!.issues.length);
     let fixer: string | null = null;
     let out = articles;
@@ -585,7 +587,7 @@ Fix only what the issue lists, using only the dossier; keep citations like [D1] 
             const before = articles.find((a) => Number(a.event_id) === it.eventId);
             const after = out.find((a) => Number(a.event_id) === it.eventId);
             const r = reviews.get(it.eventId);
-            if (r && mine.length && before && after && (before.body !== after.body || before.title !== after.title || before.summary !== after.summary)) r.verdict = 'ok';
+            if (r && mine.length && before && after && (before.body !== after.body || before.title !== after.title || before.summary !== after.summary)) r.verdict = 'changed_requires_review';
           }
           return { articles: out, reviews, reviewer: review.model, fixer };
         }
@@ -610,7 +612,7 @@ Fix only what the issue lists, using only the dossier; keep citations like [D1] 
         out = articles.map((a) => byId.get(Number(a.event_id)) ?? a);
         for (const id of byId.keys()) {
           const r = reviews.get(id);
-          if (r) reviews.set(id, { ...r, verdict: 'fixed' });
+          if (r) reviews.set(id, { ...r, verdict: 'changed_requires_review' });
         }
       } catch (err) {
         // the unfixed articles still pass the algorithmic checks; flagged ones go to manual review
@@ -727,17 +729,22 @@ Fix only what the issue lists, using only the dossier; keep citations like [D1] 
       sources[0].url,
     );
     const lead = dossier.docs.find((d) => d.ref === order[0]) ?? dossier.docs[0];
-    const checksPassed = !problems.length && !opts.forceReview && process.env.EDITORIAL_REQUIRE_REVIEW !== 'true';
+    if (Math.max(dossier.event.independentSources, sourceCounts(dossier.docs).independentOrigins) < 2) problems.push('insufficient independent sources');
+    if (body.length > 16_000) problems.push('truncation requires review');
+    const approved = reviewApproved(opts.review, art);
+    const checksPassed = approved && !problems.length && !opts.forceReview && process.env.EDITORIAL_REQUIRE_REVIEW !== 'true';
     // A new article goes live after KbTranslationService translated it (Ukrainian first); an update of a live
     // article stays live and its translations are refreshed.
     const awaitTranslation = process.env.KB_PUBLISH_BEFORE_TRANSLATION !== 'true';
-    const status = checksPassed && (cand.articleNewsId || !awaitTranslation) ? 'published' : 'needs_review';
+    let status = checksPassed && (cand.articleNewsId || !awaitTranslation) ? 'published' : 'needs_review';
     const kbMeta = {
       event_id: dossier.event.id,
       tier,
       checks_passed: checksPassed,
       awaiting_translation: true,
       ...(opts.extraMeta ?? {}),
+      review: { state: approved ? 'approved' : 'needs_review', verdict: opts.review?.verdict ?? 'missing',
+        issues: opts.review?.issues ?? [], article_hash: createHash('sha256').update(`${validated.title}\n${validated.body}`).digest('hex') },
       dossier_hash: dossier.hash,
       independent_sources: dossier.event.independentSources,
       related_event_ids: dossier.linked.map((l) => l.eventId),
@@ -754,17 +761,31 @@ Fix only what the issue lists, using only the dossier; keep citations like [D1] 
     };
     const clusterSources = dossier.docs.slice(0, 12).map((d) => ({
       id: `kb-doc-${d.documentId}`, title: d.title, url: d.url, canonicalUrl: d.url, sourceName: d.sourceName, sourceSlug: d.sourceSlug ?? '',
-      publishedAt: d.publishedAt,
+      publishedAt: d.publishedAt, evidenceRoot: d.evidenceRoot, extraction: d.extraction,
     }));
     const hash = createHash('sha256').update(`${validated.title}\n${validated.body}`).digest('hex');
 
     const client = await this.db.connect();
     try {
       await client.query('BEGIN');
+      // Serialize writers of the same event and resolve a link created after candidate selection.
+      const linked = (await client.query<{ article_news_id: string | null }>('SELECT article_news_id FROM kb.events WHERE id = $1 FOR UPDATE', [dossier.event.id])).rows[0];
+      if (linked?.article_news_id) cand = { ...cand, articleNewsId: Number(linked.article_news_id) };
       const src = (await client.query<{ source_id: string }>('SELECT source_id FROM kb.documents WHERE id = $1', [lead.documentId])).rows[0];
       if (!src?.source_id) throw new Error('lead document has no source');
       let newsId: number;
       if (cand.articleNewsId) {
+        const current = (await client.query<{ status: string }>('SELECT status FROM news_items WHERE id = $1 FOR UPDATE', [cand.articleNewsId])).rows[0];
+        if (current?.status === 'rejected') {
+          await client.query('COMMIT');
+          return { newsId: cand.articleNewsId, status: 'rejected', problems };
+        }
+        if (current?.status === 'published' && !checksPassed) {
+          await client.query(`UPDATE news_items SET ai_metadata = jsonb_set(ai_metadata, '{kb_candidate}', $2::jsonb), updated_at = now() WHERE id = $1`,
+            [cand.articleNewsId, JSON.stringify(metadata)]);
+          await client.query('COMMIT');
+          return { newsId: cand.articleNewsId, status: 'needs_review', problems };
+        }
         await client.query(
           `UPDATE news_items SET category = $2, importance = $3,
                   ai_metadata = $4::jsonb, content_hash = $5, cluster_sources = $6::jsonb, kb_event_id = $7, updated_at = now(),
@@ -782,7 +803,8 @@ Fix only what the issue lists, using only the dossier; keep citations like [D1] 
            VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, 'unknown', $11, $12::jsonb, $13, $14, $15, $16::jsonb, true, $17, $18)
            ON CONFLICT (source_id, external_id) DO UPDATE SET
                   ai_metadata = EXCLUDED.ai_metadata, content_hash = EXCLUDED.content_hash, kb_event_id = EXCLUDED.kb_event_id,
-                  editorial_tier = EXCLUDED.editorial_tier, updated_at = now()
+                  editorial_tier = EXCLUDED.editorial_tier, status = CASE WHEN news_items.status = 'rejected' THEN news_items.status ELSE EXCLUDED.status END, updated_at = now()
+           WHERE news_items.status <> 'rejected'
            RETURNING id`,
           [src.source_id, `kb-event-${dossier.event.id}`, lead.url, dossier.event.title.slice(0, 350), (dossier.event.summary || '').slice(0, 2000),
             null, null, null, category, importanceLevel(Boolean(validated.important), dossier.event.independentSources, validated.confidence),
@@ -791,6 +813,10 @@ Fix only what the issue lists, using only the dossier; keep citations like [D1] 
         )).rows[0];
         newsId = Number(row.id);
       }
+      const guarded = await client.query<{ status: string }>(
+        `UPDATE news_items n SET status = 'needs_review' WHERE id = $1 AND status = 'published'
+          AND NOT COALESCE(${publicationReadySql()}, false) RETURNING status`, [newsId]);
+      if (guarded.rows[0]) status = 'needs_review';
       const factCount = (await client.query<{ n: string }>(
         'SELECT count(DISTINCT fact_id) AS n FROM kb.claims WHERE event_id = $1 AND fact_id IS NOT NULL', [dossier.event.id],
       )).rows[0]?.n;

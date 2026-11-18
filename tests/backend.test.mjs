@@ -1,3 +1,6 @@
+import quotaFixture from './quota-ledger.cjs';
+quotaFixture.installQuotaLedger();
+process.env.DATABASE_URL = 'postgresql://unit-test.invalid/test';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BadRequestException, NotFoundException, UnauthorizedException } from '@nestjs/common';
@@ -685,16 +688,16 @@ test('Gemini client prioritizes Gemini 3.8/3.6/3 Flash + Hydrogen router and str
   assert.deepEqual(explicitBody.generationConfig.thinkingConfig, { thinkingBudget: 0 });
 });
 
-test('HydrogenQuotaGuard enforces elevated 10 RPM / 150 RPD limits and fast 404 fallback caches unavailable models', async () => {
+test('HydrogenQuotaGuard enforces 10 RPM / 20 RPD limits and fast 404 fallback caches unavailable models', async () => {
   resetGeminiClientStateForTests();
   try {
     const initial = getHydrogenQuotaStatus();
     assert.equal(initial.maxRpm, 10);
-    assert.equal(initial.maxRpd, 150);
-    assert.equal(initial.remainingToday, 150);
+    assert.equal(initial.maxRpd, 20);
+    assert.equal(initial.remainingToday, 20);
     assert.equal(canUseHydrogenQuota(), true);
 
-    recordHydrogenUsage(149);
+    recordHydrogenUsage(19);
     assert.equal(canUseHydrogenQuota(), true);
     assert.equal(getHydrogenQuotaStatus().remainingToday, 1);
 

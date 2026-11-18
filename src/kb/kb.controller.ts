@@ -1,3 +1,4 @@
+import { NEWS_ELIGIBILITY_SQL } from '../news/eligibility';
 import { BadRequestException, Controller, Get, Header, NotFoundException, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { IngestKeyGuard } from '../common/ingest-key.guard';
 import { llmBudgetStatus } from '../common/llm-budget';
@@ -128,7 +129,7 @@ export class KbController {
     return (await this.db.query(
       `SELECT n.id, n.title_uk, n.ai_metadata->'article'->>'title' AS title_en, n.published_at, n.category, n.kb_event_id,
               n.ai_metadata->'kb'->'flagship'->>'thesis' AS thesis
-       FROM news_items n WHERE n.editorial_tier = 'flagship' AND n.status = 'published'
+       FROM news_items n WHERE n.editorial_tier = 'flagship' AND ${NEWS_ELIGIBILITY_SQL}
        ORDER BY n.updated_at DESC LIMIT $1`,
       [n],
     ).catch(() => ({ rows: [] }))).rows;

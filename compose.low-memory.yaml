@@ -1,0 +1,73 @@
+# Proposed override only. Pair with compose.server.yaml; never applied automatically.
+# See docs/LOW_MEMORY_PROFILE.md for topology, operator review and measurement gates.
+services:
+  db:
+    mem_limit: 256m
+    shm_size: 64m
+    command:
+      - postgres
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - effective_cache_size=128MB
+      - -c
+      - work_mem=2MB
+      - -c
+      - maintenance_work_mem=32MB
+      - -c
+      - max_connections=24
+      - -c
+      - max_parallel_workers_per_gather=0
+  migrate:
+    mem_limit: 128m
+    environment:
+      NODE_OPTIONS: --max-old-space-size=80
+  api:
+    mem_limit: 256m
+    environment:
+      NODE_OPTIONS: --max-old-space-size=160
+      DB_POOL_MAX: 4
+      EDITORIAL_SOURCE: kb
+      KB_EDITORIAL: 'false'
+      KB_FLAGSHIP: 'false'
+      KB_TRANSLATION: 'false'
+      TOPICS_ENABLED: 'false'
+      STORY_BRIEFINGS_ENABLED: 'false'
+      AUDIO_PREGENERATE: 'false'
+      NEWS_MEDIA_ENABLED: 'false'
+      NEWS_VISUALS_ENABLED: 'false'
+      CARICATURES_ENABLED: 'false'
+      WORLD_DISCOVERY: 'false'
+      PEOPLE_DISCOVERY: 'false'
+      EVENT_VIDEOS: 'false'
+      YOUTUBE_RADAR_ENABLED: 'false'
+      YOUTUBE_CHANNEL_DISCOVERY: 'false'
+      AI_MEMES_ENABLED: 'false'
+  kb-collector:
+    mem_limit: 128m
+    environment:
+      KB_EMBEDDINGS: 'false'
+      KB_WIKIDATA: 'false'
+      KB_COLLECTOR_CONCURRENCY: 1
+      KB_MAX_PAGE_BYTES: 1048576
+    deploy:
+      resources:
+        limits: {memory: 128m}
+  kb-nlp:
+    profiles: [heavy-off-vm]
+    environment:
+      KB_EMBEDDINGS: 'false'
+      KB_NLP_BATCH: 1
+  kb-connectors:
+    profiles: [heavy-off-vm]
+  kb-video:
+    profiles: [heavy-off-vm]
+    environment:
+      KB_EMBEDDINGS: 'false'
+      KB_WHISPER_THREADS: 1
+      KB_VIDEO_TRANSCRIBE_MODELS: gemini-3.1-flash-lite,gemini-2.5-flash-lite
+      KB_VIDEO_ANALYZE_MODELS: gemini-3.1-flash-lite,gemini-2.5-flash-lite
+  kb-maintain:
+    profiles: [heavy-off-vm]
+  backup:
+    profiles: [scheduled-maintenance]

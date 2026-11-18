@@ -282,3 +282,29 @@ test('review fixes: claims with different numbers are not duplicates; budgets ho
   const mapped = e.remapCitations(['Rates rose [D1][F2].', 'Unknown source [D9].'], (ref) => ({ D1: [1], F2: [2] }[ref] ?? null));
   assert.deepEqual(mapped, ['Rates rose [1][2].']);
 });
+
+test('related news: ranking prefers explicit links, limits per outlet and storyline, decays by age', () => {
+  const r = require('../dist/news/related-news.service.js');
+  const now = Date.now();
+  const mk = (o) => ({ newsId: 'x', eventId: 1, storylineId: null, sourceSlug: 'a', publishedAt: now - 86400000, kind: 'similar', base: 1.5, ...o });
+  assert.ok(r.scoreCandidate(mk({ kind: 'follow_up' }), now) > r.scoreCandidate(mk({ kind: 'similar' }), now));
+  assert.ok(r.scoreCandidate(mk({ publishedAt: now - 86400000 }), now) > r.scoreCandidate(mk({ publishedAt: now - 40 * 86400000 }), now));
+  const picked = r.selectRelated([
+    mk({ newsId: '1', sourceSlug: 'a', kind: 'storyline', storylineId: 7, base: 2 }),
+    mk({ newsId: '2', sourceSlug: 'b', kind: 'storyline', storylineId: 7, base: 1.9 }),
+    mk({ newsId: '3', sourceSlug: 'a', kind: 'follow_up', base: 2.5 }),
+    mk({ newsId: '4', sourceSlug: 'a', kind: 'participant', base: 1.4 }),
+    mk({ newsId: '3', sourceSlug: 'a', kind: 'similar', base: 1 }),
+  ], 6, 2, now);
+  assert.deepEqual(picked.map((c) => c.newsId), ['3', '1']);
+});
+
+test('response cache: only public heavy GET routes are cached', () => {
+  const { cacheTtlFor } = require('../dist/common/response-cache.interceptor.js');
+  assert.ok(cacheTtlFor('GET', '/api/v1/feed?limit=10', false) > 0);
+  assert.ok(cacheTtlFor('GET', '/api/v1/news/12/related', false) > 0);
+  assert.equal(cacheTtlFor('POST', '/api/v1/feed', false), 0);
+  assert.equal(cacheTtlFor('GET', '/api/v1/feed', true), 0);
+  assert.equal(cacheTtlFor('GET', '/api/v1/audio/news/1', false), 0);
+  assert.equal(cacheTtlFor('GET', '/api/v1/health', false), 0);
+});

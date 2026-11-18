@@ -3,11 +3,17 @@ import sys, pathlib; sys.path.insert(0, str(pathlib.Path(__file__).resolve().par
 
 import pytest
 
-spacy = pytest.importorskip("spacy")
+import os
+if os.environ.get("KB_REQUIRE_QUALITY_TESTS") == "true":
+    import spacy  # required in CI; a missing dependency must fail collection
+else:
+    spacy = pytest.importorskip("spacy")
 try:
     spacy.load("en_core_web_sm")
     spacy.load("uk_core_news_sm")
 except OSError:  # pragma: no cover - models not installed in this environment
+    if os.environ.get("KB_REQUIRE_QUALITY_TESTS") == "true":
+        raise RuntimeError("Required quality models are missing")
     pytest.skip("spaCy models en_core_web_sm / uk_core_news_sm are not installed", allow_module_level=True)
 
 

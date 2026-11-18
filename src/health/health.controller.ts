@@ -1,4 +1,6 @@
-import { Controller, Get, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { IngestKeyGuard } from '../common/ingest-key.guard';
+import { PipelineDiagnostics } from './pipeline-diagnostics';
+import { Controller, Get, Optional, ServiceUnavailableException, UseGuards } from '@nestjs/common';
 import { CatalogService } from '../catalog/catalog.service';
 import { DatabaseService } from '../database/database.service';
 import { GamesService } from '../games/games.service';
@@ -8,6 +10,15 @@ import { GeminiEditorService } from '../ingest/gemini-editor.service';
 import { KeepAliveService } from './keep-alive.service';
 @Controller('health')
 export class HealthController {
+  private diagnosticsCache?: PipelineDiagnostics;
+
+  @Get('diagnostics')
+  @UseGuards(IngestKeyGuard)
+  diagnostics() {
+    this.diagnosticsCache ??= new PipelineDiagnostics(this.db);
+    return this.diagnosticsCache.get();
+  }
+
   constructor(
     private readonly db: DatabaseService,
     @Optional() private readonly keepAlive?: KeepAliveService,

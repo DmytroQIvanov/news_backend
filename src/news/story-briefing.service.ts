@@ -1,3 +1,4 @@
+import { NEWS_ELIGIBILITY_SQL } from './eligibility';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { generateJsonWithRouter, generateWithRouter, parseJsonLoose } from '../common/llm-router';
 import { readEnv } from '../common/r2-storage';
@@ -268,7 +269,7 @@ export class StoryBriefingService implements OnModuleInit, OnModuleDestroy {
                 n.published_at, COALESCE(n.ai_metadata->'article'->'important' = 'true'::jsonb, false) AS important,
                 n.credibility_tier, n.cluster_sources, s.name AS source_name
          FROM news_items n JOIN sources s ON s.id = n.source_id
-         WHERE n.status = 'published' AND n.cluster_id IS NOT NULL
+         WHERE ${NEWS_ELIGIBILITY_SQL} AND n.cluster_id IS NOT NULL
            AND n.published_at >= now() - interval '30 hours'
          ORDER BY n.published_at DESC
          LIMIT 400`,
@@ -539,9 +540,9 @@ List every concrete claim in the DRAFT (numbers, names, dates, causes) that is N
     if (!this.db) return [];
     try {
       const { rows } = await this.db.query<{ payload: StoryBriefingPayload; updated_at: Date }>(
-        `SELECT payload, updated_at FROM story_briefings
-         WHERE updated_at >= now() - ($2::int * interval '1 hour')
-         ORDER BY importance_score DESC, updated_at DESC LIMIT $1`,
+        `SELECT b.payload, b.updated_at FROM story_briefings b JOIN news_items n ON n.id = b.lead_news_id
+         WHERE ${NEWS_ELIGIBILITY_SQL} AND b.updated_at >= now() - ($2::int * interval '1 hour')
+         ORDER BY b.importance_score DESC, b.updated_at DESC LIMIT $1`,
         [limit, maxAgeHours],
       );
       return rows.map((r) => this.localize(r.payload, lang));
@@ -553,7 +554,7 @@ List every concrete claim in the DRAFT (numbers, names, dates, causes) that is N
   async get(clusterId: string, lang: string) {
     if (!this.db) return null;
     const { rows } = await this.db
-      .query<{ payload: StoryBriefingPayload }>(`SELECT payload FROM story_briefings WHERE cluster_id = $1`, [clusterId])
+      .query<{ payload: StoryBriefingPayload }>(`SELECT b.payload FROM story_briefings b JOIN news_items n ON n.id = b.lead_news_id WHERE b.cluster_id = $1 AND ${NEWS_ELIGIBILITY_SQL}`, [clusterId])
       .catch(() => ({ rows: [] as Array<{ payload: StoryBriefingPayload }> }));
     return rows[0] ? this.localize(rows[0].payload, lang) : null;
   }
@@ -562,7 +563,9 @@ List every concrete claim in the DRAFT (numbers, names, dates, causes) that is N
     if (!this.db) return null;
     const { rows } = await this.db
       .query<{ payload: StoryBriefingPayload }>(
-        `SELECT b.payload FROM story_briefings b JOIN news_items n ON n.cluster_id = b.cluster_id WHERE n.id::text = $1 LIMIT 1`,
+        `SELECT b.payload FROM story_briefings b JOIN news_items n ON n.cluster_id = b.cluster_id
+         WHERE n.id::text = $1 AND ${NEWS_ELIGIBILITY_SQL}
+           AND EXISTS (SELECT 1 FROM news_items n WHERE n.id = b.lead_news_id AND ${NEWS_ELIGIBILITY_SQL}) LIMIT 1`,
         [newsId],
       )
       .catch(() => ({ rows: [] as Array<{ payload: StoryBriefingPayload }> }));

@@ -33,6 +33,7 @@ import { NewsMediaService } from './news/news-media.service';
 import { PhotoStorageService } from './common/photo-storage.service';
 import { PhotoMediaInterceptor } from './common/photo-media.interceptor';
 import { APP_INTERCEPTOR } from '@nestjs/core';
+import { ResponseCacheInterceptor } from './common/response-cache.interceptor';
 import { AudioBriefingService } from './news/audio-briefing.service';
 import { TranslationService } from './news/translation.service';
 import { YoutubeChannelDiscoveryService } from './youtube/youtube-channel-discovery.service';
@@ -50,6 +51,7 @@ import { KbFlagshipService } from './kb/kb-flagship.service';
 import { KbCorroborationService } from './kb/kb-corroboration.service';
 import { WorldSourceDiscoveryService } from './news/world-source-discovery.service';
 import { EventVideosService } from './youtube/event-videos.service';
+import { RelatedNewsService } from './news/related-news.service';
 import { PeopleDiscoveryService } from './news/people-discovery.service';
 import { DiscoveryController } from './news/discovery.controller';
 import { KbTranslationService } from './kb/kb-translation.service';
@@ -99,6 +101,7 @@ import { KbDataService } from './kb/kb-data.service';
     NewsMediaService,
     PhotoStorageService,
     { provide: APP_INTERCEPTOR, useClass: PhotoMediaInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: ResponseCacheInterceptor },
     AudioBriefingService,
     TranslationService,
     YoutubeChannelDiscoveryService,
@@ -114,6 +117,7 @@ import { KbDataService } from './kb/kb-data.service';
     WorldSourceDiscoveryService,
     EventVideosService,
     PeopleDiscoveryService,
+    RelatedNewsService,
     KbTranslationService,
   ],
 })

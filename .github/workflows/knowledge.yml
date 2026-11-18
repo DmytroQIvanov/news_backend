@@ -33,7 +33,11 @@ jobs:
           cache: pip
           cache-dependency-path: knowledge/requirements.txt
       - run: pip install -r knowledge/requirements.txt pytest && python -m spacy download en_core_web_sm && python -m spacy download uk_core_news_sm
-      - run: python -m pytest knowledge/tests -q
+      - run: python -m pytest knowledge/tests -q -p no:cacheprovider
+        env:
+          PYTHONPATH: knowledge
+          KB_TEST_DATABASE_URL: postgresql://radar:radar@127.0.0.1:5432/radar
+          KB_REQUIRE_QUALITY_TESTS: 'true'
   image:
     runs-on: ubuntu-latest
     steps:

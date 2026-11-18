@@ -1,3 +1,4 @@
+import { NEWS_ELIGIBILITY_SQL, NEWS_SOURCE_COUNTS_SQL } from './eligibility';
 import { BadRequestException, Body, Controller, Get, NotFoundException, Optional, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { IngestKeyGuard } from '../common/ingest-key.guard';
 import { DatabaseService } from '../database/database.service';
@@ -25,6 +26,8 @@ function parseCategories(raw?: string): Set<string> {
 export const ERROR_REPORT_REASONS = ['factual', 'outdated', 'misleading', 'bias', 'translation', 'other'] as const;
 
 type BriefRow = RankableItem & {
+  document_count: number;
+  independent_source_count: number;
   id: string;
   url: string;
   title_uk: string | null;
@@ -43,7 +46,7 @@ type BriefRow = RankableItem & {
 
 const BRIEF_SQL = `
   SELECT n.id::text AS id, n.url, n.title_uk, n.original_title, n.summary_uk, n.category, n.published_at,
-         n.credibility_tier, n.cluster_id, COALESCE(n.cluster_sources, '[]'::jsonb) AS cluster_sources,
+         ${NEWS_SOURCE_COUNTS_SQL}, n.credibility_tier, n.cluster_id, COALESCE(n.cluster_sources, '[]'::jsonb) AS cluster_sources,
          COALESCE(n.ai_metadata->'article'->'important' = 'true'::jsonb, false) AS important,
          COALESCE((n.ai_metadata->>'hydrogen_deep_analysis')::boolean, false) AS hydrogen_deep_analysis,
          CASE WHEN n.ai_metadata->'article'->>'canonical_lang' = 'en' THEN n.ai_metadata->'article'->>'title' END AS title_en,
@@ -53,7 +56,7 @@ const BRIEF_SQL = `
          (n.ai_metadata->'article'->>'is_solutions_story')::boolean AS is_solutions_story,
          s.name AS source_name, s.slug AS source_slug
   FROM news_items n JOIN sources s ON s.id = n.source_id
-  WHERE n.status = 'published' AND n.published_at >= now() - ($1::int * interval '1 hour')
+  WHERE ${NEWS_ELIGIBILITY_SQL} AND n.published_at >= now() - ($1::int * interval '1 hour')
   ORDER BY n.published_at DESC
   LIMIT 400`;
 
@@ -68,6 +71,7 @@ function briefCard(r: BriefRow, lang: Lang) {
     category: r.category,
     publishedAt: r.published_at,
     clusterId: r.cluster_id,
+    documentCount: r.document_count, independentSourceCount: r.independent_source_count,
     title: lang === 'en' ? r.title_en || r.original_title : r.title_uk || r.original_title,
     tldr: typeof insight?.tldr === 'string' && insight.tldr ? insight.tldr : (lang === 'en' ? r.summary_en : r.summary_uk) || '',
     keyPoints: Array.isArray(insight?.key_points) ? (insight!.key_points as string[]).slice(0, 5) : [],

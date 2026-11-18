@@ -1,3 +1,4 @@
+import { NEWS_ELIGIBILITY_SQL } from './eligibility';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { generateJsonWithRouter } from '../common/llm-router';
@@ -215,7 +216,7 @@ export class CaricatureService implements OnModuleInit, OnModuleDestroy {
                 n.original_title
          FROM news_items n
          LEFT JOIN news_caricatures c ON c.news_item_id = n.id
-         WHERE n.status = 'published'
+         WHERE ${NEWS_ELIGIBILITY_SQL}
            AND c.id IS NULL
            AND NOT (COALESCE(n.media, '{}'::jsonb) ? 'caricature_checked_at')
            AND n.published_at >= now() - interval '36 hours'

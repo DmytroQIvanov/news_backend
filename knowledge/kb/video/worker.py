@@ -29,8 +29,8 @@ log = logging.getLogger(__name__)
 DAILY = int(os.environ.get("KB_VIDEO_DAILY", "30"))
 MAX_ATTEMPTS = 3
 PART_S = int(os.environ.get("KB_VIDEO_PART_SECONDS", "1500"))
-TRANSCRIBE_MODELS = "gemini-3.5-flash-lite,gemini-2.5-flash-lite"
-ANALYZE_MODELS = "gemini-3.5-flash-lite,gemini-2.5-flash-lite"
+TRANSCRIBE_MODELS = "gemini-3.1-flash-lite,gemini-2.5-flash-lite"
+ANALYZE_MODELS = "gemini-3.1-flash-lite,gemini-2.5-flash-lite"
 MAX_TRANSCRIPT_CHARS = int(os.environ.get("KB_VIDEO_MAX_CHARS", "600000"))  # ~150-200k tokens, under the 250k input cap
 
 TRANSCRIBE_SYSTEM = (

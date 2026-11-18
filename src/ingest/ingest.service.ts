@@ -1,3 +1,4 @@
+import { sourceCounts } from '../news/eligibility';
 import { Injectable, Optional } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { canonicalizeUrl } from '../common/url-utils';
@@ -167,12 +168,11 @@ export class IngestService {
         const requireImportantReview =
           process.env.EDITORIAL_REQUIRE_REVIEW_IMPORTANT === 'true' && item.importance === 'high';
         // Single-source retellings are not published: a feed item goes live only when it is corroborated by enough sources.
-        const minSources = Number(process.env.FEED_MIN_SOURCES) >= 1 ? Number(process.env.FEED_MIN_SOURCES) : 2;
+        const minSources = 2;
         const corroborated =
-          (Array.isArray(item.clusterSources) && item.clusterSources.length >= minSources) ||
-          (Array.isArray(incomingClusterSources) && incomingClusterSources.length >= minSources);
+          sourceCounts(JSON.parse(clusterSourcesJson)).independentOrigins >= minSources;
         const targetStatus =
-          fromFeed && !requireImportantReview && corroborated ? 'published' : 'needs_review';
+          fromFeed && isAiGenerated && !requireImportantReview && corroborated ? 'published' : 'needs_review';
         // Existing published news is sent back for review ONLY when its content changes.
         let result: { rowCount: number | null };
         await client.query('SAVEPOINT news_insert_sp');
@@ -188,7 +188,7 @@ export class IngestService {
                why_it_matters=EXCLUDED.why_it_matters, category=EXCLUDED.category,
                importance=EXCLUDED.importance, free_access=EXCLUDED.free_access,
                published_at=EXCLUDED.published_at, ai_metadata=EXCLUDED.ai_metadata,
-               content_hash=EXCLUDED.content_hash, status=EXCLUDED.status,
+               content_hash=EXCLUDED.content_hash, status=CASE WHEN news_items.status = 'rejected' THEN news_items.status ELSE EXCLUDED.status END,
                cluster_id=COALESCE(EXCLUDED.cluster_id, news_items.cluster_id),
                cluster_sources=CASE WHEN jsonb_array_length(EXCLUDED.cluster_sources) > 0 THEN EXCLUDED.cluster_sources ELSE news_items.cluster_sources END,
                ai_generated=EXCLUDED.ai_generated,
@@ -216,7 +216,7 @@ export class IngestService {
                why_it_matters=EXCLUDED.why_it_matters, category=EXCLUDED.category,
                importance=EXCLUDED.importance, free_access=EXCLUDED.free_access,
                published_at=EXCLUDED.published_at, ai_metadata=EXCLUDED.ai_metadata,
-               content_hash=EXCLUDED.content_hash, status=EXCLUDED.status, updated_at=now()
+               content_hash=EXCLUDED.content_hash, status=CASE WHEN news_items.status = 'rejected' THEN news_items.status ELSE EXCLUDED.status END, updated_at=now()
             WHERE news_items.content_hash IS DISTINCT FROM EXCLUDED.content_hash
                OR (EXCLUDED.ai_metadata ? 'editorial_fingerprint'
                    AND news_items.ai_metadata->>'editorial_fingerprint' IS DISTINCT FROM EXCLUDED.ai_metadata->>'editorial_fingerprint')

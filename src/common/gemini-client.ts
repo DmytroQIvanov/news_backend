@@ -1,4 +1,4 @@
-import { recordLlmTokens, reserveLlmCall } from './llm-budget';
+import { dailyLlmLimit, recordLlmTokens, reserveLlmCall } from './llm-budget';
 import { recordLlmEvent } from './llm-stats';
 import { isTransientHttpStatus } from './url-utils';
 
@@ -84,7 +84,7 @@ function parsePositiveIntEnv(raw: string | undefined, fallback: number): number 
 
 function getHydrogenLimits() {
   const maxRpm = parsePositiveIntEnv(process.env.GEMINI_HYDROGEN_MAX_RPM, 10);
-  const maxRpd = parsePositiveIntEnv(process.env.GEMINI_HYDROGEN_MAX_RPD, 150);
+  const maxRpd = Math.min(dailyLlmLimit(DEFAULT_HYDROGEN_MODEL) ?? 20, parsePositiveIntEnv(process.env.GEMINI_HYDROGEN_MAX_RPD, 20));
   const minIntervalMs = maxRpm === 10 ? 6_100 : Math.max(1_000, Math.ceil(RPM_WINDOW_MS / maxRpm));
   return { maxRpm, maxRpd, minIntervalMs };
 }

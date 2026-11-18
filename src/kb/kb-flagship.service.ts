@@ -1,3 +1,4 @@
+import { ArticleReview, reviewApproved } from './kb-review';
 /**
  * Task 4: flagship long-reads — 5-10 per day, marked, for the site where depth is critical.
  *
@@ -388,7 +389,7 @@ listed under ALREADY HAVE. Answer with short factual notes, each with the source
       [cand.eventId, JSON.stringify({ plan, writer: res.model })]);
 
     // cheap fact-check of the whole text against the material; Flash fixes what was flagged
-    let review: { verdict: string; issues: unknown[] } | undefined;
+    let review: ArticleReview | undefined;
     const checked = await this.editorial.reviewAndFix([{ eventId: cand.eventId, material }], [art], timeoutMs).catch((err) => {
       this.logger.warn(`flagship review failed for ${cand.eventId}: ${err instanceof Error ? err.message : err}`);
       return null;
@@ -400,7 +401,7 @@ listed under ALREADY HAVE. Answer with short factual notes, each with the source
 
     const historyRefs = [...history.steps.map((s) => s.ref), ...history.precedents.map((p) => p.ref), ...history.timeline.map((t) => t.ref)];
     const published = await this.editorial.publish(cand, dossier, art, res.model, {
-      tier: 'flagship', historyRefs, contextText: renderHistory(history), forceReview: review?.verdict === 'reject',
+      tier: 'flagship', historyRefs, contextText: renderHistory(history), review, forceReview: !reviewApproved(review, art),
       extraMeta: {
         flagship: {
           writer: res.model, thesis: plan.thesis, angle: plan.angle, why_now: plan.why_now,

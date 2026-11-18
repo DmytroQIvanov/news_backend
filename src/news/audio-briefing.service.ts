@@ -1,3 +1,4 @@
+import { NEWS_ELIGIBILITY_SQL } from './eligibility';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { postGeminiGenerateContent } from '../common/gemini-client';
@@ -293,7 +294,7 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
     await this.expireOld().catch(() => undefined); // retention runs on every scan, not only after a new file is stored
     const { depth, style } = resolveNewsBriefMode(undefined);
     const { rows } = await this.db.query<ArticleRow>(this.articleSql(`
-         WHERE n.status = 'published'
+         WHERE ${NEWS_ELIGIBILITY_SQL}
            AND (COALESCE(n.ai_metadata->'article'->'important' = 'true'::jsonb, false) OR n.importance = 'high'
                 OR jsonb_array_length(COALESCE(n.cluster_sources, '[]'::jsonb)) >= 3)
            AND COALESCE(n.published_at, n.created_at) >= now() - interval '36 hours'
@@ -326,7 +327,7 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
 
   private async loadArticle(newsId: string): Promise<ArticleRow | null> {
     if (!this.db) return null;
-    const { rows } = await this.db.query<ArticleRow>(this.articleSql(`WHERE (n.id::text = $1 OR n.external_id = $1) AND n.status = 'published' LIMIT 1`), [newsId]);
+    const { rows } = await this.db.query<ArticleRow>(this.articleSql(`WHERE (n.id::text = $1 OR n.external_id = $1) AND ${NEWS_ELIGIBILITY_SQL} LIMIT 1`), [newsId]);
     return rows[0] ?? null;
   }
 
@@ -335,7 +336,9 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
     const key = audioCacheKey(newsId, lang, depth, style, this.voice);
     const { rows } = await this.db
       .query<{ object_key: string; mime_type: string; provider: TtsProvider; model: string; duration_sec: number; script: string; bytes: number }>(
-        `SELECT object_key, mime_type, provider, model, duration_sec, script, bytes FROM audio_briefings WHERE cache_key = $1`,
+        `SELECT a.object_key, a.mime_type, a.provider, a.model, a.duration_sec, a.script, a.bytes
+         FROM audio_briefings a JOIN news_items n ON n.id = a.news_id
+         WHERE a.cache_key = $1 AND ${NEWS_ELIGIBILITY_SQL}`,
         [key],
       )
       .catch(() => ({ rows: [] as Array<{ object_key: string; mime_type: string; provider: TtsProvider; model: string; duration_sec: number; script: string; bytes: number }> }));
@@ -415,7 +418,7 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
                      CASE WHEN n.ai_metadata->'article'->>'canonical_lang' = 'en' THEN n.ai_metadata->'article'->>'title' END) END AS title,
                 n.original_title
          FROM audio_briefings a JOIN news_items n ON n.id = a.news_id
-         WHERE a.lang = $1 AND a.created_at >= now() - interval '36 hours'
+         WHERE ${NEWS_ELIGIBILITY_SQL} AND a.lang = $1 AND a.created_at >= now() - interval '36 hours'
          ORDER BY a.priority DESC, a.created_at DESC LIMIT $2`,
         [lang, limit],
       )
