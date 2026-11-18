@@ -490,7 +490,10 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
         const eventId = Number(r.kb_event_id);
         const res = await this.reviewAndFix([{ eventId, material: renderDossier(dossier) }], [{ ...article, event_id: eventId } as GeneratedArticle], envInt('KB_EDITORIAL_TIMEOUT_MS', 300_000, 30_000)).catch(() => null);
         const unchanged = res && res.articles[0]?.body === article.body && res.articles[0]?.title === article.title;
-        ok = Boolean(res && unchanged && res.reviews.get(eventId)?.verdict === 'ok');
+        const verdict = res?.reviews.get(eventId)?.verdict;
+        ok = Boolean(res && unchanged && verdict === 'ok');
+        // an unavailable reviewer (overload, quota) is not an attempt: the article stays held and is retried next cycle
+        if (!res || verdict === 'missing_or_invalid') continue;
       }
       const next = ok
         ? { ...meta, kb: { ...meta.kb, checks_passed: true, awaiting_translation: true, translation_attempts: 0, rereview_attempts: attempts,
