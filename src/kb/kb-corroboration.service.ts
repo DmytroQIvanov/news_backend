@@ -17,7 +17,9 @@ import { DatabaseService } from '../database/database.service';
 import { DISALLOWED_DISCOVERY_ROOTS } from '../news/source-discovery.service';
 import { buildDossier } from './kb-dossier';
 import { isKbEditorialActive } from './kb-editorial.service';
-import { geminiJson, geminiSearch, JsonLlm, models, resolveRedirect, SearchLlm } from './kb-llm';
+import { postGeminiGenerateContent } from '../common/gemini-client';
+import { candidateText, geminiJson, geminiSearch, JsonLlm, models, parseJsonText, resolveRedirect, SearchLlm } from './kb-llm';
+import { bingNewsSearch, buildQueries, entityHitRatio, filterHits, gdeltSearch, SearchHit } from './kb-news-search';
 
 function envInt(name: string, fallback: number, min = 0, max = Number.MAX_SAFE_INTEGER): number {
   const n = Number(process.env[name]);
@@ -85,6 +87,51 @@ export function rootOf(url: string): string {
   }
 }
 
+/** Gemma has no JSON mode / system prompt: ask for JSON in the prompt, validate strictly, fall back to Gemini on any problem. */
+export function coerceVerdict(raw: any): Verdict | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const bool = (v: any) => (typeof v === 'boolean' ? v : v === 'true' ? true : v === 'false' ? false : null);
+  const same = bool(raw.same_event);
+  const onTopic = bool(raw.on_topic);
+  const independent = bool(raw.independent);
+  const adds = bool(raw.adds_information);
+  const conf = Number(raw.match_confidence);
+  const types: string[] = VERDICT_SCHEMA.properties.source_type.enum;
+  if (same === null || onTopic === null || independent === null || adds === null || !Number.isFinite(conf)) return null;
+  if (!types.includes(String(raw.source_type)) || !['high', 'medium', 'low'].includes(String(raw.reliability))) return null;
+  return {
+    same_event: same, on_topic: onTopic, independent, adds_information: adds, match_confidence: Math.max(0, Math.min(1, conf)),
+    source_type: String(raw.source_type), reliability: String(raw.reliability),
+    country: raw.country ? String(raw.country).slice(0, 60) : undefined,
+    language: raw.language ? String(raw.language).slice(0, 20) : undefined,
+    characterization: String(raw.characterization ?? '').slice(0, 400), reason: String(raw.reason ?? '').slice(0, 600),
+  };
+}
+
+export const gemmaThenGemini: JsonLlm = async (req) => {
+  const key = process.env.GEMINI_API_KEY?.trim();
+  if (key && process.env.KB_CORROBORATE_GEMMA !== 'false') {
+    const keys = Object.keys((req.schema as { properties: Record<string, unknown> }).properties).join(', ');
+    for (const m of models('KB_CORROBORATE_GEMMA_MODELS', 'gemma-4-31b-it,gemma-4-26b-a4b-it')) {
+      try {
+        const { data, modelUsed } = await postGeminiGenerateContent({
+          apiKey: key, candidateModels: [m], priority: 'normal', statsTask: 'kb_corroborate', budgetPurpose: 'kb_corroborate',
+          timeoutMs: req.timeoutMs,
+          body: {
+            contents: [{ role: 'user', parts: [{ text: `${req.system}\n\nReply with ONLY one JSON object with the keys: ${keys}. No markdown, no commentary.\n\n${req.prompt}` }] }],
+            generationConfig: { temperature: req.temperature ?? 0.1, maxOutputTokens: req.maxOutputTokens },
+          },
+        });
+        const verdict = coerceVerdict(parseJsonText(candidateText(data)));
+        if (verdict) return { json: verdict, model: modelUsed };
+      } catch {
+        /* overloaded (503) or malformed output: try the next model, then Gemini */
+      }
+    }
+  }
+  return geminiJson(req);
+};
+
 const VET_SYSTEM = `You are a strict source editor for a news knowledge base. You judge whether a fetched web page is a good
 additional source for one specific event. Be sceptical: reject aggregators, content farms, blogs, opinion pieces,
 reposts and pages about a related but different event. Accept only pages that report the same event on their own (their
@@ -96,8 +143,16 @@ export class KbCorroborationService implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout;
   private stopped = false;
   private running?: Promise<{ searched: number; vetted: number; accepted: number }>;
-  llm: JsonLlm = geminiJson;
+  llm: JsonLlm = gemmaThenGemini;
   search: SearchLlm = geminiSearch;
+  /** Scripted news search (Bing News RSS + GDELT); swappable for tests. */
+  scriptedSearch: (query: string) => Promise<SearchHit[]> = async (q) => {
+    const [bing, gdelt] = await Promise.allSettled([
+      bingNewsSearch(q),
+      process.env.KB_CORROBORATE_GDELT === 'false' ? Promise.resolve([] as SearchHit[]) : gdeltSearch(q),
+    ]);
+    return [...(bing.status === 'fulfilled' ? bing.value : []), ...(gdelt.status === 'fulfilled' ? gdelt.value : [])];
+  };
   resolve: (url: string) => Promise<string | null> = resolveRedirect;
 
   constructor(private readonly db: DatabaseService) {}
@@ -192,6 +247,72 @@ export class KbCorroborationService implements OnModuleInit, OnModuleDestroy {
       `PARTICIPANTS: ${dossier.entities.slice(0, 8).map((e) => e.name).join(', ')}`,
       `ALREADY HAVE: ${dossier.docs.map((d) => `${d.sourceName}: ${d.title} (${d.url})`).join(' | ')}`,
     ].filter(Boolean).join('\n');
+    const max = envInt('KB_CORROBORATE_MAX_PAGES', 5, 1, 12);
+    let inserted = 0;
+    const queue = async (url: string, title: string, via: string) => {
+      const canon = url.split('#')[0].replace(/\/+$/, '');
+      const row = (
+        await this.db
+          .query<{ id: string }>(
+            `INSERT INTO kb.documents (kind, url, canonical_url, title, stage, meta)
+             VALUES ('research', $1, $2, $3, 'new', $4::jsonb)
+             ON CONFLICT (canonical_url) DO UPDATE SET canonical_url = EXCLUDED.canonical_url RETURNING id`,
+            [url, canon, (title || url).slice(0, 500), JSON.stringify({ research_for_event: eventId, query: 'corroboration', via })],
+          )
+          .catch(() => ({ rows: [] as Array<{ id: string }> }))
+      ).rows[0];
+      if (!row) return false;
+      await this.db.query(
+        `INSERT INTO kb.event_research (event_id, document_id, query) VALUES ($1, $2, 'corroboration') ON CONFLICT DO NOTHING`,
+        [eventId, row.id],
+      );
+      return true;
+    };
+
+    // 1) scripted search: free, no AI quota. Script filters (date, domain, overlap) decide what is fetched at all.
+    if (process.env.KB_CORROBORATE_SCRIPTED !== 'false') {
+      const entityNames = dossier.entities.map((e) => e.name);
+      const hits: SearchHit[] = [];
+      for (const q of buildQueries(dossier.event.title, entityNames).slice(0, 2)) {
+        try {
+          hits.push(...(await this.scriptedSearch(q)));
+        } catch (err) {
+          this.logger.debug(`scripted search failed for "${q}": ${err instanceof Error ? err.message : err}`);
+        }
+      }
+      const survivors = filterHits(hits, {
+        eventTitle: dossier.event.title, entities: entityNames, startedAt: dossier.event.startedAt, knownRoots: seenRoots,
+        blockedRoots: DISALLOWED_DISCOVERY_ROOTS, rootOf,
+      });
+      for (const h of survivors) {
+        if (inserted >= max) break;
+        if (await queue(h.url, h.title, `${h.provider}:${h.source}`)) {
+          seenRoots.add(rootOf(h.url));
+          inserted += 1;
+        }
+      }
+      this.logger.debug(`event ${eventId}: scripted search ${hits.length} hits, ${survivors.length} passed filters, ${inserted} queued`);
+    }
+
+    // 2) AI-grounded search only when the scripts found nothing and its (small) quota is available.
+    if (inserted === 0 && process.env.KB_CORROBORATE_GROUNDED !== 'false') {
+      try {
+        inserted += await this.groundedSearch(known, seenRoots, queue, max);
+      } catch (err) {
+        this.logger.debug(`grounded search skipped: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+    await this.db.query('UPDATE kb.events SET corroboration_at = now(), corroboration_attempts = corroboration_attempts + 1 WHERE id = $1', [eventId]);
+    this.logger.debug(`event ${eventId}: ${inserted} candidate pages queued for vetting`);
+  }
+
+  private async groundedSearch(
+    known: string,
+    seenRoots: Set<string>,
+    queue: (url: string, title: string, via: string) => Promise<boolean>,
+    max: number,
+  ): Promise<number> {
+    let inserted = 0;
     const res = await this.search({
       models: models('KB_CORROBORATE_MODELS', 'gemini-2.5-flash-lite,gemini-2.5-flash'),
       purpose: 'kb_corroborate',
@@ -200,36 +321,19 @@ export class KbCorroborationService implements OnModuleInit, OnModuleDestroy {
 websites or primary documents. Use only pages that report the event itself (not related background, not opinion, not
 aggregator listings). Do not return outlets already listed under ALREADY HAVE. If nothing reliable exists, say so.\n\n${known}`,
     });
-    const max = envInt('KB_CORROBORATE_MAX_PAGES', 5, 1, 12);
-    let inserted = 0;
-    for (const s of res.sources.slice(0, 12)) {
+    for (const hit of res.sources.slice(0, 12)) {
       if (inserted >= max) break;
-      const url = await this.resolve(s.url);
+      const url = await this.resolve(hit.url);
       if (!url) continue;
       const root = rootOf(url);
       if (!root || DISALLOWED_DISCOVERY_ROOTS.has(root) || seenRoots.has(root)) continue;
-      if (/\/(tag|category|topic|search|feed)\b|[?&](s|q)=/.test(url)) continue; // listing pages are not reports
-      seenRoots.add(root);
-      const canon = url.split('#')[0].replace(/\/+$/, '');
-      const row = (
-        await this.db
-          .query<{ id: string }>(
-            `INSERT INTO kb.documents (kind, url, canonical_url, title, stage, meta)
-             VALUES ('research', $1, $2, $3, 'new', $4::jsonb)
-             ON CONFLICT (canonical_url) DO UPDATE SET canonical_url = EXCLUDED.canonical_url RETURNING id`,
-            [url, canon, (s.title || url).slice(0, 500), JSON.stringify({ research_for_event: eventId, query: 'corroboration' })],
-          )
-          .catch(() => ({ rows: [] as Array<{ id: string }> }))
-      ).rows[0];
-      if (!row) continue;
-      await this.db.query(
-        `INSERT INTO kb.event_research (event_id, document_id, query) VALUES ($1, $2, 'corroboration') ON CONFLICT DO NOTHING`,
-        [eventId, row.id],
-      );
-      inserted += 1;
+      if (/\/(tag|category|topic|search|feed)(\/|$|\?)|[?&](s|q)=/.test(url)) continue; // listing pages are not reports
+      if (await queue(url, hit.title, 'grounded')) {
+        seenRoots.add(root);
+        inserted += 1;
+      }
     }
-    await this.db.query('UPDATE kb.events SET corroboration_at = now(), corroboration_attempts = corroboration_attempts + 1 WHERE id = $1', [eventId]);
-    this.logger.debug(`event ${eventId}: ${inserted} candidate pages queued for vetting`);
+    return inserted;
   }
 
   /** Vet pages the collector has extracted (or gave up on). */
@@ -268,6 +372,13 @@ aggregator listings). Do not return outlets already listed under ALREADY HAVE. I
       }
       const dossier = await buildDossier(this.db, eventId, { excerptChars: 500, maxDocs: 6 });
       if (!dossier) continue;
+      // Script check before any model call: the page text must mention the event's key participants.
+      const hit = entityHitRatio(dossier.entities.slice(0, 4).map((e) => e.name), `${r.title} ${text}`);
+      if (hit < Number(process.env.KB_CORROBORATE_MIN_ENTITY_HIT || 0.34)) {
+        await this.save(eventId, docId, false, { reason: `key participants not mentioned (${Math.round(hit * 100)}%)`, root: rootOf(r.url) });
+        vetted += 1;
+        continue;
+      }
       try {
         const res = await this.llm({
           models: models('KB_CORROBORATE_VET_MODELS', 'gemini-3.1-flash-lite,gemini-2.5-flash-lite'),

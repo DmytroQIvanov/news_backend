@@ -28,7 +28,7 @@ export interface SearchResult {
 
 export type SearchLlm = (req: { models: string[]; prompt: string; purpose: string; timeoutMs: number }) => Promise<SearchResult>;
 
-function candidateText(data: unknown): string {
+export function candidateText(data: unknown): string {
   return ((data as { candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean }> } }> }).candidates?.[0]?.content?.parts ?? [])
     .filter((p) => p.text && !p.thought).map((p) => p.text).join('');
 }
