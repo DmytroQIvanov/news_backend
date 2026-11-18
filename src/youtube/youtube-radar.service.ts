@@ -8,6 +8,12 @@ import {
   postGeminiGenerateContent,
 } from '../common/gemini-client';
 import { canonicalizeUrl } from '../common/url-utils';
+import {
+  extractChaptersFromDescription,
+  formatSecondsLabel,
+  type YoutubeChapter,
+} from '../common/video-timecodes';
+export { extractChaptersFromDescription, formatSecondsLabel, type YoutubeChapter };
 import { DatabaseService } from '../database/database.service';
 import { CATEGORIES, NewsCategory } from '../ingest/ingest.dto';
 import { FeedArticle, fetchAndParseFeedUrl, isPublishedWithinHours } from '../news/company-feeds.service';
@@ -30,12 +36,6 @@ const VIDEO_LOOKBACK_HOURS = 72;
 const MAX_VIDEO_SLICE_SEC = 1_800; // 30 min max window for ultra-compressed audio-first Gemini pass
 const MIN_AUDIO_FPS = 0.01; // 1 frame per 100s -> ~0.66 tok/s visual vs 32 tok/s audio (~98% audio)
 const MAX_APIFY_TRANSCRIPT_CHARS = 14_000;
-
-export interface YoutubeChapter {
-  timestampSec: number;
-  timestampLabel: string;
-  title: string;
-}
 
 export interface YoutubeTimestampedQuote {
   timestampSec: number;
@@ -69,8 +69,10 @@ export interface YoutubeVideoInsight {
   chapters: YoutubeChapter[];
   worthScore: number;
   worthinessReason: string | null;
-  status: 'pending' | 'transcribed' | 'skipped_low_value' | 'skipped_short' | 'failed';
-  transcriptionProvider: 'gemini_audio_compressed' | 'apify_transcript' | null;
+  /** queued_kb / kb_processing / kb_analysis_pending / kb_failed: handled by the KB video worker (KB_VIDEO_WORKER=true). */
+  status: 'pending' | 'transcribed' | 'skipped_low_value' | 'skipped_short' | 'failed' | 'queued_kb' | 'kb_processing' | 'kb_analysis_pending' | 'kb_failed';
+  /** kb_subtitles / kb_auto_subtitles / kb_gemini_audio / kb_whisper come from the KB video worker. */
+  transcriptionProvider: 'gemini_audio_compressed' | 'apify_transcript' | 'kb_subtitles' | 'kb_auto_subtitles' | 'kb_gemini_audio' | 'kb_whisper' | null;
   titleUk: string | null;
   summaryUk: string | null;
   whyItMattersUk: string | null;
@@ -153,48 +155,6 @@ function clampPositiveInt(raw: string | undefined, fallback: number, min: number
 
 export function getConfiguredApifyToken(): string {
   return process.env.apify_token?.trim() || process.env.APIFY_TOKEN?.trim() || '';
-}
-
-export function formatSecondsLabel(totalSec: number): string {
-  const safe = Math.max(0, Math.floor(totalSec));
-  const hours = Math.floor(safe / 3600);
-  const mins = Math.floor((safe % 3600) / 60);
-  const secs = safe % 60;
-  if (hours > 0) {
-    return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  }
-  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-}
-
-export function extractChaptersFromDescription(description: string): YoutubeChapter[] {
-  if (!description) return [];
-  const chapters: YoutubeChapter[] = [];
-  const seenSec = new Set<number>();
-  const lines = description.split(/\r?\n/);
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    const match = /^(?:[-*•]\s*)?\[?(\d{1,2}:)?(\d{1,2}):(\d{2})\]?\s*[-–—:|]?\s*(.+)$/.exec(line);
-    if (!match) continue;
-    const hours = match[1] ? Number.parseInt(match[1].replace(':', ''), 10) : 0;
-    const mins = Number.parseInt(match[2], 10);
-    const secs = Number.parseInt(match[3], 10);
-    if (!Number.isFinite(hours) || !Number.isFinite(mins) || !Number.isFinite(secs) || mins >= 60 || secs >= 60) {
-      continue;
-    }
-    const timestampSec = hours * 3600 + mins * 60 + secs;
-    const title = match[4].replace(/\s+/g, ' ').trim().slice(0, 140);
-    if (!title || seenSec.has(timestampSec)) continue;
-    seenSec.add(timestampSec);
-    chapters.push({
-      timestampSec,
-      timestampLabel: formatSecondsLabel(timestampSec),
-      title,
-    });
-  }
-
-  return chapters.sort((a, b) => a.timestampSec - b.timestampSec).slice(0, 40);
 }
 
 /**
@@ -994,6 +954,40 @@ export class YoutubeRadarService implements OnModuleInit, OnModuleDestroy {
     assessment: YoutubeWorthinessAssessment,
     quota: YoutubeQuotaStatus,
   ): Promise<{ countedTowardQuota: boolean; usedApify: boolean; skippedByAi: boolean }> {
+    if (process.env.KB_VIDEO_WORKER?.trim().toLowerCase() === 'true') {
+      // The KB video worker (python -m kb video) takes it from here: subtitles first, then FFmpeg+VAD audio with
+      // Flash-Lite (whisper.cpp fallback), one Flash-Lite analysis, transcript into the knowledge base. No Gemini call here.
+      await this.persistVideoRecord({
+        videoId,
+        channelSlug: channel.slug,
+        channelId: channel.channelId,
+        channelName: channel.name,
+        url: article.url,
+        title: article.original_title,
+        thumbnailUrl: article.thumbnail_url ?? null,
+        publishedAt: article.published_at,
+        viewsCount: article.views_count ?? 0,
+        likesCount: article.likes_count ?? 0,
+        estimatedDurationSec: assessment.estimatedDurationSec,
+        chapters: assessment.chapters,
+        worthScore: assessment.worthScore,
+        worthinessReason: assessment.reason,
+        status: 'queued_kb',
+        transcriptionProvider: null,
+        titleUk: null,
+        summaryUk: null,
+        whyItMattersUk: null,
+        keyTakeawaysUk: [],
+        timestampedQuotes: [],
+        category: channel.category,
+        importance: 'medium',
+        newsItemId: null,
+        transcribedAt: null,
+        description: article.raw_description || article.original_summary,
+      });
+      return { countedTowardQuota: true, usedApify: false, skippedByAi: false };
+    }
+
     const geminiKey = process.env.GEMINI_API_KEY?.trim();
     const apifyToken = getConfiguredApifyToken();
 
@@ -1147,12 +1141,9 @@ export class YoutubeRadarService implements OnModuleInit, OnModuleDestroy {
       new Set(
         [
           envModel && !isHydrogenModel(envModel) ? envModel : null,
-          'gemini-2.5-flash',
-          'gemini-2.0-flash',
           !isHydrogenModel(DEFAULT_GEMINI_MODEL) ? DEFAULT_GEMINI_MODEL : null,
-          'gemini-3.8-flash',
-          'gemini-3.6-flash',
-          'gemini-3-flash',
+          'gemini-2.5-flash-lite',
+          'gemini-3-flash-preview',
         ].filter((m): m is string => Boolean(m)),
       ),
     );

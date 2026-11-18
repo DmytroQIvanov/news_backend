@@ -247,6 +247,7 @@ export async function checkRobotsTxtPermission(
     userAgent?: string;
     fetchFn?: typeof fetch;
     timeoutMs?: number;
+    lookupFn?: (hostname: string) => Promise<Array<{ address: string }>>;
   },
 ): Promise<{ allowed: boolean; crawlDelaySec?: number; reason?: string }> {
   let parsed: URL;
@@ -281,15 +282,22 @@ export async function checkRobotsTxtPermission(
     if (oldest) robotsCache.delete(oldest);
   }
 
-  const fetchImpl = options?.fetchFn ?? fetch;
+  const robotsUrl = `${origin}/robots.txt`;
+  const headers = {
+    'User-Agent': userAgent,
+    'Accept': 'text/plain, */*',
+  };
   try {
-    const res = await fetchImpl(`${origin}/robots.txt`, {
-      headers: {
-        'User-Agent': userAgent,
-        'Accept': 'text/plain, */*',
-      },
-      signal: AbortSignal.timeout(options?.timeoutMs ?? 5000),
+    const res = await fetchPublicUrl(robotsUrl, {
+      allowHttp: true,
+      headers,
+      timeoutMs: options?.timeoutMs ?? 5000,
+      fetchFn: options?.fetchFn,
+      lookupFn: options?.lookupFn,
     });
+    if (!res) {
+      return { allowed: false, reason: 'Blocked unsafe robots.txt target or redirect' };
+    }
 
     if (res.status === 401 || res.status === 403) {
       robotsCache.set(origin, { fetchedAt: Date.now(), groups: [], disallowAll: true });
@@ -358,4 +366,52 @@ export function checkHtmlRobotsAndTdmMeta(html: string): { allowed: boolean; rea
     }
   }
   return { allowed: true };
+}
+
+/**
+ * Fetches a public HTTPS URL while validating the initial target AND every HTTP redirect target
+ * against private/loopback/reserved IP ranges (prevents SSRF via 301/302/307/308 redirects).
+ */
+export async function fetchPublicUrl(
+  rawUrl: string,
+  options?: {
+    method?: 'GET' | 'HEAD';
+    allowHttp?: boolean;
+    headers?: Record<string, string>;
+    timeoutMs?: number;
+    maxRedirects?: number;
+    fetchFn?: typeof fetch;
+    lookupFn?: (hostname: string) => Promise<Array<{ address: string }>>;
+  },
+): Promise<Response | null> {
+  const fetchImpl = options?.fetchFn ?? fetch;
+  const maxRedirects = options?.maxRedirects ?? 4;
+  let currentUrl = rawUrl;
+
+  for (let hop = 0; hop <= maxRedirects; hop += 1) {
+    const check = await resolveAndValidatePublicUrl(currentUrl, {
+      allowHttp: options?.allowHttp,
+      lookupFn: options?.lookupFn,
+    }).catch(() => ({ safe: false }));
+    if (!check.safe) return null;
+    const resp = await fetchImpl(currentUrl, {
+      method: options?.method ?? 'GET',
+      headers: options?.headers,
+      signal: AbortSignal.timeout(options?.timeoutMs ?? 8_000),
+      redirect: 'manual',
+    });
+    if (resp.status >= 300 && resp.status < 400) {
+      const location = resp.headers.get('location');
+      await resp.body?.cancel().catch(() => undefined);
+      if (!location || hop === maxRedirects) return null;
+      try {
+        currentUrl = new URL(location, currentUrl).href;
+      } catch {
+        return null;
+      }
+      continue;
+    }
+    return resp;
+  }
+  return null;
 }

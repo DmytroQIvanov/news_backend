@@ -56,6 +56,14 @@ services:
         sync: false
       - key: YOUTUBE_API_KEY
         sync: false
+      - key: PEXELS_API_KEY
+        sync: false
+      - key: pixabay_api_key
+        sync: false
+      - key: OPENVERSE_ENABLED
+        value: "true"
+      - key: CARICATURE_DAILY_MAX
+        value: "4"
       - key: groq_api_key
         sync: false
       - key: openrouter_api_key

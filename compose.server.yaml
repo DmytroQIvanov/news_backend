@@ -1,0 +1,214 @@
+# Production stack for a dedicated server (Linux + Docker Engine with the compose plugin).
+#
+#   cp .env.server.example .env.server   # fill in secrets
+#   docker compose -f compose.server.yaml --env-file .env.server up -d --build
+#   docker compose -f compose.server.yaml --env-file .env.server run --rm kb-maintain seed
+#   docker compose -f compose.server.yaml --env-file .env.server run --rm kb-maintain backfill --fetch-days 7
+#   docker compose -f compose.server.yaml --env-file .env.server --profile proxy up -d   # HTTPS via Caddy
+#
+# Scale analysis horizontally (rows are leased with FOR UPDATE SKIP LOCKED, so replicas never collide):
+#   docker compose -f compose.server.yaml --env-file .env.server up -d --scale kb-nlp=3
+name: news-kb
+
+x-kb-common: &kb-common
+  build:
+    context: ./knowledge
+  image: news-kb-worker:latest
+  restart: unless-stopped
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+  environment: &kb-env
+    KB_DATABASE_URL: postgresql://${POSTGRES_USER:-radar}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-radar}
+    KB_LOG_LEVEL: ${KB_LOG_LEVEL:-INFO}
+    KB_EMBEDDINGS: ${KB_EMBEDDINGS:-true}
+    KB_WIKIDATA: ${KB_WIKIDATA:-true}
+    CONTACT_EMAIL: ${CONTACT_EMAIL:-}
+    KB_READY_MIN_SOURCES: ${KB_READY_MIN_SOURCES:-2}
+    KB_DEEP_MIN_SOURCES: ${KB_DEEP_MIN_SOURCES:-4}
+  volumes:
+    - kb_models:/models
+  logging: &logging
+    driver: json-file
+    options: {max-size: "20m", max-file: "5"}
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-radar}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-radar}
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${PG_SHARED_BUFFERS:-1GB}
+      - -c
+      - effective_cache_size=${PG_EFFECTIVE_CACHE:-3GB}
+      - -c
+      - work_mem=32MB
+      - -c
+      - maintenance_work_mem=512MB
+      - -c
+      - max_connections=100
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - wal_compression=on
+    shm_size: 1g
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      # Only reachable from the server itself (use an SSH tunnel for admin tools).
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging: *logging
+
+  migrate:
+    build: .
+    image: news-api:latest
+    command: ["node", "scripts/migrate.cjs"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-radar}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-radar}
+      DIRECT_URL: postgresql://${POSTGRES_USER:-radar}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-radar}
+    logging: *logging
+
+  api:
+    image: news-api:latest
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    env_file:
+      - .env.server
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-radar}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-radar}
+      DIRECT_URL: postgresql://${POSTGRES_USER:-radar}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-radar}
+      DB_POOL_MAX: 8
+      DB_KEEPALIVE_INTERVAL_MS: 600000
+    command: ["node", "dist/main.js"]
+    ports:
+      - "${API_BIND_ADDRESS:-127.0.0.1}:3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+
+  kb-collector:
+    <<: *kb-common
+    command: ["collector"]
+    deploy:
+      resources:
+        limits: {memory: 1g}
+
+  kb-nlp:
+    <<: *kb-common
+    command: ["nlp"]
+    deploy:
+      resources:
+        limits: {memory: 3g}
+
+  kb-connectors:
+    <<: *kb-common
+    command: ["connectors", "--forever"]
+    environment:
+      <<: *kb-env
+      FRED_API_KEY: ${FRED_API_KEY:-}
+      EIA_API_KEY: ${EIA_API_KEY:-}
+      ACLED_EMAIL: ${ACLED_EMAIL:-}
+      ACLED_PASSWORD: ${ACLED_PASSWORD:-}
+      OPENALEX_API_KEY: ${OPENALEX_API_KEY:-}
+      NASA_FIRMS_MAP_KEY: ${NASA_FIRMS_MAP_KEY:-}
+      KB_EDR_ENABLED: ${KB_EDR_ENABLED:-}
+      KB_COURTS_ENABLED: ${KB_COURTS_ENABLED:-}
+      KB_COURT_DAYS: ${KB_COURT_DAYS:-14}
+      KB_PROZORRO_MIN_UAH: ${KB_PROZORRO_MIN_UAH:-20000000}
+      KB_PROZORRO_BUYERS: ${KB_PROZORRO_BUYERS:-}
+      KB_RADA_BILLS_URL: ${KB_RADA_BILLS_URL:-}
+    deploy:
+      resources:
+        limits: {memory: 1g}
+
+  # Video transcripts (subtitles -> FFmpeg+VAD+Flash-Lite -> whisper.cpp). Needs KB_VIDEO_WORKER=true on the backend too.
+  kb-video:
+    <<: *kb-common
+    command: ["video"]
+    environment:
+      <<: *kb-env
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      LLM_DAILY_LIMITS: ${LLM_DAILY_LIMITS:-}
+      LLM_BUDGET_RESERVED: ${LLM_BUDGET_RESERVED:-}
+      KB_VIDEO_DAILY: ${KB_VIDEO_DAILY:-30}
+      KB_VIDEO_SPEED: ${KB_VIDEO_SPEED:-1.2}
+      KB_VIDEO_MAX_PAUSE: ${KB_VIDEO_MAX_PAUSE:-0.8}
+      KB_VIDEO_TRANSCRIBE_MODELS: ${KB_VIDEO_TRANSCRIBE_MODELS:-gemini-3.5-flash-lite,gemini-2.5-flash-lite}
+      KB_VIDEO_ANALYZE_MODELS: ${KB_VIDEO_ANALYZE_MODELS:-gemini-3.5-flash-lite,gemini-2.5-flash-lite}
+      KB_WHISPER_THREADS: ${KB_WHISPER_THREADS:-4}
+      KB_YTDLP_PROXY: ${KB_YTDLP_PROXY:-}
+    tmpfs:
+      - /tmp:size=2g
+    deploy:
+      resources:
+        limits: {memory: 2g}
+
+  kb-maintain:
+    <<: *kb-common
+    command: ["maintain"]
+    deploy:
+      resources:
+        limits: {memory: 2g}
+
+  backup:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGUSER: ${POSTGRES_USER:-radar}
+      PGDATABASE: ${POSTGRES_DB:-radar}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          f=/backups/radar-$$(date +%Y%m%d-%H%M).dump
+          pg_dump -h db -Fc -Z 6 -f "$$f.tmp" && mv "$$f.tmp" "$$f" && echo "backup $$f"
+          find /backups -name 'radar-*.dump' -mtime +$$BACKUP_KEEP_DAYS -delete
+          sleep 86400
+        done
+    volumes:
+      - ./backups:/backups
+    logging: *logging
+
+  caddy:
+    image: caddy:2.10-alpine
+    profiles: ["proxy"]
+    restart: unless-stopped
+    depends_on: [api]
+    command: ["caddy", "reverse-proxy", "--from", "${API_DOMAIN:?set API_DOMAIN}", "--to", "api:3000"]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+    logging: *logging
+
+volumes:
+  pgdata:
+  kb_models:
+  caddy_data:

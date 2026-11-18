@@ -14,7 +14,7 @@
     "migrate": "node scripts/migrate.cjs",
     "typecheck": "tsc --noEmit -p tsconfig.build.json",
     "preflight": "node scripts/preflight.cjs",
-    "test": "npm run build && node --test tests/backend.test.mjs tests/insights.test.mjs tests/article-resources.test.mjs"
+    "test": "npm run build && node --test tests/backend.test.mjs tests/insights.test.mjs tests/article-resources.test.mjs tests/kb.test.mjs tests/photos.test.mjs tests/visual-placement.test.mjs tests/corroboration.test.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^12.4.2",

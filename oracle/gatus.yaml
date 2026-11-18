@@ -1,0 +1,50 @@
+storage:
+  type: sqlite
+  path: /data/gatus.db
+
+alerting:
+  ntfy:
+    url: http://ntfy:80
+    topic: ${NTFY_TOPIC}
+    token: ${NTFY_TOKEN}
+    priority: 4
+    default-alert:
+      failure-threshold: 3
+      success-threshold: 2
+      send-on-resolved: true
+
+endpoints:
+  - name: api-health
+    group: main
+    url: ${API_URL}/api/v1/health
+    interval: 2m
+    conditions: ["[STATUS] == 200", "[RESPONSE_TIME] < 3000"]
+    alerts: [{type: ntfy}]
+
+  - name: database
+    group: main
+    url: ${API_URL}/api/v1/health/db
+    interval: 5m
+    conditions: ["[STATUS] == 200", "[BODY].database == connected"]
+    alerts: [{type: ntfy}]
+
+  # The knowledge-base editor must be active (Python workers alive) and must have written something today by noon.
+  - name: kb-editorial
+    group: knowledge-base
+    url: ${API_URL}/api/v1/kb/editorial/status
+    interval: 15m
+    conditions: ["[STATUS] == 200", "[BODY].active == true"]
+    alerts: [{type: ntfy}]
+
+  - name: llm-budget
+    group: knowledge-base
+    url: ${API_URL}/api/v1/kb/llm-budget
+    interval: 30m
+    conditions: ["[STATUS] == 200"]
+
+  - name: rsshub
+    group: helper
+    url: http://rsshub:1200/healthz
+    interval: 5m
+    conditions: ["[STATUS] == 200"]
+    alerts: [{type: ntfy}]

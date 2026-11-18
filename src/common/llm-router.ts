@@ -85,11 +85,21 @@ export function getTargets(): Record<LlmProvider, LlmTarget[]> {
     gemini: [
       { provider: 'gemini', model: readEnv('GEMINI_MODEL') || DEFAULT_GEMINI_MODEL, rpm: 4, rpd: envInt('GEMINI_DAILY_LIMIT', 1000), tpm: 250_000, maxRequestTokens: 900_000 },
     ],
+    // Groq free tier (per model): gpt-oss-120b/20b and qwen3.8-27b 30 rpm, 1K rpd, 8K tpm, 200K tpd;
+    // allam-2-7b 30 rpm, 7K rpd, 6K tpm, 500K tpd; gpt-oss-safeguard-20b 3 rpm, 1K rpd, 2K tpm. Guard and audio models are not chat targets.
     groq: [
       { provider: 'groq', model: groqSmart, rpm: 30, rpd: envInt('GROQ_DAILY_LIMIT', 1000), tpm: envInt('GROQ_TPM', 8000), maxRequestTokens: envInt('GROQ_TPM', 8000) },
       { provider: 'groq', model: groqFast, rpm: 30, rpd: envInt('GROQ_DAILY_LIMIT', 1000), tpm: envInt('GROQ_TPM', 8000), maxRequestTokens: envInt('GROQ_TPM', 8000) },
-    ],
+      { provider: 'groq', model: 'openai/gpt-oss-20b', rpm: 30, rpd: 1000, tpm: 8000, maxRequestTokens: 8000 },
+      { provider: 'groq', model: 'allam-2-7b', rpm: 30, rpd: 7000, tpm: 6000, maxRequestTokens: 6000 },
+    ].filter((t, i, all) => all.findIndex((x) => x.model === t.model) === i) as LlmTarget[],
     openrouter: [
+      // Free models (ids checked against openrouter.ai/api/v1/models). The 50 requests/day cap is per account, so the
+      // per-model counters are a safety net; the chain stops on the first 429 anyway.
+      ...['nvidia/nemotron-3-ultra-550b-a55b:free', 'inclusionai/ling-3.2-flash:free', 'nvidia/nemotron-3.5-super-vl:free',
+        'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'].map((model): LlmTarget => ({
+        provider: 'openrouter', model, rpm: 20, rpd: openrouterDaily, tpm: 1_000_000, maxRequestTokens: 120_000,
+      })),
       { provider: 'openrouter', model: openrouterModel, rpm: 20, rpd: openrouterDaily, tpm: 1_000_000, maxRequestTokens: 120_000 },
     ],
   };

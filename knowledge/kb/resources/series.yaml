@@ -1,0 +1,1066 @@
+# World Bank codes are indicator:ISO3 because storage is unique on provider/code.
+# External debt covers the selected debtor-reporting economies.
+version: 1
+series:
+  - provider: "worldbank"
+    code: "NY.GDP.MKTP.CD:UKR"
+    geo: "UKR"
+    title: "GDP, current US dollars, Ukraine"
+    title_uk: "ВВП у поточних доларах США — Україна"
+    unit: "US$"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["GDP", "Ukraine", "поточних", "доларах", "Україна", "economy", "ВВП", "економіка"]
+  - provider: "worldbank"
+    code: "NY.GDP.MKTP.KD.ZG:UKR"
+    geo: "UKR"
+    title: "GDP growth, Ukraine"
+    title_uk: "Зростання ВВП — Україна"
+    unit: "% y/y"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["GDP", "Ukraine", "Зростання", "Україна", "economy", "ВВП", "економіка"]
+  - provider: "worldbank"
+    code: "FP.CPI.TOTL.ZG:UKR"
+    geo: "UKR"
+    title: "Consumer price inflation, Ukraine"
+    title_uk: "Споживча інфляція — Україна"
+    unit: "% y/y"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["inflation", "CPI", "Ukraine", "Споживча", "інфляція", "Україна", "ціни"]
+  - provider: "worldbank"
+    code: "SL.UEM.TOTL.ZS:UKR"
+    geo: "UKR"
+    title: "Unemployment, Ukraine"
+    title_uk: "Безробіття — Україна"
+    unit: "% labor force"
+    frequency: "A"
+    categories: ["economy", "career"]
+    keywords: ["unemployment", "jobs", "Ukraine", "Безробіття", "Україна", "безробіття", "зайнятість"]
+  - provider: "worldbank"
+    code: "MS.MIL.XPND.GD.ZS:UKR"
+    geo: "UKR"
+    title: "Military expenditure, share of GDP, Ukraine"
+    title_uk: "Військові видатки у частках ВВП — Україна"
+    unit: "% GDP"
+    frequency: "A"
+    categories: ["defense", "economy"]
+    keywords: ["military spending", "defense", "Ukraine", "Військові", "видатки", "частках", "Україна", "оборона", "військові видатки"]
+  - provider: "worldbank"
+    code: "MS.MIL.XPND.CD:UKR"
+    geo: "UKR"
+    title: "Military expenditure, current US dollars, Ukraine"
+    title_uk: "Військові видатки у поточних доларах США — Україна"
+    unit: "US$"
+    frequency: "A"
+    categories: ["defense", "economy"]
+    keywords: ["military spending", "defense", "Ukraine", "Військові", "видатки", "поточних", "доларах", "Україна", "оборона", "військові видатки"]
+  - provider: "worldbank"
+    code: "SP.POP.TOTL:UKR"
+    geo: "UKR"
+    title: "Population, Ukraine"
+    title_uk: "Населення — Україна"
+    unit: "people"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["population", "demographics", "Ukraine", "Населення", "Україна", "населення", "демографія"]
+  - provider: "worldbank"
+    code: "NE.EXP.GNFS.ZS:UKR"
+    geo: "UKR"
+    title: "Exports of goods and services, Ukraine"
+    title_uk: "Експорт товарів і послуг — Україна"
+    unit: "% GDP"
+    frequency: "A"
+    categories: ["economy", "business"]
+    keywords: ["exports", "trade", "Ukraine", "Експорт", "товарів", "послуг", "Україна", "експорт", "торгівля"]
+  - provider: "worldbank"
+    code: "DT.DOD.DECT.CD:UKR"
+    geo: "UKR"
+    title: "External debt stocks, Ukraine"
+    title_uk: "Зовнішній борг — Україна"
+    unit: "US$"
+    frequency: "A"
+    categories: ["finance", "economy"]
+    keywords: ["external debt", "debt", "Ukraine", "Зовнішній", "борг", "Україна", "зовнішній борг"]
+  - provider: "worldbank"
+    code: "NY.GDP.MKTP.CD:RUS"
+    geo: "RUS"
+    title: "GDP, current US dollars, Russia"
+    title_uk: "ВВП у поточних доларах США — Росія"
+    unit: "US$"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["GDP", "Russia", "поточних", "доларах", "Росія", "economy", "ВВП", "економіка"]
+  - provider: "worldbank"
+    code: "NY.GDP.MKTP.KD.ZG:RUS"
+    geo: "RUS"
+    title: "GDP growth, Russia"
+    title_uk: "Зростання ВВП — Росія"
+    unit: "% y/y"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["GDP", "Russia", "Зростання", "Росія", "economy", "ВВП", "економіка"]
+  - provider: "worldbank"
+    code: "FP.CPI.TOTL.ZG:RUS"
+    geo: "RUS"
+    title: "Consumer price inflation, Russia"
+    title_uk: "Споживча інфляція — Росія"
+    unit: "% y/y"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["inflation", "CPI", "Russia", "Споживча", "інфляція", "Росія", "ціни"]
+  - provider: "worldbank"
+    code: "SL.UEM.TOTL.ZS:RUS"
+    geo: "RUS"
+    title: "Unemployment, Russia"
+    title_uk: "Безробіття — Росія"
+    unit: "% labor force"
+    frequency: "A"
+    categories: ["economy", "career"]
+    keywords: ["unemployment", "jobs", "Russia", "Безробіття", "Росія", "безробіття", "зайнятість"]
+  - provider: "worldbank"
+    code: "MS.MIL.XPND.GD.ZS:RUS"
+    geo: "RUS"
+    title: "Military expenditure, share of GDP, Russia"
+    title_uk: "Військові видатки у частках ВВП — Росія"
+    unit: "% GDP"
+    frequency: "A"
+    categories: ["defense", "economy"]
+    keywords: ["military spending", "defense", "Russia", "Військові", "видатки", "частках", "Росія", "оборона", "військові видатки"]
+  - provider: "worldbank"
+    code: "MS.MIL.XPND.CD:RUS"
+    geo: "RUS"
+    title: "Military expenditure, current US dollars, Russia"
+    title_uk: "Військові видатки у поточних доларах США — Росія"
+    unit: "US$"
+    frequency: "A"
+    categories: ["defense", "economy"]
+    keywords: ["military spending", "defense", "Russia", "Військові", "видатки", "поточних", "доларах", "Росія", "оборона", "військові видатки"]
+  - provider: "worldbank"
+    code: "SP.POP.TOTL:RUS"
+    geo: "RUS"
+    title: "Population, Russia"
+    title_uk: "Населення — Росія"
+    unit: "people"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["population", "demographics", "Russia", "Населення", "Росія", "населення", "демографія"]
+  - provider: "worldbank"
+    code: "NE.EXP.GNFS.ZS:RUS"
+    geo: "RUS"
+    title: "Exports of goods and services, Russia"
+    title_uk: "Експорт товарів і послуг — Росія"
+    unit: "% GDP"
+    frequency: "A"
+    categories: ["economy", "business"]
+    keywords: ["exports", "trade", "Russia", "Експорт", "товарів", "послуг", "Росія", "експорт", "торгівля"]
+  - provider: "worldbank"
+    code: "NY.GDP.MKTP.CD:POL"
+    geo: "POL"
+    title: "GDP, current US dollars, Poland"
+    title_uk: "ВВП у поточних доларах США — Польща"
+    unit: "US$"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["GDP", "Poland", "поточних", "доларах", "Польща", "economy", "ВВП", "економіка"]
+  - provider: "worldbank"
+    code: "NY.GDP.MKTP.KD.ZG:POL"
+    geo: "POL"
+    title: "GDP growth, Poland"
+    title_uk: "Зростання ВВП — Польща"
+    unit: "% y/y"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["GDP", "Poland", "Зростання", "Польща", "economy", "ВВП", "економіка"]
+  - provider: "worldbank"
+    code: "FP.CPI.TOTL.ZG:POL"
+    geo: "POL"
+    title: "Consumer price inflation, Poland"
+    title_uk: "Споживча інфляція — Польща"
+    unit: "% y/y"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["inflation", "CPI", "Poland", "Споживча", "інфляція", "Польща", "ціни"]
+  - provider: "worldbank"
+    code: "SL.UEM.TOTL.ZS:POL"
+    geo: "POL"
+    title: "Unemployment, Poland"
+    title_uk: "Безробіття — Польща"
+    unit: "% labor force"
+    frequency: "A"
+    categories: ["economy", "career"]
+    keywords: ["unemployment", "jobs", "Poland", "Безробіття", "Польща", "безробіття", "зайнятість"]
+  - provider: "worldbank"
+    code: "MS.MIL.XPND.GD.ZS:POL"
+    geo: "POL"
+    title: "Military expenditure, share of GDP, Poland"
+    title_uk: "Військові видатки у частках ВВП — Польща"
+    unit: "% GDP"
+    frequency: "A"
+    categories: ["defense", "economy"]
+    keywords: ["military spending", "defense", "Poland", "Військові", "видатки", "частках", "Польща", "оборона", "військові видатки"]
+  - provider: "worldbank"
+    code: "MS.MIL.XPND.CD:POL"
+    geo: "POL"
+    title: "Military expenditure, current US dollars, Poland"
+    title_uk: "Військові видатки у поточних доларах США — Польща"
+    unit: "US$"
+    frequency: "A"
+    categories: ["defense", "economy"]
+    keywords: ["military spending", "defense", "Poland", "Військові", "видатки", "поточних", "доларах", "Польща", "оборона", "військові видатки"]
+  - provider: "worldbank"
+    code: "SP.POP.TOTL:POL"
+    geo: "POL"
+    title: "Population, Poland"
+    title_uk: "Населення — Польща"
+    unit: "people"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["population", "demographics", "Poland", "Населення", "Польща", "населення", "демографія"]
+  - provider: "worldbank"
+    code: "NE.EXP.GNFS.ZS:POL"
+    geo: "POL"
+    title: "Exports of goods and services, Poland"
+    title_uk: "Експорт товарів і послуг — Польща"
+    unit: "% GDP"
+    frequency: "A"
+    categories: ["economy", "business"]
+    keywords: ["exports", "trade", "Poland", "Експорт", "товарів", "послуг", "Польща", "експорт", "торгівля"]
+  - provider: "worldbank"
+    code: "NY.GDP.MKTP.CD:DEU"
+    geo: "DEU"
+    title: "GDP, current US dollars, Germany"
+    title_uk: "ВВП у поточних доларах США — Німеччина"
+    unit: "US$"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["GDP", "Germany", "поточних", "доларах", "Німеччина", "economy", "ВВП", "економіка"]
+  - provider: "worldbank"
+    code: "NY.GDP.MKTP.KD.ZG:DEU"
+    geo: "DEU"
+    title: "GDP growth, Germany"
+    title_uk: "Зростання ВВП — Німеччина"
+    unit: "% y/y"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["GDP", "Germany", "Зростання", "Німеччина", "economy", "ВВП", "економіка"]
+  - provider: "worldbank"
+    code: "FP.CPI.TOTL.ZG:DEU"
+    geo: "DEU"
+    title: "Consumer price inflation, Germany"
+    title_uk: "Споживча інфляція — Німеччина"
+    unit: "% y/y"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["inflation", "CPI", "Germany", "Споживча", "інфляція", "Німеччина", "ціни"]
+  - provider: "worldbank"
+    code: "SL.UEM.TOTL.ZS:DEU"
+    geo: "DEU"
+    title: "Unemployment, Germany"
+    title_uk: "Безробіття — Німеччина"
+    unit: "% labor force"
+    frequency: "A"
+    categories: ["economy", "career"]
+    keywords: ["unemployment", "jobs", "Germany", "Безробіття", "Німеччина", "безробіття", "зайнятість"]
+  - provider: "worldbank"
+    code: "MS.MIL.XPND.GD.ZS:DEU"
+    geo: "DEU"
+    title: "Military expenditure, share of GDP, Germany"
+    title_uk: "Військові видатки у частках ВВП — Німеччина"
+    unit: "% GDP"
+    frequency: "A"
+    categories: ["defense", "economy"]
+    keywords: ["military spending", "defense", "Germany", "Військові", "видатки", "частках", "Німеччина", "оборона", "військові видатки"]
+  - provider: "worldbank"
+    code: "MS.MIL.XPND.CD:DEU"
+    geo: "DEU"
+    title: "Military expenditure, current US dollars, Germany"
+    title_uk: "Військові видатки у поточних доларах США — Німеччина"
+    unit: "US$"
+    frequency: "A"
+    categories: ["defense", "economy"]
+    keywords: ["military spending", "defense", "Germany", "Військові", "видатки", "поточних", "доларах", "Німеччина", "оборона", "військові видатки"]
+  - provider: "worldbank"
+    code: "SP.POP.TOTL:DEU"
+    geo: "DEU"
+    title: "Population, Germany"
+    title_uk: "Населення — Німеччина"
+    unit: "people"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["population", "demographics", "Germany", "Населення", "Німеччина", "населення", "демографія"]
+  - provider: "worldbank"
+    code: "NE.EXP.GNFS.ZS:DEU"
+    geo: "DEU"
+    title: "Exports of goods and services, Germany"
+    title_uk: "Експорт товарів і послуг — Німеччина"
+    unit: "% GDP"
+    frequency: "A"
+    categories: ["economy", "business"]
+    keywords: ["exports", "trade", "Germany", "Експорт", "товарів", "послуг", "Німеччина", "експорт", "торгівля"]
+  - provider: "worldbank"
+    code: "NY.GDP.MKTP.CD:FRA"
+    geo: "FRA"
+    title: "GDP, current US dollars, France"
+    title_uk: "ВВП у поточних доларах США — Франція"
+    unit: "US$"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["GDP", "France", "поточних", "доларах", "Франція", "economy", "ВВП", "економіка"]
+  - provider: "worldbank"
+    code: "NY.GDP.MKTP.KD.ZG:FRA"
+    geo: "FRA"
+    title: "GDP growth, France"
+    title_uk: "Зростання ВВП — Франція"
+    unit: "% y/y"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["GDP", "France", "Зростання", "Франція", "economy", "ВВП", "економіка"]
+  - provider: "worldbank"
+    code: "FP.CPI.TOTL.ZG:FRA"
+    geo: "FRA"
+    title: "Consumer price inflation, France"
+    title_uk: "Споживча інфляція — Франція"
+    unit: "% y/y"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["inflation", "CPI", "France", "Споживча", "інфляція", "Франція", "ціни"]
+  - provider: "worldbank"
+    code: "SL.UEM.TOTL.ZS:FRA"
+    geo: "FRA"
+    title: "Unemployment, France"
+    title_uk: "Безробіття — Франція"
+    unit: "% labor force"
+    frequency: "A"
+    categories: ["economy", "career"]
+    keywords: ["unemployment", "jobs", "France", "Безробіття", "Франція", "безробіття", "зайнятість"]
+  - provider: "worldbank"
+    code: "MS.MIL.XPND.GD.ZS:FRA"
+    geo: "FRA"
+    title: "Military expenditure, share of GDP, France"
+    title_uk: "Військові видатки у частках ВВП — Франція"
+    unit: "% GDP"
+    frequency: "A"
+    categories: ["defense", "economy"]
+    keywords: ["military spending", "defense", "France", "Військові", "видатки", "частках", "Франція", "оборона", "військові видатки"]
+  - provider: "worldbank"
+    code: "MS.MIL.XPND.CD:FRA"
+    geo: "FRA"
+    title: "Military expenditure, current US dollars, France"
+    title_uk: "Військові видатки у поточних доларах США — Франція"
+    unit: "US$"
+    frequency: "A"
+    categories: ["defense", "economy"]
+    keywords: ["military spending", "defense", "France", "Військові", "видатки", "поточних", "доларах", "Франція", "оборона", "військові видатки"]
+  - provider: "worldbank"
+    code: "SP.POP.TOTL:FRA"
+    geo: "FRA"
+    title: "Population, France"
+    title_uk: "Населення — Франція"
+    unit: "people"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["population", "demographics", "France", "Населення", "Франція", "населення", "демографія"]
+  - provider: "worldbank"
+    code: "NE.EXP.GNFS.ZS:FRA"
+    geo: "FRA"
+    title: "Exports of goods and services, France"
+    title_uk: "Експорт товарів і послуг — Франція"
+    unit: "% GDP"
+    frequency: "A"
+    categories: ["economy", "business"]
+    keywords: ["exports", "trade", "France", "Експорт", "товарів", "послуг", "Франція", "експорт", "торгівля"]
+  - provider: "worldbank"
+    code: "NY.GDP.MKTP.CD:GBR"
+    geo: "GBR"
+    title: "GDP, current US dollars, United Kingdom"
+    title_uk: "ВВП у поточних доларах США — Велика Британія"
+    unit: "US$"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["GDP", "United Kingdom", "поточних", "доларах", "Велика", "Британія", "economy", "ВВП", "економіка"]
+  - provider: "worldbank"
+    code: "NY.GDP.MKTP.KD.ZG:GBR"
+    geo: "GBR"
+    title: "GDP growth, United Kingdom"
+    title_uk: "Зростання ВВП — Велика Британія"
+    unit: "% y/y"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["GDP", "United Kingdom", "Зростання", "Велика", "Британія", "economy", "ВВП", "економіка"]
+  - provider: "worldbank"
+    code: "FP.CPI.TOTL.ZG:GBR"
+    geo: "GBR"
+    title: "Consumer price inflation, United Kingdom"
+    title_uk: "Споживча інфляція — Велика Британія"
+    unit: "% y/y"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["inflation", "CPI", "United Kingdom", "Споживча", "інфляція", "Велика", "Британія", "ціни"]
+  - provider: "worldbank"
+    code: "SL.UEM.TOTL.ZS:GBR"
+    geo: "GBR"
+    title: "Unemployment, United Kingdom"
+    title_uk: "Безробіття — Велика Британія"
+    unit: "% labor force"
+    frequency: "A"
+    categories: ["economy", "career"]
+    keywords: ["unemployment", "jobs", "United Kingdom", "Безробіття", "Велика", "Британія", "безробіття", "зайнятість"]
+  - provider: "worldbank"
+    code: "MS.MIL.XPND.GD.ZS:GBR"
+    geo: "GBR"
+    title: "Military expenditure, share of GDP, United Kingdom"
+    title_uk: "Військові видатки у частках ВВП — Велика Британія"
+    unit: "% GDP"
+    frequency: "A"
+    categories: ["defense", "economy"]
+    keywords: ["military spending", "defense", "United Kingdom", "Військові", "видатки", "частках", "Велика", "Британія", "оборона", "військові видатки"]
+  - provider: "worldbank"
+    code: "MS.MIL.XPND.CD:GBR"
+    geo: "GBR"
+    title: "Military expenditure, current US dollars, United Kingdom"
+    title_uk: "Військові видатки у поточних доларах США — Велика Британія"
+    unit: "US$"
+    frequency: "A"
+    categories: ["defense", "economy"]
+    keywords: ["military spending", "defense", "United Kingdom", "Військові", "видатки", "поточних", "доларах", "Велика", "Британія", "оборона", "військові видатки"]
+  - provider: "worldbank"
+    code: "SP.POP.TOTL:GBR"
+    geo: "GBR"
+    title: "Population, United Kingdom"
+    title_uk: "Населення — Велика Британія"
+    unit: "people"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["population", "demographics", "United Kingdom", "Населення", "Велика", "Британія", "населення", "демографія"]
+  - provider: "worldbank"
+    code: "NE.EXP.GNFS.ZS:GBR"
+    geo: "GBR"
+    title: "Exports of goods and services, United Kingdom"
+    title_uk: "Експорт товарів і послуг — Велика Британія"
+    unit: "% GDP"
+    frequency: "A"
+    categories: ["economy", "business"]
+    keywords: ["exports", "trade", "United Kingdom", "Експорт", "товарів", "послуг", "Велика", "Британія", "експорт", "торгівля"]
+  - provider: "worldbank"
+    code: "NY.GDP.MKTP.CD:USA"
+    geo: "USA"
+    title: "GDP, current US dollars, United States"
+    title_uk: "ВВП у поточних доларах США — США"
+    unit: "US$"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["GDP", "United States", "поточних", "доларах", "economy", "ВВП", "економіка"]
+  - provider: "worldbank"
+    code: "NY.GDP.MKTP.KD.ZG:USA"
+    geo: "USA"
+    title: "GDP growth, United States"
+    title_uk: "Зростання ВВП — США"
+    unit: "% y/y"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["GDP", "United States", "Зростання", "economy", "ВВП", "економіка"]
+  - provider: "worldbank"
+    code: "FP.CPI.TOTL.ZG:USA"
+    geo: "USA"
+    title: "Consumer price inflation, United States"
+    title_uk: "Споживча інфляція — США"
+    unit: "% y/y"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["inflation", "CPI", "United States", "Споживча", "інфляція", "ціни"]
+  - provider: "worldbank"
+    code: "SL.UEM.TOTL.ZS:USA"
+    geo: "USA"
+    title: "Unemployment, United States"
+    title_uk: "Безробіття — США"
+    unit: "% labor force"
+    frequency: "A"
+    categories: ["economy", "career"]
+    keywords: ["unemployment", "jobs", "United States", "Безробіття", "безробіття", "зайнятість"]
+  - provider: "worldbank"
+    code: "MS.MIL.XPND.GD.ZS:USA"
+    geo: "USA"
+    title: "Military expenditure, share of GDP, United States"
+    title_uk: "Військові видатки у частках ВВП — США"
+    unit: "% GDP"
+    frequency: "A"
+    categories: ["defense", "economy"]
+    keywords: ["military spending", "defense", "United States", "Військові", "видатки", "частках", "оборона", "військові видатки"]
+  - provider: "worldbank"
+    code: "MS.MIL.XPND.CD:USA"
+    geo: "USA"
+    title: "Military expenditure, current US dollars, United States"
+    title_uk: "Військові видатки у поточних доларах США — США"
+    unit: "US$"
+    frequency: "A"
+    categories: ["defense", "economy"]
+    keywords: ["military spending", "defense", "United States", "Військові", "видатки", "поточних", "доларах", "оборона", "військові видатки"]
+  - provider: "worldbank"
+    code: "SP.POP.TOTL:USA"
+    geo: "USA"
+    title: "Population, United States"
+    title_uk: "Населення — США"
+    unit: "people"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["population", "demographics", "United States", "Населення", "населення", "демографія"]
+  - provider: "worldbank"
+    code: "NE.EXP.GNFS.ZS:USA"
+    geo: "USA"
+    title: "Exports of goods and services, United States"
+    title_uk: "Експорт товарів і послуг — США"
+    unit: "% GDP"
+    frequency: "A"
+    categories: ["economy", "business"]
+    keywords: ["exports", "trade", "United States", "Експорт", "товарів", "послуг", "експорт", "торгівля"]
+  - provider: "worldbank"
+    code: "NY.GDP.MKTP.CD:CHN"
+    geo: "CHN"
+    title: "GDP, current US dollars, China"
+    title_uk: "ВВП у поточних доларах США — Китай"
+    unit: "US$"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["GDP", "China", "поточних", "доларах", "Китай", "economy", "ВВП", "економіка"]
+  - provider: "worldbank"
+    code: "NY.GDP.MKTP.KD.ZG:CHN"
+    geo: "CHN"
+    title: "GDP growth, China"
+    title_uk: "Зростання ВВП — Китай"
+    unit: "% y/y"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["GDP", "China", "Зростання", "Китай", "economy", "ВВП", "економіка"]
+  - provider: "worldbank"
+    code: "FP.CPI.TOTL.ZG:CHN"
+    geo: "CHN"
+    title: "Consumer price inflation, China"
+    title_uk: "Споживча інфляція — Китай"
+    unit: "% y/y"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["inflation", "CPI", "China", "Споживча", "інфляція", "Китай", "ціни"]
+  - provider: "worldbank"
+    code: "SL.UEM.TOTL.ZS:CHN"
+    geo: "CHN"
+    title: "Unemployment, China"
+    title_uk: "Безробіття — Китай"
+    unit: "% labor force"
+    frequency: "A"
+    categories: ["economy", "career"]
+    keywords: ["unemployment", "jobs", "China", "Безробіття", "Китай", "безробіття", "зайнятість"]
+  - provider: "worldbank"
+    code: "MS.MIL.XPND.GD.ZS:CHN"
+    geo: "CHN"
+    title: "Military expenditure, share of GDP, China"
+    title_uk: "Військові видатки у частках ВВП — Китай"
+    unit: "% GDP"
+    frequency: "A"
+    categories: ["defense", "economy"]
+    keywords: ["military spending", "defense", "China", "Військові", "видатки", "частках", "Китай", "оборона", "військові видатки"]
+  - provider: "worldbank"
+    code: "MS.MIL.XPND.CD:CHN"
+    geo: "CHN"
+    title: "Military expenditure, current US dollars, China"
+    title_uk: "Військові видатки у поточних доларах США — Китай"
+    unit: "US$"
+    frequency: "A"
+    categories: ["defense", "economy"]
+    keywords: ["military spending", "defense", "China", "Військові", "видатки", "поточних", "доларах", "Китай", "оборона", "військові видатки"]
+  - provider: "worldbank"
+    code: "SP.POP.TOTL:CHN"
+    geo: "CHN"
+    title: "Population, China"
+    title_uk: "Населення — Китай"
+    unit: "people"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["population", "demographics", "China", "Населення", "Китай", "населення", "демографія"]
+  - provider: "worldbank"
+    code: "NE.EXP.GNFS.ZS:CHN"
+    geo: "CHN"
+    title: "Exports of goods and services, China"
+    title_uk: "Експорт товарів і послуг — Китай"
+    unit: "% GDP"
+    frequency: "A"
+    categories: ["economy", "business"]
+    keywords: ["exports", "trade", "China", "Експорт", "товарів", "послуг", "Китай", "експорт", "торгівля"]
+  - provider: "worldbank"
+    code: "DT.DOD.DECT.CD:CHN"
+    geo: "CHN"
+    title: "External debt stocks, China"
+    title_uk: "Зовнішній борг — Китай"
+    unit: "US$"
+    frequency: "A"
+    categories: ["finance", "economy"]
+    keywords: ["external debt", "debt", "China", "Зовнішній", "борг", "Китай", "зовнішній борг"]
+  - provider: "worldbank"
+    code: "NY.GDP.MKTP.CD:TUR"
+    geo: "TUR"
+    title: "GDP, current US dollars, Türkiye"
+    title_uk: "ВВП у поточних доларах США — Туреччина"
+    unit: "US$"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["GDP", "поточних", "доларах", "Туреччина", "economy", "ВВП", "економіка"]
+  - provider: "worldbank"
+    code: "NY.GDP.MKTP.KD.ZG:TUR"
+    geo: "TUR"
+    title: "GDP growth, Türkiye"
+    title_uk: "Зростання ВВП — Туреччина"
+    unit: "% y/y"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["GDP", "Зростання", "Туреччина", "economy", "ВВП", "економіка"]
+  - provider: "worldbank"
+    code: "FP.CPI.TOTL.ZG:TUR"
+    geo: "TUR"
+    title: "Consumer price inflation, Türkiye"
+    title_uk: "Споживча інфляція — Туреччина"
+    unit: "% y/y"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["inflation", "CPI", "Споживча", "інфляція", "Туреччина", "ціни"]
+  - provider: "worldbank"
+    code: "SL.UEM.TOTL.ZS:TUR"
+    geo: "TUR"
+    title: "Unemployment, Türkiye"
+    title_uk: "Безробіття — Туреччина"
+    unit: "% labor force"
+    frequency: "A"
+    categories: ["economy", "career"]
+    keywords: ["unemployment", "jobs", "Безробіття", "Туреччина", "безробіття", "зайнятість"]
+  - provider: "worldbank"
+    code: "MS.MIL.XPND.GD.ZS:TUR"
+    geo: "TUR"
+    title: "Military expenditure, share of GDP, Türkiye"
+    title_uk: "Військові видатки у частках ВВП — Туреччина"
+    unit: "% GDP"
+    frequency: "A"
+    categories: ["defense", "economy"]
+    keywords: ["military spending", "defense", "Військові", "видатки", "частках", "Туреччина", "оборона", "військові видатки"]
+  - provider: "worldbank"
+    code: "MS.MIL.XPND.CD:TUR"
+    geo: "TUR"
+    title: "Military expenditure, current US dollars, Türkiye"
+    title_uk: "Військові видатки у поточних доларах США — Туреччина"
+    unit: "US$"
+    frequency: "A"
+    categories: ["defense", "economy"]
+    keywords: ["military spending", "defense", "Військові", "видатки", "поточних", "доларах", "Туреччина", "оборона", "військові видатки"]
+  - provider: "worldbank"
+    code: "SP.POP.TOTL:TUR"
+    geo: "TUR"
+    title: "Population, Türkiye"
+    title_uk: "Населення — Туреччина"
+    unit: "people"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["population", "demographics", "Населення", "Туреччина", "населення", "демографія"]
+  - provider: "worldbank"
+    code: "NE.EXP.GNFS.ZS:TUR"
+    geo: "TUR"
+    title: "Exports of goods and services, Türkiye"
+    title_uk: "Експорт товарів і послуг — Туреччина"
+    unit: "% GDP"
+    frequency: "A"
+    categories: ["economy", "business"]
+    keywords: ["exports", "trade", "Експорт", "товарів", "послуг", "Туреччина", "експорт", "торгівля"]
+  - provider: "worldbank"
+    code: "DT.DOD.DECT.CD:TUR"
+    geo: "TUR"
+    title: "External debt stocks, Türkiye"
+    title_uk: "Зовнішній борг — Туреччина"
+    unit: "US$"
+    frequency: "A"
+    categories: ["finance", "economy"]
+    keywords: ["external debt", "debt", "Зовнішній", "борг", "Туреччина", "зовнішній борг"]
+  - provider: "worldbank"
+    code: "NY.GDP.MKTP.CD:MDA"
+    geo: "MDA"
+    title: "GDP, current US dollars, Moldova"
+    title_uk: "ВВП у поточних доларах США — Молдова"
+    unit: "US$"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["GDP", "Moldova", "поточних", "доларах", "Молдова", "economy", "ВВП", "економіка"]
+  - provider: "worldbank"
+    code: "NY.GDP.MKTP.KD.ZG:MDA"
+    geo: "MDA"
+    title: "GDP growth, Moldova"
+    title_uk: "Зростання ВВП — Молдова"
+    unit: "% y/y"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["GDP", "Moldova", "Зростання", "Молдова", "economy", "ВВП", "економіка"]
+  - provider: "worldbank"
+    code: "FP.CPI.TOTL.ZG:MDA"
+    geo: "MDA"
+    title: "Consumer price inflation, Moldova"
+    title_uk: "Споживча інфляція — Молдова"
+    unit: "% y/y"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["inflation", "CPI", "Moldova", "Споживча", "інфляція", "Молдова", "ціни"]
+  - provider: "worldbank"
+    code: "SL.UEM.TOTL.ZS:MDA"
+    geo: "MDA"
+    title: "Unemployment, Moldova"
+    title_uk: "Безробіття — Молдова"
+    unit: "% labor force"
+    frequency: "A"
+    categories: ["economy", "career"]
+    keywords: ["unemployment", "jobs", "Moldova", "Безробіття", "Молдова", "безробіття", "зайнятість"]
+  - provider: "worldbank"
+    code: "MS.MIL.XPND.GD.ZS:MDA"
+    geo: "MDA"
+    title: "Military expenditure, share of GDP, Moldova"
+    title_uk: "Військові видатки у частках ВВП — Молдова"
+    unit: "% GDP"
+    frequency: "A"
+    categories: ["defense", "economy"]
+    keywords: ["military spending", "defense", "Moldova", "Військові", "видатки", "частках", "Молдова", "оборона", "військові видатки"]
+  - provider: "worldbank"
+    code: "MS.MIL.XPND.CD:MDA"
+    geo: "MDA"
+    title: "Military expenditure, current US dollars, Moldova"
+    title_uk: "Військові видатки у поточних доларах США — Молдова"
+    unit: "US$"
+    frequency: "A"
+    categories: ["defense", "economy"]
+    keywords: ["military spending", "defense", "Moldova", "Військові", "видатки", "поточних", "доларах", "Молдова", "оборона", "військові видатки"]
+  - provider: "worldbank"
+    code: "SP.POP.TOTL:MDA"
+    geo: "MDA"
+    title: "Population, Moldova"
+    title_uk: "Населення — Молдова"
+    unit: "people"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["population", "demographics", "Moldova", "Населення", "Молдова", "населення", "демографія"]
+  - provider: "worldbank"
+    code: "NE.EXP.GNFS.ZS:MDA"
+    geo: "MDA"
+    title: "Exports of goods and services, Moldova"
+    title_uk: "Експорт товарів і послуг — Молдова"
+    unit: "% GDP"
+    frequency: "A"
+    categories: ["economy", "business"]
+    keywords: ["exports", "trade", "Moldova", "Експорт", "товарів", "послуг", "Молдова", "експорт", "торгівля"]
+  - provider: "worldbank"
+    code: "DT.DOD.DECT.CD:MDA"
+    geo: "MDA"
+    title: "External debt stocks, Moldova"
+    title_uk: "Зовнішній борг — Молдова"
+    unit: "US$"
+    frequency: "A"
+    categories: ["finance", "economy"]
+    keywords: ["external debt", "debt", "Moldova", "Зовнішній", "борг", "Молдова", "зовнішній борг"]
+  - provider: "worldbank"
+    code: "NY.GDP.MKTP.KD.ZG:WLD"
+    geo: "WLD"
+    title: "GDP growth, world"
+    title_uk: "Зростання ВВП — світ"
+    unit: "% y/y"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["GDP", "world", "Зростання", "світ", "economy", "ВВП", "економіка"]
+  - provider: "worldbank"
+    code: "FP.CPI.TOTL.ZG:WLD"
+    geo: "WLD"
+    title: "Consumer price inflation, world"
+    title_uk: "Споживча інфляція — світ"
+    unit: "% y/y"
+    frequency: "A"
+    categories: ["economy"]
+    keywords: ["inflation", "CPI", "world", "Споживча", "інфляція", "світ", "ціни"]
+  - provider: "eurostat"
+    code: "prc_hicp_manr?geo=EA20&coicop=CP00&unit=RCH_A&freq=M"
+    geo: "EA20"
+    title: "HICP inflation, euro area"
+    title_uk: "Інфляція HICP — єврозона"
+    unit: "% y/y"
+    frequency: "M"
+    categories: ["economy"]
+    keywords: ["inflation", "HICP", "euro area", "Інфляція", "єврозона"]
+  - provider: "eurostat"
+    code: "prc_hicp_manr?geo=EU27_2020&coicop=CP00&unit=RCH_A&freq=M"
+    geo: "EUU"
+    title: "HICP inflation, European Union"
+    title_uk: "Інфляція HICP — Європейський Союз"
+    unit: "% y/y"
+    frequency: "M"
+    categories: ["economy"]
+    keywords: ["inflation", "HICP", "European Union", "Інфляція", "Європейський", "Союз"]
+  - provider: "eurostat"
+    code: "une_rt_m?geo=EA21&s_adj=SA&sex=T&age=TOTAL&unit=PC_ACT&freq=M"
+    geo: "EA20"
+    title: "Unemployment rate, euro area"
+    title_uk: "Рівень безробіття — єврозона"
+    unit: "% labor force"
+    frequency: "M"
+    categories: ["economy", "career"]
+    keywords: ["unemployment", "euro area", "Рівень", "безробіття", "єврозона"]
+  - provider: "eurostat"
+    code: "une_rt_m?geo=EU27_2020&s_adj=SA&sex=T&age=TOTAL&unit=PC_ACT&freq=M"
+    geo: "EUU"
+    title: "Unemployment rate, European Union"
+    title_uk: "Рівень безробіття — Європейський Союз"
+    unit: "% labor force"
+    frequency: "M"
+    categories: ["economy", "career"]
+    keywords: ["unemployment", "European Union", "Рівень", "безробіття", "Європейський", "Союз"]
+  - provider: "eurostat"
+    code: "une_rt_m?geo=PL&s_adj=SA&sex=T&age=TOTAL&unit=PC_ACT&freq=M"
+    geo: "POL"
+    title: "Unemployment rate, Poland"
+    title_uk: "Рівень безробіття — Польща"
+    unit: "% labor force"
+    frequency: "M"
+    categories: ["economy", "career"]
+    keywords: ["unemployment", "Poland", "Рівень", "безробіття", "Польща"]
+  - provider: "eurostat"
+    code: "une_rt_m?geo=DE&s_adj=SA&sex=T&age=TOTAL&unit=PC_ACT&freq=M"
+    geo: "DEU"
+    title: "Unemployment rate, Germany"
+    title_uk: "Рівень безробіття — Німеччина"
+    unit: "% labor force"
+    frequency: "M"
+    categories: ["economy", "career"]
+    keywords: ["unemployment", "Germany", "Рівень", "безробіття", "Німеччина"]
+  - provider: "eurostat"
+    code: "migr_asytpsm?geo=EU27_2020&citizen=UA&sex=T&age=TOTAL&unit=PER&freq=M"
+    geo: "EUU"
+    title: "Ukrainian temporary protection beneficiaries, European Union"
+    title_uk: "Українці під тимчасовим захистом — Європейський Союз"
+    unit: "people"
+    frequency: "M"
+    categories: ["politics"]
+    keywords: ["Ukraine", "refugees", "temporary protection", "European Union", "Українці", "тимчасовим", "захистом", "Європейський", "Союз"]
+  - provider: "eurostat"
+    code: "migr_asytpsm?geo=PL&citizen=UA&sex=T&age=TOTAL&unit=PER&freq=M"
+    geo: "POL"
+    title: "Ukrainian temporary protection beneficiaries, Poland"
+    title_uk: "Українці під тимчасовим захистом — Польща"
+    unit: "people"
+    frequency: "M"
+    categories: ["politics"]
+    keywords: ["Ukraine", "refugees", "temporary protection", "Poland", "Українці", "тимчасовим", "захистом", "Польща"]
+  - provider: "eurostat"
+    code: "migr_asytpsm?geo=DE&citizen=UA&sex=T&age=TOTAL&unit=PER&freq=M"
+    geo: "DEU"
+    title: "Ukrainian temporary protection beneficiaries, Germany"
+    title_uk: "Українці під тимчасовим захистом — Німеччина"
+    unit: "people"
+    frequency: "M"
+    categories: ["politics"]
+    keywords: ["Ukraine", "refugees", "temporary protection", "Germany", "Українці", "тимчасовим", "захистом", "Німеччина"]
+  - provider: "eurostat"
+    code: "migr_asytpsm?geo=CZ&citizen=UA&sex=T&age=TOTAL&unit=PER&freq=M"
+    geo: "CZE"
+    title: "Ukrainian temporary protection beneficiaries, Czechia"
+    title_uk: "Українці під тимчасовим захистом — Чехія"
+    unit: "people"
+    frequency: "M"
+    categories: ["politics"]
+    keywords: ["Ukraine", "refugees", "temporary protection", "Czechia", "Українці", "тимчасовим", "захистом", "Чехія"]
+  - provider: "ecb"
+    code: "EXR/D.USD.EUR.SP00.A"
+    geo: "EA20"
+    title: "US dollars per euro"
+    title_uk: "Доларів США за євро"
+    unit: "USD/EUR"
+    frequency: "D"
+    categories: ["finance", "economy"]
+    keywords: ["euro", "exchange rate", "Доларів", "євро"]
+  - provider: "ecb"
+    code: "FM/D.U2.EUR.4F.KR.DFR.LEV"
+    geo: "EA20"
+    title: "ECB deposit facility rate"
+    title_uk: "Ставка депозитної лінії ЄЦБ"
+    unit: "%"
+    frequency: "D"
+    categories: ["finance", "economy"]
+    keywords: ["ECB", "interest rate", "Ставка", "депозитної", "лінії"]
+  - provider: "ecb"
+    code: "ICP/M.U2.N.000000.4.ANR"
+    geo: "EA20"
+    title: "Euro area HICP inflation"
+    title_uk: "Інфляція HICP у єврозоні"
+    unit: "% y/y"
+    frequency: "M"
+    categories: ["finance", "economy"]
+    keywords: ["inflation", "HICP", "Інфляція", "єврозоні"]
+  - provider: "nbu"
+    code: "exchange:USD"
+    geo: "UKR"
+    title: "Official UAH per USD"
+    title_uk: "Офіційний курс гривні до долара США"
+    unit: "UAH/USD"
+    frequency: "D"
+    categories: ["finance"]
+    keywords: ["NBU", "exchange rate", "USD", "Офіційний", "курс", "гривні", "долара"]
+  - provider: "nbu"
+    code: "exchange:EUR"
+    geo: "UKR"
+    title: "Official UAH per EUR"
+    title_uk: "Офіційний курс гривні до євро"
+    unit: "UAH/EUR"
+    frequency: "D"
+    categories: ["finance"]
+    keywords: ["NBU", "exchange rate", "EUR", "Офіційний", "курс", "гривні", "євро"]
+  - provider: "nbu"
+    code: "key_rate"
+    geo: "UKR"
+    title: "NBU key policy rate"
+    title_uk: "Облікова ставка НБУ"
+    unit: "%"
+    frequency: "D"
+    categories: ["finance", "economy"]
+    keywords: ["NBU", "interest rate", "Облікова", "ставка"]
+  - provider: "fred"
+    code: "DFF"
+    geo: "USA"
+    title: "US effective federal funds rate"
+    title_uk: "Ефективна ставка федеральних фондів США"
+    unit: "%"
+    frequency: "D"
+    categories: ["finance"]
+    keywords: ["Federal Reserve", "interest rate", "Ефективна", "ставка", "федеральних", "фондів"]
+  - provider: "fred"
+    code: "CPIAUCSL"
+    geo: "USA"
+    title: "US consumer price index, seasonally adjusted"
+    title_uk: "Індекс споживчих цін США, сезонно скоригований"
+    unit: "index 1982-1984=100"
+    frequency: "M"
+    categories: ["economy"]
+    keywords: ["CPI", "inflation", "Індекс", "споживчих", "США", "сезонно", "скоригований"]
+  - provider: "fred"
+    code: "UNRATE"
+    geo: "USA"
+    title: "US unemployment rate"
+    title_uk: "Рівень безробіття США"
+    unit: "%"
+    frequency: "M"
+    categories: ["economy", "career"]
+    keywords: ["unemployment", "Рівень", "безробіття"]
+  - provider: "fred"
+    code: "DGS10"
+    geo: "USA"
+    title: "US 10-year Treasury yield"
+    title_uk: "Дохідність десятирічних казначейських облігацій США"
+    unit: "%"
+    frequency: "D"
+    categories: ["finance"]
+    keywords: ["Treasury", "bond yield", "Дохідність", "десятирічних", "казначейських", "облігацій"]
+  - provider: "fred"
+    code: "DCOILBRENTEU"
+    geo: "WLD"
+    title: "Brent crude oil spot price, Europe"
+    title_uk: "Спотова ціна нафти Brent у Європі"
+    unit: "US$/barrel"
+    frequency: "D"
+    categories: ["climate_energy", "economy"]
+    keywords: ["Brent", "oil", "Спотова", "ціна", "нафти", "Європі"]
+  - provider: "fred"
+    code: "DTWEXBGS"
+    geo: "USA"
+    title: "Nominal broad US dollar index"
+    title_uk: "Номінальний широкий індекс долара США"
+    unit: "index Jan 2006=100"
+    frequency: "D"
+    categories: ["finance"]
+    keywords: ["dollar index", "exchange rate", "Номінальний", "широкий", "індекс", "долара"]
+  - provider: "eia"
+    code: "petroleum/pri/spt/data|RBRTE"
+    geo: "WLD"
+    title: "Brent crude oil spot price"
+    title_uk: "Спотова ціна нафти Brent"
+    unit: "US$/barrel"
+    frequency: "D"
+    categories: ["climate_energy", "economy"]
+    keywords: ["Brent", "oil", "Спотова", "ціна", "нафти"]
+  - provider: "eia"
+    code: "natural-gas/pri/fut/data|RNGWHHD"
+    geo: "USA"
+    title: "Henry Hub natural gas spot price"
+    title_uk: "Спотова ціна природного газу Henry Hub"
+    unit: "US$/MMBtu"
+    frequency: "D"
+    categories: ["climate_energy", "economy"]
+    keywords: ["Henry Hub", "natural gas", "Спотова", "ціна", "природного", "газу", "Henry"]
+  - provider: "unhcr"
+    code: "refugees:coo=UKR"
+    geo: "UKR"
+    title: "Refugees from Ukraine, all destinations"
+    title_uk: "Біженці з України — усі країни"
+    unit: "people"
+    frequency: "A"
+    categories: ["politics"]
+    keywords: ["Ukraine", "refugees", "all destinations", "Біженці", "України", "країни"]
+  - provider: "unhcr"
+    code: "refugees:coo=UKR:coa=POL"
+    geo: "POL"
+    title: "Refugees from Ukraine, Poland"
+    title_uk: "Біженці з України — Польща"
+    unit: "people"
+    frequency: "A"
+    categories: ["politics"]
+    keywords: ["Ukraine", "refugees", "Poland", "Біженці", "України", "Польща"]
+  - provider: "unhcr"
+    code: "refugees:coo=UKR:coa=DEU"
+    geo: "DEU"
+    title: "Refugees from Ukraine, Germany"
+    title_uk: "Біженці з України — Німеччина"
+    unit: "people"
+    frequency: "A"
+    categories: ["politics"]
+    keywords: ["Ukraine", "refugees", "Germany", "Біженці", "України", "Німеччина"]
+  - provider: "unhcr"
+    code: "refugees:coo=UKR:coa=CZE"
+    geo: "CZE"
+    title: "Refugees from Ukraine, Czechia"
+    title_uk: "Біженці з України — Чехія"
+    unit: "people"
+    frequency: "A"
+    categories: ["politics"]
+    keywords: ["Ukraine", "refugees", "Czechia", "Біженці", "України", "Чехія"]
+  - provider: "unhcr"
+    code: "refugees:coo=UKR:coa=GBR"
+    geo: "GBR"
+    title: "Refugees from Ukraine, United Kingdom"
+    title_uk: "Біженці з України — Велика Британія"
+    unit: "people"
+    frequency: "A"
+    categories: ["politics"]
+    keywords: ["Ukraine", "refugees", "United Kingdom", "Біженці", "України", "Велика", "Британія"]
+  - provider: "unhcr"
+    code: "refugees:coo=UKR:coa=USA"
+    geo: "USA"
+    title: "Refugees from Ukraine, United States"
+    title_uk: "Біженці з України — США"
+    unit: "people"
+    frequency: "A"
+    categories: ["politics"]
+    keywords: ["Ukraine", "refugees", "United States", "Біженці", "України"]
+  - provider: "faostat"
+    code: "QCL?area=804&item=15&element=5510"
+    geo: "UKR"
+    title: "Wheat production, Ukraine"
+    title_uk: "Виробництво пшениці — Україна"
+    unit: "t"
+    frequency: "A"
+    categories: ["economy", "business"]
+    keywords: ["wheat", "grain", "production", "Виробництво", "пшениці", "Україна"]
+  - provider: "faostat"
+    code: "QCL?area=804&item=56&element=5510"
+    geo: "UKR"
+    title: "Maize production, Ukraine"
+    title_uk: "Виробництво кукурудзи — Україна"
+    unit: "t"
+    frequency: "A"
+    categories: ["economy", "business"]
+    keywords: ["maize", "grain", "production", "Виробництво", "кукурудзи", "Україна"]

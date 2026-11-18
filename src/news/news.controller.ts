@@ -2,6 +2,7 @@ import { Controller, Get, Optional, Param, ParseIntPipe, Patch, Post, Query, Use
 import { DatabaseService } from '../database/database.service';
 import { IngestKeyGuard } from '../common/ingest-key.guard';
 import { CATEGORIES } from '../ingest/ingest.dto';
+import { isKbEditorialActive } from '../kb/kb-editorial.service';
 import { CompanyFeedsService, isPublishedWithinHours, maxFeedArticles } from './company-feeds.service';
 import { EXPERT_DIRECTORY } from './expert-directory';
 import { ExpertOpinionsService } from './expert-opinions.service';
@@ -10,6 +11,21 @@ import { NewsMemesService } from './news-memes.service';
 import { NEWS_AUDIO_STYLES, NEWS_DEPTHS, NewsTtsService } from './news-tts.service';
 import { SourceDiscoveryService } from './source-discovery.service';
 import { analyzeCoverage, localizeProfile, resolveProfile } from './source-profiles';
+
+/**
+ * Feed quality gate: only articles written by the AI editor (ai_generated) AND backed by a knowledge-base event or at
+ * least FEED_MIN_SOURCES independent sources are listed. Single-source retellings and raw RSS rows stay out.
+ */
+const FEED_MIN_SOURCES = (() => {
+  const n = Number(process.env.FEED_MIN_SOURCES);
+  return Number.isInteger(n) && n >= 1 && n <= 10 ? n : 2;
+})();
+/** "high" only when confirmed by >= 3 sources (or written by the knowledge base, which applies its own rule). */
+const FEED_IMPORTANCE_SQL = `(CASE WHEN n.importance = 'high' AND (n.kb_event_id IS NOT NULL
+  OR jsonb_array_length(COALESCE(n.cluster_sources, '[]'::jsonb)) >= 3) THEN 'high' ELSE 'low' END)`;
+const FEED_QUALITY_GATE_SQL = `(COALESCE(n.ai_generated, false) = true
+  AND (n.kb_event_id IS NOT NULL OR jsonb_array_length(COALESCE(n.cluster_sources, '[]'::jsonb)) >= ${FEED_MIN_SOURCES}))`;
+
 const ENGLISH_FIELDS_SQL = `
   COALESCE(CASE WHEN n.ai_metadata->'article'->>'canonical_lang' = 'en'
     THEN NULLIF(n.ai_metadata->'article'->>'title', '') END,
@@ -107,7 +123,11 @@ export class NewsController {
     if (important !== undefined && important !== 'true' && important !== 'false') {
       throw new BadRequestException('important must be true or false');
     }
-    const onlyDatabase = !!category || important === 'true';
+    // Task 1: while the knowledge base writes one article per event, raw single-source RSS items are not shown
+    // in the feed (they are the "garbage news" the KB replaces); legacy mode keeps the old RSS fallback.
+    // Quality policy: the feed is built from analysed articles only. Raw single-source RSS items are shown solely
+    // when FEED_RAW_RSS=true is set explicitly (emergency fallback).
+    const onlyDatabase = process.env.FEED_RAW_RSS !== 'true' || !!category || important === 'true' || (await isKbEditorialActive(this.db));
     const sqlLimit =
       onlyDatabase && topics.length === 0 && effectiveMaxAgeHours === null ? offset + limit + 50 : offset + limit + maxFeedArticles;
     const sqlOffset = 0;
@@ -144,7 +164,8 @@ export class NewsController {
 
     const published = this.db
       .query<NewsRow>(
-        `SELECT n.id,n.url,n.title_uk,n.summary_uk,n.original_title,n.original_summary,n.category,n.importance,
+        `SELECT n.id,n.url,n.title_uk,n.summary_uk,n.original_title,n.original_summary,n.category,
+                ${FEED_IMPORTANCE_SQL} AS importance,
                 COALESCE(n.ai_metadata->'article'->'important' = 'true'::jsonb, false) AS important,
                 n.free_access,n.credibility_tier,n.is_retracted,n.correction_note,n.corrected_at,
                 n.published_at,n.updated_at,s.name AS source_name,s.slug AS source_slug,
@@ -161,12 +182,14 @@ export class NewsController {
                 n.ai_metadata->>'source_type' AS source_type,
                 n.ai_metadata->>'thumbnail_url' AS thumbnail_url,
                 n.media->'hero' AS hero_image,
+                n.media->'visuals'->0 AS visual_preview,
                 jsonb_array_length(COALESCE(n.media->'visuals', '[]'::jsonb)) AS visuals_count,
                 NULLIF(n.ai_metadata->'article'->>'content_warning', 'none') AS content_warning,
                 n.ai_metadata->'article'->'headline_check' AS headline_check
          FROM news_items n JOIN sources s ON s.id=n.source_id
          ${ENGLISH_TRANSLATION_JOIN}
          WHERE n.status='published' AND ($1::text IS NULL OR n.category=$1)
+           AND ${FEED_QUALITY_GATE_SQL}
            AND ($4::text[] IS NULL OR s.slug = ANY($4::text[]))
            AND (NOT $5::boolean OR n.ai_metadata->'article'->'important' = 'true'::jsonb)
            AND ($6::int IS NULL OR n.published_at >= now() - ($6::int * interval '1 hour'))
@@ -180,7 +203,7 @@ export class NewsController {
       .catch(() =>
         // Pre-migration 013 fallback
         this.db.query<NewsRow>(
-          `SELECT n.id,n.url,n.title_uk,n.summary_uk,n.original_title,n.category,n.importance,
+          `SELECT n.id,n.url,n.title_uk,n.summary_uk,n.original_title,n.category,${FEED_IMPORTANCE_SQL} AS importance,
                   COALESCE(n.ai_metadata->'article'->'important' = 'true'::jsonb, false) AS important,
                   n.free_access,n.credibility_tier,n.is_retracted,n.correction_note,n.corrected_at,
                   n.published_at,n.updated_at,s.name AS source_name,s.slug AS source_slug,
@@ -190,6 +213,7 @@ export class NewsController {
                   n.ai_metadata->>'hydrogen_insight' AS hydrogen_insight
            FROM news_items n JOIN sources s ON s.id=n.source_id
            WHERE n.status='published' AND ($1::text IS NULL OR n.category=$1)
+           AND ${FEED_QUALITY_GATE_SQL}
              AND ($4::text[] IS NULL OR s.slug = ANY($4::text[]))
              AND (NOT $5::boolean OR n.ai_metadata->'article'->'important' = 'true'::jsonb)
              AND ($6::int IS NULL OR n.published_at >= now() - ($6::int * interval '1 hour'))

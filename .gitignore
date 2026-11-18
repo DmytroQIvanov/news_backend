@@ -11,3 +11,6 @@ __pycache__/
 poller_state.json
 latest_news_stream.json
 
+!.env.server.example
+backups/
+.pytest_cache/

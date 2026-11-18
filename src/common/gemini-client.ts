@@ -1,19 +1,18 @@
+import { recordLlmTokens, reserveLlmCall } from './llm-budget';
 import { recordLlmEvent } from './llm-stats';
 import { isTransientHttpStatus } from './url-utils';
 
-export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-lite';
 export const DEFAULT_HYDROGEN_MODEL = process.env.GEMINI_HYDROGEN_MODEL?.trim() || 'gemini-4-hydrogen';
 
 export const FALLBACK_GEMINI_MODELS = [
-  'gemini-3.8-flash',
-  'gemini-3.6-flash',
-  'gemini-3-flash',
+  // Models with real free quota (checked against the API model list): 3.1 Flash Lite ~500/day, 2.5 Flash Lite and
+  // 3 Flash ~20/day, Hydrogen ~20/day. Gemma 4 31B has no daily cap (small prompts only) and is the last resort.
+  'gemini-3.1-flash-lite',
+  'gemini-2.5-flash-lite',
+  'gemini-3-flash-preview',
   'gemini-4-hydrogen',
-  'gemini-2.5-flash',
-  'gemini-3.5-flash-lite',
-  'gemini-2.0-flash',
-  'gemini-2.0-flash-lite',
-  'gemini-1.5-flash',
+  'gemma-4-31b-it',
 ];
 
 const STRICT_MAX_RPM = 4;
@@ -300,6 +299,8 @@ export async function postGeminiGenerateContent(params: {
   priority?: GeminiPriority;
   /** Label for usage statistics (defaults to "direct:<priority>" for calls outside the LLM router). */
   statsTask?: string;
+  /** Purpose charged in the shared daily budget (llm-budget.ts); defaults to statsTask. */
+  budgetPurpose?: string;
 }): Promise<{ data: unknown; modelUsed: string }> {
   const statsTask = params.statsTask ?? `direct:${params.priority ?? 'normal'}`;
   const primary = normalizeGeminiModel(params.preferredModel);
@@ -342,6 +343,13 @@ export async function postGeminiGenerateContent(params: {
 
     try {
       for (let attempt = 1; attempt <= 2; attempt += 1) {
+        // Shared daily budget: reserve BEFORE the request; retries are requests too.
+        if (!(await reserveLlmCall(model, params.budgetPurpose ?? statsTask))) {
+          recordLlmEvent({ provider: 'gemini', model, task: statsTask, outcome: 'skipped_daily', detail: 'shared daily budget' });
+          const budgetErr = new Error(`LLM daily budget exhausted (${model})`);
+          (budgetErr as Error & { status?: number }).status = 429;
+          throw budgetErr;
+        }
         const result = await enqueueGeminiHttpAttempt(useHydrogenBucket, async () => {
           const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
           const startedAt = Date.now();
@@ -366,8 +374,9 @@ export async function postGeminiGenerateContent(params: {
           }
           if (resp.ok) {
             const data = await resp.json();
-            const meta = (data as { usageMetadata?: { totalTokenCount?: number } })?.usageMetadata;
+            const meta = (data as { usageMetadata?: { totalTokenCount?: number; promptTokenCount?: number; candidatesTokenCount?: number } })?.usageMetadata;
             recordLlmEvent({ provider: 'gemini', model, task: statsTask, outcome: 'ok', tokens: meta?.totalTokenCount, latencyMs: Date.now() - startedAt });
+            void recordLlmTokens(model, params.budgetPurpose ?? statsTask, meta?.promptTokenCount ?? 0, meta?.candidatesTokenCount ?? 0);
             return { ok: true as const, data };
           }
           const errText = await resp.text().catch(() => '');

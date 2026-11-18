@@ -166,8 +166,13 @@ export class IngestService {
         }
         const requireImportantReview =
           process.env.EDITORIAL_REQUIRE_REVIEW_IMPORTANT === 'true' && item.importance === 'high';
+        // Single-source retellings are not published: a feed item goes live only when it is corroborated by enough sources.
+        const minSources = Number(process.env.FEED_MIN_SOURCES) >= 1 ? Number(process.env.FEED_MIN_SOURCES) : 2;
+        const corroborated =
+          (Array.isArray(item.clusterSources) && item.clusterSources.length >= minSources) ||
+          (Array.isArray(incomingClusterSources) && incomingClusterSources.length >= minSources);
         const targetStatus =
-          fromFeed && !requireImportantReview ? 'published' : 'needs_review';
+          fromFeed && !requireImportantReview && corroborated ? 'published' : 'needs_review';
         // Existing published news is sent back for review ONLY when its content changes.
         let result: { rowCount: number | null };
         await client.query('SAVEPOINT news_insert_sp');

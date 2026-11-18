@@ -1,0 +1,195 @@
+# Relation lexicon for claim extraction (kb/nlp/relations.py). No AI: verbs (lemmas) and phrases per language.
+#
+#   event_type     event class for events/storylines (matches insights EVENT_LABELS where possible)
+#   lemmas         verb lemmas as produced by spaCy (uk: pymorphy3 infinitives, en/de: base forms)
+#   phrases        lowercase substrings that trigger the predicate when no verb matched (multi-word expressions)
+#   object_kinds   allowed kinds of the object entity (when the object is an entity); used to split homonyms
+#                  like "звільнити" (dismiss a person / liberate a town)
+#   amount         the predicate takes a money/quantity value from the same sentence
+#   functional     one true value per subject+object at a time; different values from different sources = contradiction
+#   symmetric      A partner_with B == B partner_with A
+#   durable        a state of the world that holds across events (acquired, appointed, captured): facts collapse across
+#                  events. Everything else is episodic: each event is its own occurrence (strikes, aid, meetings).
+version: 1
+predicates:
+  acquire:
+    durable: true
+    event_type: acquisition
+    lemmas: {en: [acquire, buy, purchase], uk: [придбати, купити, поглинути, викупити, купувати, придбавати], de: [übernehmen, kaufen, erwerben], ru: [приобрести, купить, поглотить]}
+    phrases: {en: [takeover of, agreed to buy, deal to buy], uk: [угоду про купівлю, поглинання], de: [übernahme von]}
+    object_kinds: [company, organization, product, model, technology, facility, other]
+    amount: true
+    functional: true
+  invest_in:
+    event_type: funding
+    lemmas: {en: [invest, fund, back, finance], uk: [інвестувати, вкласти, профінансувати, фінансувати], de: [investieren, finanzieren], ru: [инвестировать, вложить]}
+    amount: true
+    functional: true
+  raise_funds:
+    event_type: funding
+    lemmas: {en: [raise, secure], uk: [залучити, залучати], de: [einsammeln, sammeln], ru: [привлечь]}
+    phrases: {en: [funding round, series a, series b, series c, series d], uk: [раунд інвестицій, раунді фінансування]}
+    amount: true
+    functional: true
+  partner_with:
+    durable: true
+    event_type: partnership
+    lemmas: {en: [partner, collaborate, team, cooperate, ally], uk: [співпрацювати, об'єднатися, партнеритися, кооперуватися], de: [kooperieren, zusammenarbeiten], ru: [сотрудничать]}
+    phrases: {en: [partnership with, joint venture with, teams up with], uk: [партнерство з, спільне підприємство], de: [partnerschaft mit]}
+    symmetric: true
+  sign_agreement:
+    event_type: agreement
+    lemmas: {en: [sign, conclude, ink], uk: [підписати, укласти, підписувати], de: [unterzeichnen, unterschreiben, schließen], ru: [подписать, заключить]}
+    phrases: {en: [agreement with, memorandum with, deal with], uk: [угоду з, меморандум з, угода між], de: [abkommen mit, vereinbarung mit]}
+    symmetric: true
+  launch:
+    event_type: launch
+    lemmas: {en: [launch, release, unveil, introduce, debut, ship, open-source], uk: [запустити, випустити, представити, презентувати, оприлюднити, запускати, випускати], de: [starten, vorstellen, veröffentlichen, einführen, präsentieren], ru: [запустить, выпустить, представить]}
+    object_kinds: [product, model, technology, weapon, other]
+  announce:
+    event_type: announcement
+    lemmas: {en: [announce, unveil], uk: [оголосити, анонсувати, оголошувати], de: [ankündigen, bekanntgeben, verkünden], ru: [объявить, анонсировать]}
+  appoint:
+    durable: true
+    event_type: leadership
+    lemmas: {en: [appoint, name, nominate, hire, elect], uk: [призначити, обрати, номінувати, призначати], de: [ernennen, berufen, nominieren, wählen], ru: [назначить, избрать]}
+    object_kinds: [person]
+    functional: true
+  dismiss:
+    durable: true
+    event_type: leadership
+    lemmas: {en: [fire, dismiss, sack, oust, remove, suspend], uk: [звільнити, усунути, відсторонити, звільняти], de: [entlassen, absetzen, feuern], ru: [уволить, отстранить]}
+    phrases: {uk: [відправив у відставку, відставку з посади], en: [removed from office]}
+    object_kinds: [person]
+  resign:
+    durable: true
+    event_type: leadership
+    lemmas: {en: [resign, quit], de: [zurücktreten], uk: [], ru: []}
+    phrases: {en: [step down, steps down, stepped down], uk: [пішов у відставку, пішла у відставку, пішли у відставку, подав у відставку, подала у відставку, йде у відставку, заяву про відставку], de: [tritt zurück, trat zurück]}
+  sue:
+    event_type: legal
+    lemmas: {en: [sue], uk: [позиватися, позиватись], de: [verklagen], ru: [подать]}
+    phrases: {en: [filed a lawsuit, filed suit, lawsuit against], uk: [подав позов, подала позов, позов проти, позов до], de: [klage gegen]}
+  fine:
+    event_type: legal
+    lemmas: {en: [fine, penalize], uk: [оштрафувати, штрафувати], de: [bestrafen], ru: [оштрафовать]}
+    phrases: {en: [fined, a fine of, penalty of], uk: [штраф у розмірі, штраф на суму], de: [geldstrafe, bußgeld]}
+    amount: true
+    functional: true
+  sanction:
+    event_type: sanctions
+    lemmas: {en: [sanction, blacklist], uk: [санкціонувати], de: [sanktionieren], ru: [санкционировать]}
+    phrases: {en: [sanctions on, sanctions against, sanctions package, added to the sanctions list], uk: [санкції проти, санкції щодо, санкційного списку, санкційний пакет, пакет санкцій], de: [sanktionen gegen]}
+  ban:
+    event_type: regulation
+    lemmas: {en: [ban, prohibit, outlaw, restrict], uk: [заборонити, обмежити, забороняти], de: [verbieten, untersagen, beschränken], ru: [запретить, ограничить]}
+  approve:
+    event_type: decision
+    lemmas: {en: [approve, adopt, pass, ratify, endorse], uk: [ухвалити, схвалити, затвердити, ратифікувати, ухвалювати], de: [verabschieden, genehmigen, billigen, ratifizieren, beschließen], ru: [одобрить, утвердить, принять, ратифицировать]}
+  reject:
+    event_type: decision
+    lemmas: {en: [reject, veto, block, refuse], uk: [відхилити, ветувати, заблокувати, відмовитися], de: [ablehnen, blockieren], ru: [отклонить, заблокировать]}
+  attack:
+    event_type: military_strike
+    lemmas: {en: [attack, strike, shell, bomb, target, hit], uk: [атакувати, обстріляти, вдарити, бомбардувати, уразити, обстрілювати], de: [angreifen, beschießen, bombardieren, treffen], ru: [атаковать, обстрелять, ударить]}
+    phrases: {en: [drone attack on, missile strike on, airstrike on], uk: [удар по, атака на, обстріл, атаку на], de: [angriff auf]}
+    object_kinds: [place, facility, group, organization, government, other]
+  destroy:
+    event_type: military_strike
+    lemmas: {en: [destroy, down, intercept, neutralize], uk: [знищити, збити, ліквідувати, перехопити, знешкодити], de: [zerstören, abschießen, abfangen], ru: [уничтожить, сбить]}
+    phrases: {en: [shot down], uk: [збили, знищено]}
+    amount: true
+  capture:
+    durable: true
+    event_type: territorial
+    lemmas: {en: [capture, seize, occupy, take], uk: [захопити, окупувати, захоплювати], de: [einnehmen, erobern, besetzen], ru: [захватить, оккупировать]}
+    object_kinds: [place, facility]
+  liberate:
+    durable: true
+    event_type: territorial
+    lemmas: {en: [liberate, retake, recapture], uk: [звільнити, деокупувати, відбити], de: [befreien, zurückerobern], ru: [освободить]}
+    object_kinds: [place, facility]
+  meet:
+    event_type: diplomacy
+    lemmas: {en: [meet], uk: [зустрітися, зустрічатися, зустріти, провести], de: [treffen], ru: [встретиться]}
+    phrases: {en: [held talks with, talks with, meeting with], uk: [переговори з, зустріч з, зустрічі з, розмову з], de: [gespräch mit, treffen mit]}
+    symmetric: true
+  visit:
+    event_type: diplomacy
+    lemmas: {en: [visit, arrive, travel], uk: [відвідати, прибути, приїхати, відвідувати], de: [besuchen, reisen, eintreffen], ru: [посетить, прибыть]}
+    object_kinds: [place, facility, organization, government]
+  pledge:
+    event_type: aid
+    lemmas: {en: [pledge, promise, commit], uk: [пообіцяти, обіцяти, зобов'язатися], de: [zusagen, versprechen], ru: [пообещать]}
+    phrases: {en: [pledged to], uk: [пообіцяла, пообіцяв, оголосила про пакет], de: [sagte zu]}
+    object_kinds: [place, government, organization, group]
+    amount: true
+  provide:
+    event_type: aid
+    lemmas: {en: [provide, send, deliver, allocate, donate, transfer, give], uk: [надати, передати, виділити, постачити, надавати, передавати, постачати], de: [liefern, bereitstellen, zusagen, schicken, überweisen], ru: [предоставить, передать, выделить, поставить]}
+    phrases: {en: [aid package, military aid, financial aid], uk: [пакет допомоги, військову допомогу, фінансову допомогу], de: [hilfspaket, militärhilfe]}
+    object_kinds: [place, government, organization, group]
+    amount: true
+  condemn:
+    event_type: reaction
+    lemmas: {en: [condemn, criticize, denounce, slam], uk: [засудити, розкритикувати, засуджувати, критикувати], de: [verurteilen, kritisieren], ru: [осудить, раскритиковать]}
+  accuse:
+    event_type: reaction
+    lemmas: {en: [accuse, blame], uk: [звинуватити, звинувачувати], de: [beschuldigen, vorwerfen], ru: [обвинить]}
+  detain:
+    event_type: legal
+    lemmas: {en: [arrest, detain], uk: [затримати, заарештувати], de: [festnehmen, verhaften], ru: [задержать, арестовать]}
+    phrases: {uk: [взяли під варту, обрали запобіжний захід]}
+    object_kinds: [person, group, organization]
+  charge:
+    event_type: legal
+    lemmas: {en: [charge, indict], uk: [обвинуватити, звинуватити], de: [anklagen], ru: [обвинить]}
+    phrases: {uk: [повідомили про підозру, повідомлено про підозру, оголосили підозру, вручили підозру], en: [charged with, indicted on]}
+    object_kinds: [person, group, organization]
+  convict:
+    event_type: legal
+    lemmas: {en: [convict, sentence], de: [verurteilen], uk: [], ru: [осудить]}
+    phrases: {uk: [засудив до, засудили до, засуджено до, вироком суду, отримав вирок], en: [sentenced to, found guilty], de: [verurteilt zu]}
+    object_kinds: [person, group, organization]
+  win:
+    amount: true
+    event_type: election
+    lemmas: {en: [win, defeat], uk: [перемогти, виграти], de: [gewinnen, siegen], ru: [победить, выиграть]}
+  layoffs:
+    event_type: layoffs
+    lemmas: {en: [lay], uk: [скоротити], de: [streichen], ru: [сократить]}
+    phrases: {en: [lay off, laid off, job cuts, cut jobs], uk: [скоротить працівників, скорочення працівників, звільнить працівників], de: [stellen streichen]}
+    amount: true
+  breach:
+    event_type: security
+    lemmas: {en: [hack, breach, compromise, exploit, leak], uk: [зламати, скомпрометувати], de: [hacken], ru: [взломать]}
+    phrases: {en: [data breach, cyberattack on, ransomware attack], uk: [кібератака на, витік даних], de: [cyberangriff auf, datenleck]}
+  supply_trade:
+    event_type: trade
+    lemmas: {en: [export, import, ship, supply, sell], uk: [експортувати, імпортувати, поставити, продати], de: [exportieren, importieren, verkaufen], ru: [экспортировать, импортировать, поставить]}
+    amount: true
+  state:
+    event_type: statement
+    lemmas: {en: [say, state, tell, claim, warn, stress, note, add, write, insist], uk: [заявити, сказати, повідомити, наголосити, зазначити, попередити, підкреслити, написати, додати, заявляти, говорити], de: [sagen, erklären, betonen, warnen, schreiben, mitteilen], ru: [заявить, сказать, сообщить, подчеркнуть]}
+    phrases: {en: [according to], uk: [за словами, як повідомив, як повідомила, як заявив], de: [laut, zufolge]}
+  deny:
+    event_type: statement
+    lemmas: {en: [deny, refute], uk: [спростувати, заперечити, заперечувати, спростовувати], de: [dementieren, bestreiten, zurückweisen], ru: [опровергнуть, отрицать]}
+
+modality:
+  plan:
+    en: ['\bwill\b', '\bplans? to\b', '\bintends? to\b', '\bis set to\b', '\bis expected to\b', '\baims? to\b', '\bis going to\b', '\bwould\b']
+    uk: ['\bпланує\b', '\bпланують\b', '\bмає намір\b', '\bзбирається\b', '\bнамірен', '\bбуде\b', '\bбудуть\b', '\bмає\b \w+ти\b', '\bочікується\b']
+    de: ['\bwird\b', '\bwerden\b', '\bplant\b', '\bwill\b']
+  speculation:
+    en: ['\bmay\b', '\bmight\b', '\bcould\b', '\breportedly\b', '\ballegedly\b', '\blikely\b', '\bpossibly\b', '\brumou?r', '\bsources familiar\b', '\bunconfirmed\b']
+    uk: ['\bможливо\b', '\bймовірно\b', '\bнібито\b', '\bможе\b', '\bможуть\b', '\bза неофіційн', '\bза чутками\b', '\bджерела\b', '\bне виключ']
+    de: ['\bmöglicherweise\b', '\bangeblich\b', '\bkönnte\b', '\bwahrscheinlich\b', '\bberichten zufolge\b']
+  question:
+    en: ['\?$']
+    uk: ['\?$']
+    de: ['\?$']
+  negation:
+    en: ["\\bnot\\b", "n't\\b", '\bnever\b', '\bno longer\b']
+    uk: ['\bне\b', '\bні\b', '\bжодн', '\bніколи\b']
+    de: ['\bnicht\b', '\bkein', '\bnie\b']

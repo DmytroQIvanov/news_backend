@@ -157,7 +157,7 @@ export class CatalogService implements OnModuleInit, OnModuleDestroy {
   private isDestroyed = false;
   private activeSync?: Promise<{ success: boolean; updated: string[]; skipped: string[] }>;
   private readonly geminiKey = process.env.GEMINI_API_KEY?.trim();
-  private readonly geminiModel = process.env.GEMINI_MODEL?.trim() || 'gemini-3.8-flash';
+  private readonly geminiModel = process.env.GEMINI_MODEL?.trim() || 'gemini-3.1-flash-lite';
 
   constructor(private readonly db: DatabaseService) {}
 

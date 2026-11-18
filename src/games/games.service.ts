@@ -69,7 +69,7 @@ export class GamesService implements OnModuleInit, OnModuleDestroy {
   static lastAiError: string | null = null;
   private readonly logger = new Logger(GamesService.name);
   private readonly geminiKey = process.env.GEMINI_API_KEY?.trim();
-  private readonly geminiModel = process.env.GEMINI_MODEL?.trim() || 'gemini-2.0-flash-lite';
+  private readonly geminiModel = process.env.GEMINI_MODEL?.trim() || 'gemini-3.1-flash-lite';
   private timer?: NodeJS.Timeout;
   private isDestroyed = false;
   private activeSync?: Promise<{ fetched: number; written: number; enriched: number }>;

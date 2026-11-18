@@ -1,0 +1,79 @@
+# SDMX series (connectors/sdmx.py). Keys verified live on 2026-11-18.
+# OECD: "{geo}" in the key + `geos` = one request for all countries, split into one series per country.
+# Держстат: complete keys only (wildcards are refused with 403); dimension order = CSV column order before TIME_PERIOD.
+version: 1
+series:
+  # --- OECD (CC BY 4.0) ---
+  - provider: "oecd"
+    code: "OECD.SDD.STES,DSD_STES@DF_CLI,4.1|{geo}.M.LI...AA...H"
+    geos: ["USA", "DEU", "FRA", "GBR", "ITA", "JPN", "CHN", "POL", "TUR", "G20"]
+    title: "Composite leading indicator, {name}"
+    title_uk: "Композитний випереджальний індикатор ОЕСР — {name}"
+    unit: "index, long-term average = 100"
+    frequency: "M"
+    categories: ["economy"]
+    keywords: ["leading indicator", "recession", "business cycle", "випереджальний", "рецесія", "OECD", "ОЕСР"]
+  - provider: "oecd"
+    code: "OECD.SDD.TPS,DSD_PRICES@DF_PRICES_ALL,1.0|{geo}.M.N.CPI.PA._T.N.GY"
+    geos: ["USA", "DEU", "FRA", "GBR", "ITA", "JPN", "POL", "TUR", "OECD"]
+    title: "Consumer price inflation, {name}"
+    title_uk: "Споживча інфляція — {name}"
+    unit: "% y/y"
+    frequency: "M"
+    categories: ["economy"]
+    keywords: ["inflation", "CPI", "prices", "інфляція", "ціни"]
+  - provider: "oecd"
+    code: "OECD.SDD.TPS,DSD_LFS@DF_IALFS_UNE_M,1.0|{geo}.UNE_LF_M...Y._T.Y_GE15..M"
+    geos: ["USA", "DEU", "FRA", "GBR", "ITA", "JPN", "POL", "TUR", "OECD"]
+    title: "Unemployment rate, {name}"
+    title_uk: "Рівень безробіття — {name}"
+    unit: "% of labour force"
+    frequency: "M"
+    categories: ["economy"]
+    keywords: ["unemployment", "labour market", "jobs", "безробіття", "ринок праці"]
+  - provider: "oecd"
+    code: "OECD.SDD.NAD,DSD_NAMAIN1@DF_QNA_EXPENDITURE_GROWTH_OECD,1.1|Q.Y.{geo}.S1.S1.B1GQ._Z._Z._Z.PC.L.G1"
+    geos: ["USA", "DEU", "FRA", "GBR", "ITA", "JPN", "POL", "OECD"]
+    title: "Real GDP growth, quarter on quarter, {name}"
+    title_uk: "Зростання реального ВВП, кв/кв — {name}"
+    unit: "% q/q"
+    frequency: "Q"
+    categories: ["economy"]
+    keywords: ["GDP", "growth", "economy", "ВВП", "зростання", "економіка"]
+  # --- Держстат (stat.gov.ua) ---
+  - provider: "ukrstat"
+    code: "DF_PRICE_CHANGE_CONSUMER_GOODS_SERVICE,27.2.0|INDEX_CONSUMPRICE.CORMONTH_PREV_YEAR.UA00000000000000000.0.M"
+    geo: "UKR"
+    title: "Consumer price index, same month of previous year = 100, Ukraine"
+    title_uk: "Індекс споживчих цін до відповідного місяця попереднього року — Україна"
+    unit: "index, prev. year = 100"
+    frequency: "M"
+    categories: ["economy"]
+    keywords: ["inflation", "CPI", "Ukraine", "інфляція", "ціни", "Держстат", "Україна"]
+  - provider: "ukrstat"
+    code: "DF_PRICE_CHANGE_CONSUMER_GOODS_SERVICE,27.2.0|INDEX_CONSUMPRICE.PREV_MONTH.UA00000000000000000.0.M"
+    geo: "UKR"
+    title: "Consumer price index, previous month = 100, Ukraine"
+    title_uk: "Індекс споживчих цін до попереднього місяця — Україна"
+    unit: "index, prev. month = 100"
+    frequency: "M"
+    categories: ["economy"]
+    keywords: ["inflation", "CPI", "Ukraine", "інфляція", "ціни", "Держстат", "Україна"]
+  - provider: "ukrstat"
+    code: "DF_QUARTERLY_NATIONAL_ACCOUNTS,14.0.0|GROSS_DOM_PRODUCT.UA00000000000000000.IDX_VOLUME_CONST_2021._T.Q"
+    geo: "UKR"
+    title: "Real GDP, same quarter of previous year = 100, Ukraine"
+    title_uk: "Реальний ВВП до відповідного кварталу попереднього року — Україна"
+    unit: "index, prev. year = 100"
+    frequency: "Q"
+    categories: ["economy"]
+    keywords: ["GDP", "growth", "Ukraine", "ВВП", "економіка", "Держстат", "Україна"]
+  - provider: "ukrstat"
+    code: "DF_QUARTERLY_NATIONAL_ACCOUNTS,14.0.0|GROSS_DOM_PRODUCT.UA00000000000000000.CURR_PRICES._T.Q"
+    geo: "UKR"
+    title: "Nominal GDP, Ukraine"
+    title_uk: "Номінальний ВВП — Україна"
+    unit: "UAH million"
+    frequency: "Q"
+    categories: ["economy"]
+    keywords: ["GDP", "Ukraine", "ВВП", "Держстат", "Україна"]

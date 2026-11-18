@@ -1,0 +1,112 @@
+# Small helper server (Oracle Cloud, 1 GB RAM): extra sources and monitoring for the main stack.
+# Everything here is light; total ~500-700 MB. Create a 2 GB swap file first (see oracle/README.md).
+#
+#   cp .env.example .env && nano .env
+#   docker compose up -d
+#
+# What it gives the main server:
+#   rsshub            RSS for sites/channels without feeds (Telegram channels, YouTube channels, ministries) -> add the
+#                     URLs as sources in the main app (they are polled by kb-collector like any RSS feed)
+#   changedetection   watches pages without RSS (government decisions, regulators, sanctions pages); its per-watch RSS
+#                     feed is added as a source, so every change becomes a document in the knowledge base
+#   gatus             uptime and health checks of the main API, editorial status, LLM budget; alerts via ntfy
+#   ntfy              push notifications to your phone (failures, quota exhausted, new flagships)
+#   ofelia            cron for the containers (e.g. nightly cache cleanup)
+#   caddy             HTTPS for the public endpoints
+name: news-helper
+
+x-logging: &logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+
+services:
+  rsshub:
+    image: diygod/rsshub:2026-11-17
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      CACHE_TYPE: memory
+      CACHE_EXPIRE: 900
+      ACCESS_KEY: ${RSSHUB_ACCESS_KEY:?set RSSHUB_ACCESS_KEY}
+      PUPPETEER_WS_ENDPOINT: ""
+      TELEGRAM_SESSION: ${TELEGRAM_SESSION:-}
+      YOUTUBE_KEY: ${YOUTUBE_API_KEY:-}
+    deploy: {resources: {limits: {memory: 256m}}}
+    logging: *logging
+
+  changedetection:
+    image: ghcr.io/dgtlmoon/changedetection.io:0.70.3
+    restart: unless-stopped
+    environment:
+      BASE_URL: https://${HELPER_DOMAIN}/watch
+      HIDE_REFERER: "true"
+      FETCH_WORKERS: 2
+      MINIMUM_SECONDS_RECHECK_TIME: 600
+    volumes:
+      - changedetection:/datastore
+    deploy: {resources: {limits: {memory: 200m}}}
+    logging: *logging
+
+  gatus:
+    image: twinproduction/gatus:v5.38.0
+    restart: unless-stopped
+    environment:
+      API_URL: ${API_URL:?set API_URL}
+      NTFY_TOPIC: ${NTFY_TOPIC:-news-alerts}
+      NTFY_TOKEN: ${NTFY_TOKEN:-}
+    volumes:
+      - ./gatus.yaml:/config/config.yaml:ro
+      - gatus:/data
+    deploy: {resources: {limits: {memory: 64m}}}
+    logging: *logging
+
+  ntfy:
+    image: binwiederhier/ntfy:v2.38.1
+    restart: unless-stopped
+    command: ["serve"]
+    environment:
+      NTFY_BASE_URL: https://${HELPER_DOMAIN}/ntfy
+      NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
+      NTFY_AUTH_FILE: /var/lib/ntfy/auth.db
+      NTFY_AUTH_DEFAULT_ACCESS: deny-all
+      NTFY_BEHIND_PROXY: "true"
+    volumes:
+      - ntfy-cache:/var/cache/ntfy
+      - ntfy-auth:/var/lib/ntfy
+    deploy: {resources: {limits: {memory: 64m}}}
+    logging: *logging
+
+  ofelia:
+    image: mcuadros/ofelia:0.3.23
+    restart: unless-stopped
+    command: daemon --docker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    labels:
+      ofelia.job-run.prune.schedule: "@daily"
+      ofelia.job-run.prune.image: "docker:28-cli"
+      ofelia.job-run.prune.volume: "/var/run/docker.sock:/var/run/docker.sock"
+      ofelia.job-run.prune.command: "docker image prune -af --filter until=168h"
+    deploy: {resources: {limits: {memory: 32m}}}
+    logging: *logging
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      HELPER_DOMAIN: ${HELPER_DOMAIN:?set HELPER_DOMAIN}
+      CHANGEDETECTION_USER: ${CHANGEDETECTION_USER:-admin}
+      CHANGEDETECTION_HASH: ${CHANGEDETECTION_HASH:?run: docker run --rm caddy:2.10-alpine caddy hash-password}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    deploy: {resources: {limits: {memory: 64m}}}
+    logging: *logging
+
+volumes:
+  changedetection:
+  gatus:
+  ntfy-cache:
+  ntfy-auth:
+  caddy-data:

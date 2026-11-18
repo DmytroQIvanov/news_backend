@@ -13,11 +13,13 @@ export const CARICATURE_SAFE_CATEGORIES = new Set([
 ]);
 
 const STYLE_PREFIX =
-  'Editorial cartoon, clean flat vector illustration, bold outlines, warm limited color palette, ' +
-  'witty visual metaphor, symbolic objects and anthropomorphic gadgets, no text, no letters, no logos, ' +
-  'no real people, no recognizable faces, no flags, no weapons, no violence. Scene: ';
+  'Editorial satire magazine illustration in the style of The Economist and The New Yorker, ' +
+  'expressive painterly ink and gouache textures, dramatic lighting, exaggerated surreal reality, ' +
+  'hyperbolic visual metaphor with symbolic objects and anthropomorphic gadgets, ' +
+  'no text, no letters, no logos, no real people, no recognizable faces, no flags, no weapons, no violence. Scene: ';
 
 const MAX_REPORTS_BEFORE_HIDE = 3;
+const MIN_CARICATURE_WORTH_SCORE = 7;
 
 export interface CaricatureItem {
   id: string;
@@ -34,6 +36,8 @@ export interface CaricatureItem {
 }
 
 export interface CaricatureIdea {
+  worthy: boolean;
+  worthScore: number;
   safe: boolean;
   reason: string;
   scene: string;
@@ -44,13 +48,15 @@ export interface CaricatureIdea {
 const ideaSchema = {
   type: 'object',
   properties: {
+    worthy: { type: 'boolean' },
+    worthScore: { type: 'integer' },
     safe: { type: 'boolean' },
     reason: { type: 'string' },
     scene: { type: 'string' },
     captionUk: { type: 'string' },
     captionEn: { type: 'string' },
   },
-  required: ['safe', 'reason', 'scene', 'captionUk', 'captionEn'],
+  required: ['worthy', 'worthScore', 'safe', 'reason', 'scene', 'captionUk', 'captionEn'],
 };
 
 export function isCaricatureCandidate(item: { category?: string | null; title?: string | null; summary?: string | null }): boolean {
@@ -160,46 +166,71 @@ export class CaricatureService implements OnModuleInit, OnModuleDestroy {
   }
 
   private dailyMax(): number {
-    const n = Number(process.env.CARICATURE_DAILY_MAX);
-    return Number.isInteger(n) && n >= 0 && n <= 100 ? n : 12;
+    const raw = process.env.CARICATURE_DAILY_MAX;
+    if (raw === undefined || raw.trim() === '') return 4;
+    const n = Number(raw);
+    return Number.isInteger(n) && n >= 0 ? Math.min(4, n) : 4;
   }
 
-  async generateBatch(maxThisRun = 3): Promise<{ generated: number; skipped: number }> {
+  async generateBatch(maxThisRun = 2): Promise<{ generated: number; skipped: number }> {
     if (!this.enabled || !this.db || this.running) return { generated: 0, skipped: 0 };
     this.running = true;
     this.lastRunAt = new Date().toISOString();
     let generated = 0;
     let skipped = 0;
+    let lockAcquired = false;
+    let lockErr: Error | undefined;
+    let lockClient: { query: DatabaseService['query']; release: (err?: boolean | Error) => void } | null = null;
     try {
+      try {
+        if (typeof this.db.connect === 'function') {
+          lockClient = await this.db.connect();
+          const lockRes = await lockClient.query<{ ok: boolean }>(`SELECT pg_try_advisory_lock(948271) AS ok`);
+          lockAcquired = lockRes.rows[0]?.ok === true;
+        } else {
+          const lockRes = await this.db.query<{ ok: boolean }>(`SELECT pg_try_advisory_lock(948271) AS ok`);
+          lockAcquired = lockRes.rows[0]?.ok === true;
+        }
+      } catch (err) {
+        lockErr = err instanceof Error ? err : new Error(String(err));
+        this.lastError = lockErr.message.slice(0, 300);
+        return { generated, skipped };
+      }
+      if (!lockAcquired) return { generated, skipped };
+
+      const maxPerDay = this.dailyMax();
       const { rows: usage } = await this.db.query<{ n: number }>(
         `SELECT COUNT(*)::int AS n FROM news_caricatures WHERE created_at >= date_trunc('day', now())`,
       );
-      const remaining = Math.max(0, this.dailyMax() - (usage[0]?.n ?? 0));
+      const remaining = Math.max(0, maxPerDay - (usage[0]?.n ?? 0));
       if (remaining === 0) return { generated, skipped };
 
       const { rows } = await this.db.query<{
-        id: string; cluster_id: string | null; category: string; title: string; summary: string; original_title: string;
+        id: string; cluster_id: string | null; category: string; title: string; summary: string; body: string; original_title: string;
       }>(
         `SELECT n.id::text, n.cluster_id, n.category,
                 COALESCE(n.title_uk, n.original_title) AS title,
                 COALESCE(n.summary_uk, n.original_summary, '') AS summary,
+                COALESCE(n.ai_metadata->'article'->>'body', n.summary_uk, n.original_summary, '') AS body,
                 n.original_title
          FROM news_items n
          LEFT JOIN news_caricatures c ON c.news_item_id = n.id
          WHERE n.status = 'published'
            AND c.id IS NULL
+           AND NOT (COALESCE(n.media, '{}'::jsonb) ? 'caricature_checked_at')
            AND n.published_at >= now() - interval '36 hours'
            AND n.category = ANY($1::text[])
          ORDER BY (CASE WHEN n.ai_metadata->'article'->'important' = 'true'::jsonb THEN 1 ELSE 0 END
                    + LEAST(jsonb_array_length(COALESCE(n.cluster_sources, '[]'::jsonb)), 5)) DESC,
                   n.published_at DESC
-         LIMIT 12`,
+         LIMIT 16`,
         [[...CARICATURE_SAFE_CATEGORIES]],
       );
 
       for (const row of rows) {
         if (generated >= Math.min(maxThisRun, remaining) || this.destroyed) break;
         if (!isCaricatureCandidate(row)) {
+          await this.markChecked(row.id);
           skipped += 1;
           continue;
         }
@@ -213,10 +244,21 @@ export class CaricatureService implements OnModuleInit, OnModuleDestroy {
           return false;
         });
         if (storageFailed) break;
+        await this.markChecked(row.id);
         if (ok) generated += 1;
         else skipped += 1;
       }
     } finally {
+      let unlockErr: Error | undefined;
+      if (lockAcquired) {
+        const runner = lockClient ?? this.db;
+        try {
+          await runner.query(`SELECT pg_advisory_unlock(948271)`);
+        } catch (err) {
+          unlockErr = err instanceof Error ? err : new Error(String(err));
+        }
+      }
+      if (lockClient) lockClient.release(unlockErr ?? lockErr);
       this.running = false;
     }
     if (generated > 0) {
@@ -226,28 +268,56 @@ export class CaricatureService implements OnModuleInit, OnModuleDestroy {
     return { generated, skipped };
   }
 
-  private async proposeIdea(item: { title: string; summary: string; original_title: string; category: string }): Promise<CaricatureIdea | null> {
-    const prompt = `You are a kind, clever editorial cartoonist for a tech news app with a young audience.
-News (category ${item.category}):
-Title: ${item.original_title}
-Ukrainian title: ${item.title}
-Summary: ${item.summary.slice(0, 900)}
+  private async markChecked(newsId: string): Promise<void> {
+    if (!this.db) return;
+    await this.db
+      .query(
+        `UPDATE news_items
+         SET media = COALESCE(media, '{}'::jsonb) || jsonb_build_object('caricature_checked_at', to_jsonb($2::text))
+         WHERE id = $1::bigint`,
+        [newsId, new Date().toISOString()],
+      )
+      .catch(() => undefined);
+  }
 
-Decide if a light-hearted cartoon is appropriate. Set safe=false for anything involving death, injury, war, the military, disasters, crime victims, illness, religion, elections or a specific real person being mocked.
-If safe, describe ONE visual metaphor scene in English for an image generator (max 60 words): symbolic objects, robots, gadgets, animals or generic cartoon characters. Never depict or name real people, brands, logos, flags or any text in the image.
-Write captionUk (Ukrainian, max 120 chars) and captionEn (English, max 120 chars): a gentle witty one-liner about the situation, not about a person. No insults.`;
+  private async proposeIdea(item: {
+    title: string; summary: string; body: string; original_title: string; category: string;
+  }): Promise<CaricatureIdea | null> {
+    const rawText = (item.body || item.summary || '').replace(/\s+/g, ' ').trim();
+    const articleText =
+      rawText.length <= 24_000
+        ? rawText
+        : `${rawText.slice(0, 10_000)}\n...\n${rawText.slice(Math.floor(rawText.length / 2) - 2000, Math.floor(rawText.length / 2) + 2000)}\n...\n${rawText.slice(-10_000)}`;
+    const prompt = `You are a sharp, witty editorial cartoonist for a tech news app.
+Read the ENTIRE article below and decide carefully whether this specific story deserves an editorial caricature (max 4 caricatures are published per day across the whole app, so be selective!).
+
+Category: ${item.category}
+Original title: ${item.original_title}
+Ukrainian title: ${item.title}
+Summary: ${item.summary.slice(0, 1200)}
+Full article text:
+${articleText}
+
+Rules:
+1. "safe": set false for anything involving death, injury, war, military violence, disasters, crime victims, illness, religion, elections, or mocking a specific real person.
+2. "worthy" & "worthScore" (1-10): set worthy=true and worthScore >= 7 ONLY if the full article has genuine irony, hubris, absurdity, a striking paradox, or a vivid visual contradiction that makes a great satirical cartoon. Dry patch notes, routine funding briefs, or bland announcements must get worthy=false (worthScore <= 5).
+3. "scene": if safe && worthy, write ONE vivid English visual prompt (max 95 words) depicting EXAGGERATED REALITY — hyperbolized scale, surreal physical consequences of the story's core claim, ironic contrast — using symbolic objects, robots, gadgets, animals, or generic cartoon characters. Never depict or name real people, brands, logos, flags, or any text inside the image.
+4. "captionUk" (Ukrainian, max 120 chars) and "captionEn" (English, max 120 chars): a sharp, gentle witty one-liner about the situation itself (no insults).`;
     const routed = await generateJsonWithRouter<Partial<CaricatureIdea>>({
       task: 'creative',
       prompt,
       schema: ideaSchema,
       schemaName: 'caricature_idea',
-      maxTokens: 600,
-      temperature: 0.8,
-      timeoutMs: 30_000,
+      maxTokens: 750,
+      temperature: 0.75,
+      timeoutMs: 35_000,
     });
     if (!routed) return null;
     const parsed = routed.data;
+    const worthScore = Number.isFinite(Number(parsed.worthScore)) ? Math.max(1, Math.min(10, Math.round(Number(parsed.worthScore)))) : 0;
     return {
+      worthy: parsed.worthy === true,
+      worthScore,
       safe: parsed.safe === true,
       reason: String(parsed.reason || '').slice(0, 300),
       scene: String(parsed.scene || ''),
@@ -257,11 +327,13 @@ Write captionUk (Ukrainian, max 120 chars) and captionEn (English, max 120 chars
   }
 
   private async generateForNews(row: {
-    id: string; cluster_id: string | null; category: string; title: string; summary: string; original_title: string;
+    id: string; cluster_id: string | null; category: string; title: string; summary: string; body: string; original_title: string;
   }): Promise<boolean> {
     if (!this.db) return false;
     const idea = await this.proposeIdea(row);
-    if (!idea || !idea.safe || !idea.captionUk) return false;
+    if (!idea || !idea.safe || !idea.worthy || idea.worthScore < MIN_CARICATURE_WORTH_SCORE || !idea.captionUk) {
+      return false;
+    }
     const scene = sanitizeCaricatureScene(idea.scene);
     if (!scene) return false;
 
@@ -272,13 +344,15 @@ Write captionUk (Ukrainian, max 120 chars) and captionEn (English, max 120 chars
     const objectKey = await this.storage.putObject(`caricatures/${row.id}-${hash}.${ext}`, image, contentType);
     this.lastError = null;
 
-    await this.db.query(
+    const { rows: inserted } = await this.db.query<{ id: string }>(
       `INSERT INTO news_caricatures (news_item_id, cluster_id, object_key, caption_uk, caption_en, image_prompt, image_model, category)
-       VALUES ($1::bigint, $2, $3, $4, $5, $6, $7, $8)
-       ON CONFLICT DO NOTHING`,
-      [row.id, row.cluster_id, objectKey, idea.captionUk, idea.captionEn || null, imagePrompt, model, row.category],
+       SELECT $1::bigint, $2, $3, $4, $5, $6, $7, $8
+       WHERE (SELECT COUNT(*) FROM news_caricatures WHERE created_at >= date_trunc('day', now())) < $9::int
+       ON CONFLICT DO NOTHING
+       RETURNING id::text`,
+      [row.id, row.cluster_id, objectKey, idea.captionUk, idea.captionEn || null, imagePrompt, model, row.category, this.dailyMax()],
     );
-    return true;
+    return inserted.length > 0;
   }
 
   async list(options: { limit: number; lang: string; apiBase: string; newsIds?: string[] }): Promise<CaricatureItem[]> {

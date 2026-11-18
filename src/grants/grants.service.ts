@@ -106,7 +106,7 @@ export class GrantsService implements OnModuleInit, OnModuleDestroy {
 
   private readonly logger = new Logger(GrantsService.name);
   private readonly geminiKey = process.env.GEMINI_API_KEY?.trim();
-  private readonly geminiModel = process.env.GEMINI_MODEL?.trim() || 'gemini-3.8-flash';
+  private readonly geminiModel = process.env.GEMINI_MODEL?.trim() || 'gemini-3.1-flash-lite';
   private verifyTimer?: NodeJS.Timeout;
   private isDestroyed = false;
   private activeVerify?: Promise<GrantsAiVerifyResult>;

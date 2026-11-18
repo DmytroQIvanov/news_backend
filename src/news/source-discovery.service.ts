@@ -77,7 +77,7 @@ const DISCOVERY_FRESHNESS_DAYS = 90;
 const DISCOVERY_MOST_RECENT_DAYS = 30;
 const DISCOVERY_ON_DEMAND_COOLDOWN_MS = 2 * 60 * 60_000;
 
-const DISALLOWED_DISCOVERY_ROOTS = new Set([
+export const DISALLOWED_DISCOVERY_ROOTS = new Set([
   'reddit.com',
   't.me',
   'telegram.me',

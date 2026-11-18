@@ -30,6 +30,9 @@ import { PersonalizationService } from './news/personalization.service';
 import { StoryBriefingService } from './news/story-briefing.service';
 import { CaricatureService } from './news/caricature.service';
 import { NewsMediaService } from './news/news-media.service';
+import { PhotoStorageService } from './common/photo-storage.service';
+import { PhotoMediaInterceptor } from './common/photo-media.interceptor';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { AudioBriefingService } from './news/audio-briefing.service';
 import { TranslationService } from './news/translation.service';
 import { YoutubeChannelDiscoveryService } from './youtube/youtube-channel-discovery.service';
@@ -41,6 +44,13 @@ import { InsightsController } from './insights/insights.controller';
 import { InsightsService } from './insights/insights.service';
 import { LlmStatsController } from './common/llm-stats.controller';
 import { LlmStatsService } from './common/llm-stats';
+import { KbController } from './kb/kb.controller';
+import { KbEditorialService } from './kb/kb-editorial.service';
+import { KbFlagshipService } from './kb/kb-flagship.service';
+import { KbCorroborationService } from './kb/kb-corroboration.service';
+import { KbTranslationService } from './kb/kb-translation.service';
+import { KbReadService } from './kb/kb-read.service';
+import { KbDataService } from './kb/kb-data.service';
 
 @Module({
   controllers: [
@@ -58,6 +68,7 @@ import { LlmStatsService } from './common/llm-stats';
     ObjectivityController,
     InsightsController,
     LlmStatsController,
+    KbController,
   ],
   providers: [
     DatabaseService,
@@ -81,6 +92,8 @@ import { LlmStatsService } from './common/llm-stats';
     StoryBriefingService,
     CaricatureService,
     NewsMediaService,
+    PhotoStorageService,
+    { provide: APP_INTERCEPTOR, useClass: PhotoMediaInterceptor },
     AudioBriefingService,
     TranslationService,
     YoutubeChannelDiscoveryService,
@@ -88,6 +101,12 @@ import { LlmStatsService } from './common/llm-stats';
     TopicsService,
     InsightsService,
     LlmStatsService,
+    KbReadService,
+    KbDataService,
+    KbEditorialService,
+    KbFlagshipService,
+    KbCorroborationService,
+    KbTranslationService,
   ],
 })
 export class AppModule {}

@@ -1,0 +1,6825 @@
+# Seed gazetteer: nominative names and distinct spellings only.
+# Historical figures are included without assertions about current offices.
+# Ambiguous aliases require contextual disambiguation.
+version: 1
+entities:
+  - name: "Afghanistan"
+    name_uk: "Афганістан"
+    kind: place
+    country: "AF"
+    aliases: ["Afghanistan","Афганістан","Афганистан"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Albania"
+    name_uk: "Албанія"
+    kind: place
+    country: "AL"
+    aliases: ["Albania","Албанія","Albanien","Албания"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Algeria"
+    name_uk: "Алжир"
+    kind: place
+    country: "DZ"
+    aliases: ["Algeria","Алжир","Algerien"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Andorra"
+    name_uk: "Андорра"
+    kind: place
+    country: "AD"
+    aliases: ["Andorra","Андорра"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Angola"
+    name_uk: "Ангола"
+    kind: place
+    country: "AO"
+    aliases: ["Angola","Ангола"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Antigua & Barbuda"
+    name_uk: "Антигуа і Барбуда"
+    kind: place
+    country: "AG"
+    aliases: ["Antigua & Barbuda","Антигуа і Барбуда","Antigua und Barbuda","Антигуа и Барбуда"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Argentina"
+    name_uk: "Аргентина"
+    kind: place
+    country: "AR"
+    aliases: ["Argentina","Аргентина","Argentinien"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Armenia"
+    name_uk: "Вірменія"
+    kind: place
+    country: "AM"
+    aliases: ["Armenia","Вірменія","Armenien","Армения"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Australia"
+    name_uk: "Австралія"
+    kind: place
+    country: "AU"
+    aliases: ["Australia","Австралія","Australien","Австралия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Austria"
+    name_uk: "Австрія"
+    kind: place
+    country: "AT"
+    aliases: ["Austria","Австрія","Österreich","Австрия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Azerbaijan"
+    name_uk: "Азербайджан"
+    kind: place
+    country: "AZ"
+    aliases: ["Azerbaijan","Азербайджан","Aserbaidschan"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Bahamas"
+    name_uk: "Багамські Острови"
+    kind: place
+    country: "BS"
+    aliases: ["Bahamas","Багамські Острови","Багамы"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Bahrain"
+    name_uk: "Бахрейн"
+    kind: place
+    country: "BH"
+    aliases: ["Bahrain","Бахрейн"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Bangladesh"
+    name_uk: "Бангладеш"
+    kind: place
+    country: "BD"
+    aliases: ["Bangladesh","Бангладеш","Bangladesch"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Barbados"
+    name_uk: "Барбадос"
+    kind: place
+    country: "BB"
+    aliases: ["Barbados","Барбадос"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Belarus"
+    name_uk: "Білорусь"
+    kind: place
+    country: "BY"
+    aliases: ["Belarus","Білорусь","Беларусь","Республіка Білорусь","Belorussia","Weißrussland"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Belgium"
+    name_uk: "Бельгія"
+    kind: place
+    country: "BE"
+    aliases: ["Belgium","Бельгія","Belgien","Бельгия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Belize"
+    name_uk: "Беліз"
+    kind: place
+    country: "BZ"
+    aliases: ["Belize","Беліз","Белиз"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Benin"
+    name_uk: "Бенін"
+    kind: place
+    country: "BJ"
+    aliases: ["Benin","Бенін","Бенин"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Bhutan"
+    name_uk: "Бутан"
+    kind: place
+    country: "BT"
+    aliases: ["Bhutan","Бутан"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Bolivia"
+    name_uk: "Болівія"
+    kind: place
+    country: "BO"
+    aliases: ["Bolivia","Болівія","Bolivien","Боливия","Plurinational State of Bolivia"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Bosnia & Herzegovina"
+    name_uk: "Боснія і Герцеговина"
+    kind: place
+    country: "BA"
+    aliases: ["Bosnia & Herzegovina","Боснія і Герцеговина","Bosnien und Herzegowina","Босния и Герцеговина"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Botswana"
+    name_uk: "Ботсвана"
+    kind: place
+    country: "BW"
+    aliases: ["Botswana","Ботсвана","Botsuana"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Brazil"
+    name_uk: "Бразилія"
+    kind: place
+    country: "BR"
+    aliases: ["Brazil","Бразилія","Brasilien","Бразилия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Brunei"
+    name_uk: "Бруней"
+    kind: place
+    country: "BN"
+    aliases: ["Brunei","Бруней","Brunei Darussalam"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Bulgaria"
+    name_uk: "Болгарія"
+    kind: place
+    country: "BG"
+    aliases: ["Bulgaria","Болгарія","Bulgarien","Болгария"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Burkina Faso"
+    name_uk: "Буркіна-Фасо"
+    kind: place
+    country: "BF"
+    aliases: ["Burkina Faso","Буркіна-Фасо","Буркина-Фасо"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Burundi"
+    name_uk: "Бурунді"
+    kind: place
+    country: "BI"
+    aliases: ["Burundi","Бурунді","Бурунди"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Cape Verde"
+    name_uk: "Кабо-Верде"
+    kind: place
+    country: "CV"
+    aliases: ["Cape Verde","Кабо-Верде","Cabo Verde"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Cambodia"
+    name_uk: "Камбоджа"
+    kind: place
+    country: "KH"
+    aliases: ["Cambodia","Камбоджа","Kambodscha"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Cameroon"
+    name_uk: "Камерун"
+    kind: place
+    country: "CM"
+    aliases: ["Cameroon","Камерун","Kamerun"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Canada"
+    name_uk: "Канада"
+    kind: place
+    country: "CA"
+    aliases: ["Canada","Канада","Kanada"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Central African Republic"
+    name_uk: "Центральноафриканська Республіка"
+    kind: place
+    country: "CF"
+    aliases: ["Central African Republic","Центральноафриканська Республіка","Zentralafrikanische Republik","Центрально-Африканская Республика"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Chad"
+    name_uk: "Чад"
+    kind: place
+    country: "TD"
+    aliases: ["Чад","Tschad"]
+    ambiguous_aliases: ["Chad"]
+    categories: ["politics"]
+
+  - name: "Chile"
+    name_uk: "Чилі"
+    kind: place
+    country: "CL"
+    aliases: ["Chile","Чилі","Чили"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "China"
+    name_uk: "Китай"
+    kind: place
+    country: "CN"
+    aliases: ["China","Китай","People's Republic of China","Китайська Народна Республіка","КНР","Китайская Народная Республика","Volksrepublik China"]
+    ambiguous_aliases: ["PRC"]
+    categories: ["politics"]
+
+  - name: "Colombia"
+    name_uk: "Колумбія"
+    kind: place
+    country: "CO"
+    aliases: ["Colombia","Колумбія","Kolumbien","Колумбия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Comoros"
+    name_uk: "Комори"
+    kind: place
+    country: "KM"
+    aliases: ["Comoros","Комори","Komoren","Коморы"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Republic of the Congo"
+    name_uk: "Республіка Конго"
+    kind: place
+    country: "CG"
+    aliases: ["Republic of the Congo","Республіка Конго","Republik Kongo","Республика Конго","Congo-Brazzaville"]
+    ambiguous_aliases: ["Congo","Конго","Kongo"]
+    categories: ["politics"]
+
+  - name: "Democratic Republic of the Congo"
+    name_uk: "Демократична Республіка Конго"
+    kind: place
+    country: "CD"
+    aliases: ["Democratic Republic of the Congo","Демократична Республіка Конго","Demokratische Republik Kongo","Демократическая Республика Конго","DR Congo","DRC","ДР Конго","ДРК"]
+    ambiguous_aliases: ["Congo","Конго","Kongo"]
+    categories: ["politics"]
+
+  - name: "Costa Rica"
+    name_uk: "Коста-Рика"
+    kind: place
+    country: "CR"
+    aliases: ["Costa Rica","Коста-Рика"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Côte d’Ivoire"
+    name_uk: "Кот-дʼІвуар"
+    kind: place
+    country: "CI"
+    aliases: ["Côte d’Ivoire","Кот-дʼІвуар","Кот-д’Ивуар","Ivory Coast","Côte d'Ivoire","Кот-д’Івуар","Кот-д'Івуар"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Croatia"
+    name_uk: "Хорватія"
+    kind: place
+    country: "HR"
+    aliases: ["Croatia","Хорватія","Kroatien","Хорватия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Cuba"
+    name_uk: "Куба"
+    kind: place
+    country: "CU"
+    aliases: ["Cuba","Куба","Kuba"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Cyprus"
+    name_uk: "Кіпр"
+    kind: place
+    country: "CY"
+    aliases: ["Cyprus","Кіпр","Zypern","Кипр"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Czechia"
+    name_uk: "Чехія"
+    kind: place
+    country: "CZ"
+    aliases: ["Czechia","Чехія","Tschechien","Чехия","Czech Republic","Чеська Республіка","Tschechische Republik"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Denmark"
+    name_uk: "Данія"
+    kind: place
+    country: "DK"
+    aliases: ["Denmark","Данія","Dänemark","Дания"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Djibouti"
+    name_uk: "Джибуті"
+    kind: place
+    country: "DJ"
+    aliases: ["Djibouti","Джибуті","Dschibuti","Джибути"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Dominica"
+    name_uk: "Домініка"
+    kind: place
+    country: "DM"
+    aliases: ["Dominica","Домініка","Доминика"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Dominican Republic"
+    name_uk: "Домініканська Республіка"
+    kind: place
+    country: "DO"
+    aliases: ["Dominican Republic","Домініканська Республіка","Dominikanische Republik","Доминиканская Республика"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Ecuador"
+    name_uk: "Еквадор"
+    kind: place
+    country: "EC"
+    aliases: ["Ecuador","Еквадор","Эквадор"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Egypt"
+    name_uk: "Єгипет"
+    kind: place
+    country: "EG"
+    aliases: ["Egypt","Єгипет","Ägypten","Египет"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "El Salvador"
+    name_uk: "Сальвадор"
+    kind: place
+    country: "SV"
+    aliases: ["El Salvador","Сальвадор"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Equatorial Guinea"
+    name_uk: "Екваторіальна Гвінея"
+    kind: place
+    country: "GQ"
+    aliases: ["Equatorial Guinea","Екваторіальна Гвінея","Äquatorialguinea","Экваториальная Гвинея"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Eritrea"
+    name_uk: "Еритрея"
+    kind: place
+    country: "ER"
+    aliases: ["Eritrea","Еритрея","Эритрея"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Estonia"
+    name_uk: "Естонія"
+    kind: place
+    country: "EE"
+    aliases: ["Estonia","Естонія","Estland","Эстония"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Eswatini"
+    name_uk: "Есватіні"
+    kind: place
+    country: "SZ"
+    aliases: ["Eswatini","Есватіні","Эсватини","Swaziland","Свазіленд","Свазиленд","Swasiland"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Ethiopia"
+    name_uk: "Ефіопія"
+    kind: place
+    country: "ET"
+    aliases: ["Ethiopia","Ефіопія","Äthiopien","Эфиопия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Fiji"
+    name_uk: "Фіджі"
+    kind: place
+    country: "FJ"
+    aliases: ["Fiji","Фіджі","Fidschi","Фиджи"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Finland"
+    name_uk: "Фінляндія"
+    kind: place
+    country: "FI"
+    aliases: ["Finland","Фінляндія","Finnland","Финляндия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "France"
+    name_uk: "Франція"
+    kind: place
+    country: "FR"
+    aliases: ["France","Франція","Frankreich","Франция"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Gabon"
+    name_uk: "Габон"
+    kind: place
+    country: "GA"
+    aliases: ["Gabon","Габон","Gabun"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Gambia"
+    name_uk: "Гамбія"
+    kind: place
+    country: "GM"
+    aliases: ["Gambia","Гамбія","Гамбия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Georgia"
+    name_uk: "Грузія"
+    kind: place
+    country: "GE"
+    aliases: ["Грузія","Georgien","Грузия"]
+    ambiguous_aliases: ["Georgia"]
+    categories: ["politics"]
+
+  - name: "Germany"
+    name_uk: "Німеччина"
+    kind: place
+    country: "DE"
+    aliases: ["Germany","Німеччина","Deutschland","Германия","Federal Republic of Germany","Федеративна Республіка Німеччина","ФРН","ФРГ","Bundesrepublik Deutschland"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Ghana"
+    name_uk: "Гана"
+    kind: place
+    country: "GH"
+    aliases: ["Ghana","Гана"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Greece"
+    name_uk: "Греція"
+    kind: place
+    country: "GR"
+    aliases: ["Greece","Греція","Griechenland","Греция"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Grenada"
+    name_uk: "Гренада"
+    kind: place
+    country: "GD"
+    aliases: ["Grenada","Гренада"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Guatemala"
+    name_uk: "Гватемала"
+    kind: place
+    country: "GT"
+    aliases: ["Guatemala","Гватемала"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Guinea"
+    name_uk: "Гвінея"
+    kind: place
+    country: "GN"
+    aliases: ["Guinea","Гвінея","Гвинея"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Guinea-Bissau"
+    name_uk: "Гвінея-Бісау"
+    kind: place
+    country: "GW"
+    aliases: ["Guinea-Bissau","Гвінея-Бісау","Гвинея-Бисау"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Guyana"
+    name_uk: "Гаяна"
+    kind: place
+    country: "GY"
+    aliases: ["Guyana","Гаяна","Гайана"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Haiti"
+    name_uk: "Гаїті"
+    kind: place
+    country: "HT"
+    aliases: ["Haiti","Гаїті","Гаити"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Honduras"
+    name_uk: "Гондурас"
+    kind: place
+    country: "HN"
+    aliases: ["Honduras","Гондурас"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Hungary"
+    name_uk: "Угорщина"
+    kind: place
+    country: "HU"
+    aliases: ["Hungary","Угорщина","Ungarn","Венгрия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Iceland"
+    name_uk: "Ісландія"
+    kind: place
+    country: "IS"
+    aliases: ["Iceland","Ісландія","Island","Исландия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "India"
+    name_uk: "Індія"
+    kind: place
+    country: "IN"
+    aliases: ["India","Індія","Indien","Индия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Indonesia"
+    name_uk: "Індонезія"
+    kind: place
+    country: "ID"
+    aliases: ["Indonesia","Індонезія","Indonesien","Индонезия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Iran"
+    name_uk: "Іран"
+    kind: place
+    country: "IR"
+    aliases: ["Iran","Іран","Иран","Islamic Republic of Iran"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Iraq"
+    name_uk: "Ірак"
+    kind: place
+    country: "IQ"
+    aliases: ["Iraq","Ірак","Irak","Ирак"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Ireland"
+    name_uk: "Ірландія"
+    kind: place
+    country: "IE"
+    aliases: ["Ireland","Ірландія","Irland","Ирландия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Israel"
+    name_uk: "Ізраїль"
+    kind: place
+    country: "IL"
+    aliases: ["Israel","Ізраїль","Израиль"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Italy"
+    name_uk: "Італія"
+    kind: place
+    country: "IT"
+    aliases: ["Italy","Італія","Italien","Италия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Jamaica"
+    name_uk: "Ямайка"
+    kind: place
+    country: "JM"
+    aliases: ["Jamaica","Ямайка","Jamaika"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Japan"
+    name_uk: "Японія"
+    kind: place
+    country: "JP"
+    aliases: ["Japan","Японія","Япония"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Jordan"
+    name_uk: "Йорданія"
+    kind: place
+    country: "JO"
+    aliases: ["Jordan","Йорданія","Jordanien","Иордания"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Kazakhstan"
+    name_uk: "Казахстан"
+    kind: place
+    country: "KZ"
+    aliases: ["Kazakhstan","Казахстан","Kasachstan"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Kenya"
+    name_uk: "Кенія"
+    kind: place
+    country: "KE"
+    aliases: ["Kenya","Кенія","Kenia","Кения"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Kiribati"
+    name_uk: "Кірибаті"
+    kind: place
+    country: "KI"
+    aliases: ["Kiribati","Кірибаті","Кирибати"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "North Korea"
+    name_uk: "Північна Корея"
+    kind: place
+    country: "KP"
+    aliases: ["North Korea","Північна Корея","Nordkorea","КНДР","Democratic People's Republic of Korea","Корейська Народно-Демократична Республіка"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "South Korea"
+    name_uk: "Південна Корея"
+    kind: place
+    country: "KR"
+    aliases: ["South Korea","Південна Корея","Südkorea","Республика Корея","Republic of Korea","Республіка Корея"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Kuwait"
+    name_uk: "Кувейт"
+    kind: place
+    country: "KW"
+    aliases: ["Kuwait","Кувейт"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Kyrgyzstan"
+    name_uk: "Киргизстан"
+    kind: place
+    country: "KG"
+    aliases: ["Kyrgyzstan","Киргизстан","Kirgisistan","Киргизия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Laos"
+    name_uk: "Лаос"
+    kind: place
+    country: "LA"
+    aliases: ["Laos","Лаос","Lao People's Democratic Republic"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Latvia"
+    name_uk: "Латвія"
+    kind: place
+    country: "LV"
+    aliases: ["Latvia","Латвія","Lettland","Латвия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Lebanon"
+    name_uk: "Ліван"
+    kind: place
+    country: "LB"
+    aliases: ["Lebanon","Ліван","Libanon","Ливан"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Lesotho"
+    name_uk: "Лесото"
+    kind: place
+    country: "LS"
+    aliases: ["Lesotho","Лесото"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Liberia"
+    name_uk: "Ліберія"
+    kind: place
+    country: "LR"
+    aliases: ["Liberia","Ліберія","Либерия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Libya"
+    name_uk: "Лівія"
+    kind: place
+    country: "LY"
+    aliases: ["Libya","Лівія","Libyen","Ливия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Liechtenstein"
+    name_uk: "Ліхтенштейн"
+    kind: place
+    country: "LI"
+    aliases: ["Liechtenstein","Ліхтенштейн","Лихтенштейн"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Lithuania"
+    name_uk: "Литва"
+    kind: place
+    country: "LT"
+    aliases: ["Lithuania","Литва","Litauen"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Luxembourg"
+    name_uk: "Люксембург"
+    kind: place
+    country: "LU"
+    aliases: ["Luxembourg","Люксембург","Luxemburg"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Madagascar"
+    name_uk: "Мадагаскар"
+    kind: place
+    country: "MG"
+    aliases: ["Madagascar","Мадагаскар","Madagaskar"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Malawi"
+    name_uk: "Малаві"
+    kind: place
+    country: "MW"
+    aliases: ["Malawi","Малаві","Малави"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Malaysia"
+    name_uk: "Малайзія"
+    kind: place
+    country: "MY"
+    aliases: ["Malaysia","Малайзія","Малайзия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Maldives"
+    name_uk: "Мальдіви"
+    kind: place
+    country: "MV"
+    aliases: ["Maldives","Мальдіви","Malediven","Мальдивы"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Mali"
+    name_uk: "Малі"
+    kind: place
+    country: "ML"
+    aliases: ["Mali","Малі","Мали"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Malta"
+    name_uk: "Мальта"
+    kind: place
+    country: "MT"
+    aliases: ["Malta","Мальта"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Marshall Islands"
+    name_uk: "Маршаллові Острови"
+    kind: place
+    country: "MH"
+    aliases: ["Marshall Islands","Маршаллові Острови","Marshallinseln","Маршалловы о-ва"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Mauritania"
+    name_uk: "Мавританія"
+    kind: place
+    country: "MR"
+    aliases: ["Mauritania","Мавританія","Mauretanien","Мавритания"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Mauritius"
+    name_uk: "Маврикій"
+    kind: place
+    country: "MU"
+    aliases: ["Mauritius","Маврикій","Маврикий"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Mexico"
+    name_uk: "Мексика"
+    kind: place
+    country: "MX"
+    aliases: ["Mexico","Мексика","Mexiko"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Micronesia"
+    name_uk: "Мікронезія"
+    kind: place
+    country: "FM"
+    aliases: ["Micronesia","Мікронезія","Mikronesien","Федеративные Штаты Микронезии","Federated States of Micronesia"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Moldova"
+    name_uk: "Молдова"
+    kind: place
+    country: "MD"
+    aliases: ["Moldova","Молдова","Republik Moldau","Republic of Moldova","Республіка Молдова","Moldawien"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Monaco"
+    name_uk: "Монако"
+    kind: place
+    country: "MC"
+    aliases: ["Monaco","Монако"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Mongolia"
+    name_uk: "Монголія"
+    kind: place
+    country: "MN"
+    aliases: ["Mongolia","Монголія","Mongolei","Монголия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Montenegro"
+    name_uk: "Чорногорія"
+    kind: place
+    country: "ME"
+    aliases: ["Montenegro","Чорногорія","Черногория"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Morocco"
+    name_uk: "Марокко"
+    kind: place
+    country: "MA"
+    aliases: ["Morocco","Марокко","Marokko"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Mozambique"
+    name_uk: "Мозамбік"
+    kind: place
+    country: "MZ"
+    aliases: ["Mozambique","Мозамбік","Mosambik","Мозамбик"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Myanmar (Burma)"
+    name_uk: "Мʼянма (Бірма)"
+    kind: place
+    country: "MM"
+    aliases: ["Myanmar (Burma)","Мʼянма (Бірма)","Myanmar","Мьянма (Бирма)","Burma","Бірма","Бирма"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Namibia"
+    name_uk: "Намібія"
+    kind: place
+    country: "NA"
+    aliases: ["Namibia","Намібія","Намибия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Nauru"
+    name_uk: "Науру"
+    kind: place
+    country: "NR"
+    aliases: ["Nauru","Науру"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Nepal"
+    name_uk: "Непал"
+    kind: place
+    country: "NP"
+    aliases: ["Nepal","Непал"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Netherlands"
+    name_uk: "Нідерланди"
+    kind: place
+    country: "NL"
+    aliases: ["Netherlands","Нідерланди","Niederlande","Нидерланды"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "New Zealand"
+    name_uk: "Нова Зеландія"
+    kind: place
+    country: "NZ"
+    aliases: ["New Zealand","Нова Зеландія","Neuseeland","Новая Зеландия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Nicaragua"
+    name_uk: "Нікарагуа"
+    kind: place
+    country: "NI"
+    aliases: ["Nicaragua","Нікарагуа","Никарагуа"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Niger"
+    name_uk: "Нігер"
+    kind: place
+    country: "NE"
+    aliases: ["Нігер","Нигер"]
+    ambiguous_aliases: ["Niger"]
+    categories: ["politics"]
+
+  - name: "Nigeria"
+    name_uk: "Нігерія"
+    kind: place
+    country: "NG"
+    aliases: ["Nigeria","Нігерія","Нигерия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "North Macedonia"
+    name_uk: "Північна Македонія"
+    kind: place
+    country: "MK"
+    aliases: ["North Macedonia","Північна Македонія","Nordmazedonien","Северная Македония","Republic of North Macedonia"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Norway"
+    name_uk: "Норвегія"
+    kind: place
+    country: "NO"
+    aliases: ["Norway","Норвегія","Norwegen","Норвегия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Oman"
+    name_uk: "Оман"
+    kind: place
+    country: "OM"
+    aliases: ["Oman","Оман"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Pakistan"
+    name_uk: "Пакистан"
+    kind: place
+    country: "PK"
+    aliases: ["Pakistan","Пакистан"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Palau"
+    name_uk: "Палау"
+    kind: place
+    country: "PW"
+    aliases: ["Palau","Палау"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Panama"
+    name_uk: "Панама"
+    kind: place
+    country: "PA"
+    aliases: ["Panama","Панама"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Papua New Guinea"
+    name_uk: "Папуа-Нова Гвінея"
+    kind: place
+    country: "PG"
+    aliases: ["Papua New Guinea","Папуа-Нова Гвінея","Papua-Neuguinea","Папуа — Новая Гвинея"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Paraguay"
+    name_uk: "Парагвай"
+    kind: place
+    country: "PY"
+    aliases: ["Paraguay","Парагвай"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Peru"
+    name_uk: "Перу"
+    kind: place
+    country: "PE"
+    aliases: ["Peru","Перу"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Philippines"
+    name_uk: "Філіппіни"
+    kind: place
+    country: "PH"
+    aliases: ["Philippines","Філіппіни","Philippinen","Филиппины"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Poland"
+    name_uk: "Польща"
+    kind: place
+    country: "PL"
+    aliases: ["Poland","Польща","Polen","Польша"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Portugal"
+    name_uk: "Португалія"
+    kind: place
+    country: "PT"
+    aliases: ["Portugal","Португалія","Португалия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Qatar"
+    name_uk: "Катар"
+    kind: place
+    country: "QA"
+    aliases: ["Qatar","Катар","Katar"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Romania"
+    name_uk: "Румунія"
+    kind: place
+    country: "RO"
+    aliases: ["Romania","Румунія","Rumänien","Румыния"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Russia"
+    name_uk: "Росія"
+    kind: place
+    country: "RU"
+    aliases: ["Russia","Росія","Russland","Россия","Russian Federation","Російська Федерація","Российская Федерация","Russische Föderation"]
+    ambiguous_aliases: ["РФ"]
+    categories: ["politics"]
+
+  - name: "Rwanda"
+    name_uk: "Руанда"
+    kind: place
+    country: "RW"
+    aliases: ["Rwanda","Руанда","Ruanda"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "St. Kitts & Nevis"
+    name_uk: "Сент-Кітс і Невіс"
+    kind: place
+    country: "KN"
+    aliases: ["St. Kitts & Nevis","Сент-Кітс і Невіс","St. Kitts und Nevis","Сент-Китс и Невис"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "St. Lucia"
+    name_uk: "Сент-Люсія"
+    kind: place
+    country: "LC"
+    aliases: ["St. Lucia","Сент-Люсія","Сент-Люсия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "St. Vincent & Grenadines"
+    name_uk: "Сент-Вінсент і Гренадіни"
+    kind: place
+    country: "VC"
+    aliases: ["St. Vincent & Grenadines","Сент-Вінсент і Гренадіни","St. Vincent und die Grenadinen","Сент-Винсент и Гренадины"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Samoa"
+    name_uk: "Самоа"
+    kind: place
+    country: "WS"
+    aliases: ["Samoa","Самоа"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "San Marino"
+    name_uk: "Сан-Марино"
+    kind: place
+    country: "SM"
+    aliases: ["San Marino","Сан-Марино"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "São Tomé & Príncipe"
+    name_uk: "Сан-Томе і Принсіпі"
+    kind: place
+    country: "ST"
+    aliases: ["São Tomé & Príncipe","Сан-Томе і Принсіпі","São Tomé und Príncipe","Сан-Томе и Принсипи"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Saudi Arabia"
+    name_uk: "Саудівська Аравія"
+    kind: place
+    country: "SA"
+    aliases: ["Saudi Arabia","Саудівська Аравія","Saudi-Arabien","Саудовская Аравия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Senegal"
+    name_uk: "Сенегал"
+    kind: place
+    country: "SN"
+    aliases: ["Senegal","Сенегал"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Serbia"
+    name_uk: "Сербія"
+    kind: place
+    country: "RS"
+    aliases: ["Serbia","Сербія","Serbien","Сербия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Seychelles"
+    name_uk: "Сейшельські Острови"
+    kind: place
+    country: "SC"
+    aliases: ["Seychelles","Сейшельські Острови","Seychellen","Сейшельские о-ва"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Sierra Leone"
+    name_uk: "Сьєрра-Леоне"
+    kind: place
+    country: "SL"
+    aliases: ["Sierra Leone","Сьєрра-Леоне","Сьерра-Леоне"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Singapore"
+    name_uk: "Сінгапур"
+    kind: place
+    country: "SG"
+    aliases: ["Singapore","Сінгапур","Singapur","Сингапур"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Slovakia"
+    name_uk: "Словаччина"
+    kind: place
+    country: "SK"
+    aliases: ["Slovakia","Словаччина","Slowakei","Словакия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Slovenia"
+    name_uk: "Словенія"
+    kind: place
+    country: "SI"
+    aliases: ["Slovenia","Словенія","Slowenien","Словения"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Solomon Islands"
+    name_uk: "Соломонові Острови"
+    kind: place
+    country: "SB"
+    aliases: ["Solomon Islands","Соломонові Острови","Salomonen","Соломоновы о-ва"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Somalia"
+    name_uk: "Сомалі"
+    kind: place
+    country: "SO"
+    aliases: ["Somalia","Сомалі","Сомали"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "South Africa"
+    name_uk: "Південно-Африканська Республіка"
+    kind: place
+    country: "ZA"
+    aliases: ["South Africa","Південно-Африканська Республіка","Südafrika","Южно-Африканская Республика"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "South Sudan"
+    name_uk: "Південний Судан"
+    kind: place
+    country: "SS"
+    aliases: ["South Sudan","Південний Судан","Südsudan","Южный Судан"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Spain"
+    name_uk: "Іспанія"
+    kind: place
+    country: "ES"
+    aliases: ["Spain","Іспанія","Spanien","Испания"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Sri Lanka"
+    name_uk: "Шрі-Ланка"
+    kind: place
+    country: "LK"
+    aliases: ["Sri Lanka","Шрі-Ланка","Шри-Ланка"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Sudan"
+    name_uk: "Судан"
+    kind: place
+    country: "SD"
+    aliases: ["Sudan","Судан"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Suriname"
+    name_uk: "Суринам"
+    kind: place
+    country: "SR"
+    aliases: ["Suriname","Суринам"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Sweden"
+    name_uk: "Швеція"
+    kind: place
+    country: "SE"
+    aliases: ["Sweden","Швеція","Schweden","Швеция"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Switzerland"
+    name_uk: "Швейцарія"
+    kind: place
+    country: "CH"
+    aliases: ["Switzerland","Швейцарія","Schweiz","Швейцария"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Syria"
+    name_uk: "Сирія"
+    kind: place
+    country: "SY"
+    aliases: ["Syria","Сирія","Syrien","Сирия","Syrian Arab Republic"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Tajikistan"
+    name_uk: "Таджикистан"
+    kind: place
+    country: "TJ"
+    aliases: ["Tajikistan","Таджикистан","Tadschikistan"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Tanzania"
+    name_uk: "Танзанія"
+    kind: place
+    country: "TZ"
+    aliases: ["Tanzania","Танзанія","Tansania","Танзания","United Republic of Tanzania"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Thailand"
+    name_uk: "Таїланд"
+    kind: place
+    country: "TH"
+    aliases: ["Thailand","Таїланд","Таиланд"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Timor-Leste"
+    name_uk: "Тимор-Лешті"
+    kind: place
+    country: "TL"
+    aliases: ["Timor-Leste","Тимор-Лешті","Восточный Тимор","East Timor"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Togo"
+    name_uk: "Того"
+    kind: place
+    country: "TG"
+    aliases: ["Togo","Того"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Tonga"
+    name_uk: "Тонга"
+    kind: place
+    country: "TO"
+    aliases: ["Tonga","Тонга"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Trinidad & Tobago"
+    name_uk: "Тринідад і Тобаго"
+    kind: place
+    country: "TT"
+    aliases: ["Trinidad & Tobago","Тринідад і Тобаго","Trinidad und Tobago","Тринидад и Тобаго"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Tunisia"
+    name_uk: "Туніс"
+    kind: place
+    country: "TN"
+    aliases: ["Tunisia","Туніс","Tunesien","Тунис"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Türkiye"
+    name_uk: "Туреччина"
+    kind: place
+    country: "TR"
+    aliases: ["Türkiye","Туреччина","Türkei","Турция","Turkey"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Turkmenistan"
+    name_uk: "Туркменістан"
+    kind: place
+    country: "TM"
+    aliases: ["Turkmenistan","Туркменістан","Туркменистан"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Tuvalu"
+    name_uk: "Тувалу"
+    kind: place
+    country: "TV"
+    aliases: ["Tuvalu","Тувалу"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Uganda"
+    name_uk: "Уганда"
+    kind: place
+    country: "UG"
+    aliases: ["Uganda","Уганда"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Ukraine"
+    name_uk: "Україна"
+    kind: place
+    country: "UA"
+    aliases: ["Ukraine","Україна","Украина"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "United Arab Emirates"
+    name_uk: "Обʼєднані Арабські Емірати"
+    kind: place
+    country: "AE"
+    aliases: ["United Arab Emirates","Обʼєднані Арабські Емірати","Vereinigte Arabische Emirate","ОАЭ","Об'єднані Арабські Емірати","ОАЕ","UAE"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "United Kingdom"
+    name_uk: "Велика Британія"
+    kind: place
+    country: "GB"
+    aliases: ["United Kingdom","Велика Британія","Vereinigtes Königreich","Великобритания","United Kingdom of Great Britain and Northern Ireland","Great Britain","Britain","Британія","Großbritannien"]
+    ambiguous_aliases: ["UK","U.K."]
+    categories: ["politics"]
+
+  - name: "United States"
+    name_uk: "Сполучені Штати"
+    kind: place
+    country: "US"
+    aliases: ["United States","Сполучені Штати","Vereinigte Staaten","Соединенные Штаты","United States of America","America","США","Сполучені Штати Америки","Vereinigte Staaten von Amerika","Соединённые Штаты Америки","Соединенные Штаты Америки"]
+    ambiguous_aliases: ["US","USA","U.S.","U.S.A."]
+    categories: ["politics"]
+
+  - name: "Uruguay"
+    name_uk: "Уругвай"
+    kind: place
+    country: "UY"
+    aliases: ["Uruguay","Уругвай"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Uzbekistan"
+    name_uk: "Узбекистан"
+    kind: place
+    country: "UZ"
+    aliases: ["Uzbekistan","Узбекистан","Usbekistan"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Vanuatu"
+    name_uk: "Вануату"
+    kind: place
+    country: "VU"
+    aliases: ["Vanuatu","Вануату"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Venezuela"
+    name_uk: "Венесуела"
+    kind: place
+    country: "VE"
+    aliases: ["Venezuela","Венесуела","Венесуэла","Bolivarian Republic of Venezuela"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Vietnam"
+    name_uk: "Вʼєтнам"
+    kind: place
+    country: "VN"
+    aliases: ["Vietnam","Вʼєтнам","Вьетнам","Viet Nam"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Yemen"
+    name_uk: "Ємен"
+    kind: place
+    country: "YE"
+    aliases: ["Yemen","Ємен","Jemen","Йемен"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Zambia"
+    name_uk: "Замбія"
+    kind: place
+    country: "ZM"
+    aliases: ["Zambia","Замбія","Sambia","Замбия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Zimbabwe"
+    name_uk: "Зімбабве"
+    kind: place
+    country: "ZW"
+    aliases: ["Zimbabwe","Зімбабве","Simbabwe","Зимбабве"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Taiwan"
+    name_uk: "Тайвань"
+    kind: place
+    country: "TW"
+    aliases: ["Taiwan","Тайвань","Republic of China"]
+    ambiguous_aliases: ["ROC"]
+    categories: ["politics"]
+
+  - name: "Kosovo"
+    name_uk: "Косово"
+    kind: place
+    aliases: ["Kosovo","Косово","Республіка Косово"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Palestine"
+    name_uk: "Палестина"
+    kind: place
+    country: "PS"
+    aliases: ["Palestine","Палестина","Palästina","State of Palestine","Государство Палестина","Staat Palästina"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Vinnytsia Oblast"
+    name_uk: "Вінницька область"
+    kind: place
+    country: "UA"
+    aliases: ["Вінниччина","Винницкая область","Oblast Winnyzja"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Volyn Oblast"
+    name_uk: "Волинська область"
+    kind: place
+    country: "UA"
+    aliases: ["Волинь","Volhynia","Волынская область","Oblast Wolyn"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Dnipropetrovsk Oblast"
+    name_uk: "Дніпропетровська область"
+    kind: place
+    country: "UA"
+    aliases: ["Дніпропетровщина","Днепропетровская область","Oblast Dnipropetrowsk"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Donetsk Oblast"
+    name_uk: "Донецька область"
+    kind: place
+    country: "UA"
+    aliases: ["Донеччина","Донецкая область","Oblast Donezk"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Zhytomyr Oblast"
+    name_uk: "Житомирська область"
+    kind: place
+    country: "UA"
+    aliases: ["Житомирщина","Житомирская область","Oblast Schytomyr"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Zakarpattia Oblast"
+    name_uk: "Закарпатська область"
+    kind: place
+    country: "UA"
+    aliases: ["Закарпаття","Transcarpathia","Закарпатская область","Oblast Transkarpatien"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Zaporizhzhia Oblast"
+    name_uk: "Запорізька область"
+    kind: place
+    country: "UA"
+    aliases: ["Запорожская область","Oblast Saporischschja"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Ivano-Frankivsk Oblast"
+    name_uk: "Івано-Франківська область"
+    kind: place
+    country: "UA"
+    aliases: ["Івано-Франківщина","Прикарпаття","Ивано-Франковская область","Oblast Iwano-Frankiwsk"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Kyiv Oblast"
+    name_uk: "Київська область"
+    kind: place
+    country: "UA"
+    aliases: ["Київщина","Киевская область","Oblast Kiew"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Kirovohrad Oblast"
+    name_uk: "Кіровоградська область"
+    kind: place
+    country: "UA"
+    aliases: ["Кіровоградщина","Кировоградская область","Oblast Kirowohrad"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Luhansk Oblast"
+    name_uk: "Луганська область"
+    kind: place
+    country: "UA"
+    aliases: ["Луганщина","Луганская область","Oblast Luhansk"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Lviv Oblast"
+    name_uk: "Львівська область"
+    kind: place
+    country: "UA"
+    aliases: ["Львівщина","Львовская область","Oblast Lwiw"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Mykolaiv Oblast"
+    name_uk: "Миколаївська область"
+    kind: place
+    country: "UA"
+    aliases: ["Миколаївщина","Николаевская область","Oblast Mykolajiw"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Odesa Oblast"
+    name_uk: "Одеська область"
+    kind: place
+    country: "UA"
+    aliases: ["Одещина","Одесская область","Oblast Odessa"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Poltava Oblast"
+    name_uk: "Полтавська область"
+    kind: place
+    country: "UA"
+    aliases: ["Полтавщина","Полтавская область","Oblast Poltawa"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Rivne Oblast"
+    name_uk: "Рівненська область"
+    kind: place
+    country: "UA"
+    aliases: ["Рівненщина","Ровенская область","Oblast Riwne"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Sumy Oblast"
+    name_uk: "Сумська область"
+    kind: place
+    country: "UA"
+    aliases: ["Сумщина","Сумская область","Oblast Sumy"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Ternopil Oblast"
+    name_uk: "Тернопільська область"
+    kind: place
+    country: "UA"
+    aliases: ["Тернопільщина","Тернопольская область","Oblast Ternopil"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Kharkiv Oblast"
+    name_uk: "Харківська область"
+    kind: place
+    country: "UA"
+    aliases: ["Харківщина","Харьковская область","Oblast Charkiw"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Kherson Oblast"
+    name_uk: "Херсонська область"
+    kind: place
+    country: "UA"
+    aliases: ["Херсонщина","Херсонская область","Oblast Cherson"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Khmelnytskyi Oblast"
+    name_uk: "Хмельницька область"
+    kind: place
+    country: "UA"
+    aliases: ["Хмельниччина","Хмельницкая область","Oblast Chmelnyzkyj"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Cherkasy Oblast"
+    name_uk: "Черкаська область"
+    kind: place
+    country: "UA"
+    aliases: ["Черкащина","Черкасская область","Oblast Tscherkassy"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Chernivtsi Oblast"
+    name_uk: "Чернівецька область"
+    kind: place
+    country: "UA"
+    aliases: ["Буковина","Черновицкая область","Oblast Tscherniwzi"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Chernihiv Oblast"
+    name_uk: "Чернігівська область"
+    kind: place
+    country: "UA"
+    aliases: ["Чернігівщина","Черниговская область","Oblast Tschernihiw"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Crimea"
+    name_uk: "Крим"
+    kind: place
+    country: "UA"
+    aliases: ["Автономна Республіка Крим","АР Крим","Crimean Peninsula","Krim","Крым","Республика Крым"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Donbas"
+    name_uk: "Донбас"
+    kind: place
+    country: "UA"
+    aliases: ["Donbass","Донбасс"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Kyiv"
+    name_uk: "Київ"
+    kind: place
+    country: "UA"
+    aliases: ["Kiev","Kiew","Киев"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Kharkiv"
+    name_uk: "Харків"
+    kind: place
+    country: "UA"
+    aliases: ["Kharkov","Charkiw","Харьков"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Odesa"
+    name_uk: "Одеса"
+    kind: place
+    country: "UA"
+    aliases: ["Odessa","Одесса"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Dnipro"
+    name_uk: "Дніпро"
+    kind: place
+    country: "UA"
+    aliases: ["Dnipropetrovsk","Дніпропетровськ","Днепр","Днепропетровск","Dnepr"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Donetsk"
+    name_uk: "Донецьк"
+    kind: place
+    country: "UA"
+    aliases: ["Donezk","Донецк"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Zaporizhzhia"
+    name_uk: "Запоріжжя"
+    kind: place
+    country: "UA"
+    aliases: ["Zaporizhya","Zaporozhye","Saporischschja","Запорожье"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Lviv"
+    name_uk: "Львів"
+    kind: place
+    country: "UA"
+    aliases: ["Lvov","Lwiw","Lemberg","Львов"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Kryvyi Rih"
+    name_uk: "Кривий Ріг"
+    kind: place
+    country: "UA"
+    aliases: ["Krivoy Rog","Krywyj Rih","Кривой Рог"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Mykolaiv"
+    name_uk: "Миколаїв"
+    kind: place
+    country: "UA"
+    aliases: ["Nikolaev","Mykolajiw","Николаев"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Sevastopol"
+    name_uk: "Севастополь"
+    kind: place
+    country: "UA"
+    aliases: ["Sewastopol"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Mariupol"
+    name_uk: "Маріуполь"
+    kind: place
+    country: "UA"
+    aliases: ["Mariupol","Мариуполь"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Luhansk"
+    name_uk: "Луганськ"
+    kind: place
+    country: "UA"
+    aliases: ["Lugansk","Луганск"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Vinnytsia"
+    name_uk: "Вінниця"
+    kind: place
+    country: "UA"
+    aliases: ["Vinnitsa","Winnyzja","Винница"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Makiivka"
+    name_uk: "Макіївка"
+    kind: place
+    country: "UA"
+    aliases: ["Makeyevka","Makijiwka","Макеевка"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Simferopol"
+    name_uk: "Сімферополь"
+    kind: place
+    country: "UA"
+    aliases: ["Симферополь"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Chernihiv"
+    name_uk: "Чернігів"
+    kind: place
+    country: "UA"
+    aliases: ["Chernigov","Tschernihiw","Чернигов"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Kherson"
+    name_uk: "Херсон"
+    kind: place
+    country: "UA"
+    aliases: ["Cherson"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Poltava"
+    name_uk: "Полтава"
+    kind: place
+    country: "UA"
+    aliases: ["Poltawa"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Cherkasy"
+    name_uk: "Черкаси"
+    kind: place
+    country: "UA"
+    aliases: ["Cherkassy","Tscherkassy","Черкассы"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Khmelnytskyi"
+    name_uk: "Хмельницький"
+    kind: place
+    country: "UA"
+    aliases: ["Khmelnitsky","Chmelnyzkyj","Хмельницкий"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Chernivtsi"
+    name_uk: "Чернівці"
+    kind: place
+    country: "UA"
+    aliases: ["Chernovtsy","Tscherniwzi","Черновцы"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Zhytomyr"
+    name_uk: "Житомир"
+    kind: place
+    country: "UA"
+    aliases: ["Zhitomir","Schytomyr"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Sumy"
+    name_uk: "Суми"
+    kind: place
+    country: "UA"
+    aliases: ["Сумы"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Rivne"
+    name_uk: "Рівне"
+    kind: place
+    country: "UA"
+    aliases: ["Rovno","Riwne","Ровно"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Horlivka"
+    name_uk: "Горлівка"
+    kind: place
+    country: "UA"
+    aliases: ["Gorlovka","Horliwka","Горловка"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Ivano-Frankivsk"
+    name_uk: "Івано-Франківськ"
+    kind: place
+    country: "UA"
+    aliases: ["Iwano-Frankiwsk","Ивано-Франковск"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Kamianske"
+    name_uk: "Кам'янське"
+    kind: place
+    country: "UA"
+    aliases: ["Кам’янське","Dniprodzerzhynsk","Дніпродзержинськ","Каменское","Kamjanske"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Ternopil"
+    name_uk: "Тернопіль"
+    kind: place
+    country: "UA"
+    aliases: ["Ternopol","Тернополь"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Kropyvnytskyi"
+    name_uk: "Кропивницький"
+    kind: place
+    country: "UA"
+    aliases: ["Kirovohrad","Кіровоград","Кировоград","Кропивницкий","Kropywnyzkyj"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Kremenchuk"
+    name_uk: "Кременчук"
+    kind: place
+    country: "UA"
+    aliases: ["Kremenchug","Krementschuk","Кременчуг"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Lutsk"
+    name_uk: "Луцьк"
+    kind: place
+    country: "UA"
+    aliases: ["Luzk","Луцк"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Uzhhorod"
+    name_uk: "Ужгород"
+    kind: place
+    country: "UA"
+    aliases: ["Uzhgorod","Uschhorod"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Bakhmut"
+    name_uk: "Бахмут"
+    kind: place
+    country: "UA"
+    aliases: ["Artemivsk","Артемівськ","Артемовск","Bachmut"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Melitopol"
+    name_uk: "Мелітополь"
+    kind: place
+    country: "UA"
+    aliases: ["Мелитополь"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Berdiansk"
+    name_uk: "Бердянськ"
+    kind: place
+    country: "UA"
+    aliases: ["Berdyansk","Бердянск"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Sloviansk"
+    name_uk: "Слов'янськ"
+    kind: place
+    country: "UA"
+    aliases: ["Слов’янськ","Slavyansk","Славянск"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Kramatorsk"
+    name_uk: "Краматорськ"
+    kind: place
+    country: "UA"
+    aliases: ["Краматорск"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Pokrovsk"
+    name_uk: "Покровськ"
+    kind: place
+    country: "UA"
+    aliases: ["Krasnoarmiisk","Красноармійськ","Покровск","Красноармейск"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Verkhovna Rada of Ukraine"
+    name_uk: "Верховна Рада України"
+    kind: government
+    country: "UA"
+    aliases: ["Верховна Рада","Verkhovna Rada","Верховная Рада","Werchowna Rada"]
+    ambiguous_aliases: ["ВРУ"]
+    categories: ["politics","law"]
+
+  - name: "Cabinet of Ministers of Ukraine"
+    name_uk: "Кабінет Міністрів України"
+    kind: government
+    country: "UA"
+    aliases: ["Кабінет Міністрів","Кабмін","Кабинет министров Украины","Ministerkabinett der Ukraine"]
+    ambiguous_aliases: ["КМУ"]
+    categories: ["politics","law"]
+
+  - name: "Office of the President of Ukraine"
+    name_uk: "Офіс Президента України"
+    kind: government
+    country: "UA"
+    aliases: ["Офіс Президента","Офис президента Украины","Präsidialamt der Ukraine"]
+    ambiguous_aliases: ["ОП","ОПУ"]
+    categories: ["politics","law"]
+
+  - name: "Ministry of Foreign Affairs of Ukraine"
+    name_uk: "Міністерство закордонних справ України"
+    kind: government
+    country: "UA"
+    aliases: ["МЗС України","МИД Украины","Außenministerium der Ukraine"]
+    ambiguous_aliases: ["МЗС"]
+    categories: ["politics","law"]
+
+  - name: "Ministry of Defence of Ukraine"
+    name_uk: "Міністерство оборони України"
+    kind: government
+    country: "UA"
+    aliases: ["Міноборони України","Міноборони","Минобороны Украины","Verteidigungsministerium der Ukraine"]
+    ambiguous_aliases: ["МОУ"]
+    categories: ["politics","law"]
+
+  - name: "Ministry of Internal Affairs of Ukraine"
+    name_uk: "Міністерство внутрішніх справ України"
+    kind: government
+    country: "UA"
+    aliases: ["МВС України","МВД Украины","Innenministerium der Ukraine"]
+    ambiguous_aliases: ["МВС"]
+    categories: ["politics","law"]
+
+  - name: "National Bank of Ukraine"
+    name_uk: "Національний банк України"
+    kind: government
+    country: "UA"
+    aliases: ["Нацбанк","Национальный банк Украины","Nationalbank der Ukraine"]
+    ambiguous_aliases: ["НБУ","NBU"]
+    categories: ["politics","law"]
+
+  - name: "Ministry of Finance of Ukraine"
+    name_uk: "Міністерство фінансів України"
+    kind: government
+    country: "UA"
+    aliases: ["Мінфін України","Минфин Украины","Finanzministerium der Ukraine"]
+    ambiguous_aliases: ["Мінфін"]
+    categories: ["politics","law"]
+
+  - name: "Security Service of Ukraine"
+    name_uk: "Служба безпеки України"
+    kind: government
+    country: "UA"
+    aliases: ["СБУ","Служба безопасности Украины","Sicherheitsdienst der Ukraine"]
+    ambiguous_aliases: ["SBU"]
+    categories: ["politics","law"]
+
+  - name: "Defence Intelligence of Ukraine"
+    name_uk: "Головне управління розвідки Міністерства оборони України"
+    kind: government
+    country: "UA"
+    aliases: ["ГУР МО","ГУР МО України","Українська воєнна розвідка","Главное управление разведки Украины"]
+    ambiguous_aliases: ["ГУР","HUR","GUR"]
+    categories: ["politics","law"]
+
+  - name: "National Anti-Corruption Bureau of Ukraine"
+    name_uk: "Національне антикорупційне бюро України"
+    kind: government
+    country: "UA"
+    aliases: ["НАБУ","Национальное антикоррупционное бюро Украины"]
+    ambiguous_aliases: ["NABU"]
+    categories: ["politics","law"]
+
+  - name: "Specialized Anti-Corruption Prosecutor's Office"
+    name_uk: "Спеціалізована антикорупційна прокуратура"
+    kind: government
+    country: "UA"
+    aliases: ["Специализированная антикоррупционная прокуратура"]
+    ambiguous_aliases: ["САП","SAPO"]
+    categories: ["politics","law"]
+
+  - name: "State Bureau of Investigation of Ukraine"
+    name_uk: "Державне бюро розслідувань"
+    kind: government
+    country: "UA"
+    aliases: ["ДБР","Государственное бюро расследований"]
+    ambiguous_aliases: ["SBI"]
+    categories: ["politics","law"]
+
+  - name: "Armed Forces of Ukraine"
+    name_uk: "Збройні сили України"
+    kind: government
+    country: "UA"
+    aliases: ["ЗСУ","ВСУ","Вооружённые силы Украины","Вооруженные силы Украины","Ukrainian Armed Forces"]
+    ambiguous_aliases: ["AFU"]
+    categories: ["politics","law"]
+
+  - name: "General Staff of the Armed Forces of Ukraine"
+    name_uk: "Генеральний штаб Збройних сил України"
+    kind: government
+    country: "UA"
+    aliases: ["Генштаб ЗСУ","Генштаб","Генштаб ВСУ","Ukrainian General Staff"]
+    ambiguous_aliases: []
+    categories: ["politics","law"]
+
+  - name: "National Guard of Ukraine"
+    name_uk: "Національна гвардія України"
+    kind: government
+    country: "UA"
+    aliases: ["Нацгвардія","Нацгвардия Украины","Nationalgarde der Ukraine"]
+    ambiguous_aliases: ["НГУ","NGU"]
+    categories: ["politics","law"]
+
+  - name: "State Emergency Service of Ukraine"
+    name_uk: "Державна служба України з надзвичайних ситуацій"
+    kind: government
+    country: "UA"
+    aliases: ["ДСНС","ГСЧС Украины"]
+    ambiguous_aliases: ["SESU"]
+    categories: ["politics","law"]
+
+  - name: "Central Election Commission of Ukraine"
+    name_uk: "Центральна виборча комісія України"
+    kind: government
+    country: "UA"
+    aliases: ["Центрвиборчком","ЦИК Украины"]
+    ambiguous_aliases: ["ЦВК","CEC"]
+    categories: ["politics","law"]
+
+  - name: "Constitutional Court of Ukraine"
+    name_uk: "Конституційний Суд України"
+    kind: government
+    country: "UA"
+    aliases: ["Конституційний Суд","Конституционный суд Украины","Verfassungsgericht der Ukraine"]
+    ambiguous_aliases: ["КСУ"]
+    categories: ["politics","law"]
+
+  - name: "Supreme Court of Ukraine"
+    name_uk: "Верховний Суд України"
+    kind: government
+    country: "UA"
+    aliases: ["Верховний Суд","Верховный суд Украины","Oberster Gerichtshof der Ukraine"]
+    ambiguous_aliases: []
+    categories: ["politics","law"]
+
+  - name: "Ministry of Digital Transformation of Ukraine"
+    name_uk: "Міністерство цифрової трансформації України"
+    kind: government
+    country: "UA"
+    aliases: ["Мінцифри","Минцифры Украины"]
+    ambiguous_aliases: []
+    categories: ["politics","law"]
+
+  - name: "Ministry of Economy of Ukraine"
+    name_uk: "Міністерство економіки України"
+    kind: government
+    country: "UA"
+    aliases: ["Мінекономіки","Минэкономики Украины"]
+    ambiguous_aliases: []
+    categories: ["politics","law"]
+
+  - name: "Ministry of Education and Science of Ukraine"
+    name_uk: "Міністерство освіти і науки України"
+    kind: government
+    country: "UA"
+    aliases: ["МОН України","Минобразования Украины"]
+    ambiguous_aliases: ["МОН"]
+    categories: ["politics","law"]
+
+  - name: "Ministry of Health of Ukraine"
+    name_uk: "Міністерство охорони здоров'я України"
+    kind: government
+    country: "UA"
+    aliases: ["МОЗ України","Минздрав Украины"]
+    ambiguous_aliases: ["МОЗ"]
+    categories: ["politics","law"]
+
+  - name: "Prosecutor General's Office of Ukraine"
+    name_uk: "Офіс Генерального прокурора"
+    kind: government
+    country: "UA"
+    aliases: ["Офіс генпрокурора","Генпрокуратура України","Офис генпрокурора Украины"]
+    ambiguous_aliases: ["ОГП"]
+    categories: ["politics","law"]
+
+  - name: "High Anti-Corruption Court of Ukraine"
+    name_uk: "Вищий антикорупційний суд"
+    kind: government
+    country: "UA"
+    aliases: ["ВАКС","Высший антикоррупционный суд"]
+    ambiguous_aliases: ["HACC"]
+    categories: ["politics","law"]
+
+  - name: "State Border Guard Service of Ukraine"
+    name_uk: "Державна прикордонна служба України"
+    kind: government
+    country: "UA"
+    aliases: ["ДПСУ","Госпогранслужба Украины"]
+    ambiguous_aliases: ["SBGS"]
+    categories: ["politics","law"]
+
+  - name: "Foreign Intelligence Service of Ukraine"
+    name_uk: "Служба зовнішньої розвідки України"
+    kind: government
+    country: "UA"
+    aliases: ["СЗРУ","Служба внешней разведки Украины"]
+    ambiguous_aliases: ["SZRU"]
+    categories: ["politics","law"]
+
+  - name: "National Police of Ukraine"
+    name_uk: "Національна поліція України"
+    kind: government
+    country: "UA"
+    aliases: ["Нацполіція","Нацполиция Украины"]
+    ambiguous_aliases: []
+    categories: ["politics","law"]
+
+  - name: "National Agency on Corruption Prevention"
+    name_uk: "Національне агентство з питань запобігання корупції"
+    kind: government
+    country: "UA"
+    aliases: ["НАЗК","НАПК"]
+    ambiguous_aliases: ["NACP"]
+    categories: ["politics","law"]
+
+  - name: "Diia"
+    name_uk: "Дія"
+    kind: product
+    country: "UA"
+    aliases: ["Diia app","Дія застосунок","Дия"]
+    ambiguous_aliases: ["Diia"]
+    categories: ["global_tech","politics"]
+
+  - name: "Volodymyr Zelensky"
+    name_uk: "Володимир Зеленський"
+    kind: person
+    country: "UA"
+    aliases: ["Zelensky","Zelenskyy","Selenskyj","Зеленський","Владимир Зеленский","Зеленский"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Olena Zelenska"
+    name_uk: "Олена Зеленська"
+    kind: person
+    country: "UA"
+    aliases: ["Olena Zelenskaya","Зеленська","Елена Зеленская"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Denys Shmyhal"
+    name_uk: "Денис Шмигаль"
+    kind: person
+    country: "UA"
+    aliases: ["Shmyhal","Schmyhal","Шмигаль","Денис Шмыгаль"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Yulia Svyrydenko"
+    name_uk: "Юлія Свириденко"
+    kind: person
+    country: "UA"
+    aliases: ["Svyrydenko","Свириденко","Юлия Свириденко"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Mykhailo Fedorov"
+    name_uk: "Михайло Федоров"
+    kind: person
+    country: "UA"
+    aliases: ["Михаил Федоров"]
+    ambiguous_aliases: ["Fedorov","Федоров"]
+    categories: ["politics"]
+
+  - name: "Andriy Yermak"
+    name_uk: "Андрій Єрмак"
+    kind: person
+    country: "UA"
+    aliases: ["Yermak","Єрмак","Андрей Ермак"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Andrii Sybiha"
+    name_uk: "Андрій Сибіга"
+    kind: person
+    country: "UA"
+    aliases: ["Andriy Sybiha","Sybiha","Сибіга","Андрей Сибига"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Dmytro Kuleba"
+    name_uk: "Дмитро Кулеба"
+    kind: person
+    country: "UA"
+    aliases: ["Kuleba","Кулеба","Дмитрий Кулеба"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Rustem Umerov"
+    name_uk: "Рустем Умєров"
+    kind: person
+    country: "UA"
+    aliases: ["Umerov","Umjerow","Умєров","Рустем Умеров"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Oleksii Reznikov"
+    name_uk: "Олексій Резніков"
+    kind: person
+    country: "UA"
+    aliases: ["Reznikov","Резніков","Алексей Резников"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Oleksandr Syrskyi"
+    name_uk: "Олександр Сирський"
+    kind: person
+    country: "UA"
+    aliases: ["Syrskyi","Syrsky","Syrskyj","Сирський","Александр Сырский"]
+    ambiguous_aliases: []
+    categories: ["defense","politics"]
+
+  - name: "Valerii Zaluzhnyi"
+    name_uk: "Валерій Залужний"
+    kind: person
+    country: "UA"
+    aliases: ["Valery Zaluzhny","Zaluzhnyi","Saluschnyj","Залужний","Валерий Залужный"]
+    ambiguous_aliases: []
+    categories: ["defense","politics"]
+
+  - name: "Kyrylo Budanov"
+    name_uk: "Кирило Буданов"
+    kind: person
+    country: "UA"
+    aliases: ["Budanov","Budanow","Буданов","Кирилл Буданов"]
+    ambiguous_aliases: []
+    categories: ["defense","politics"]
+
+  - name: "Vasyl Maliuk"
+    name_uk: "Василь Малюк"
+    kind: person
+    country: "UA"
+    aliases: ["Vasyl Malyuk","Maliuk","Малюк","Василий Малюк"]
+    ambiguous_aliases: []
+    categories: ["defense","politics"]
+
+  - name: "Oleksandr Pavliuk"
+    name_uk: "Олександр Павлюк"
+    kind: person
+    country: "UA"
+    aliases: ["Oleksandr Pavlyuk","Павлюк","Александр Павлюк"]
+    ambiguous_aliases: []
+    categories: ["defense","politics"]
+
+  - name: "Mykhailo Drapatyi"
+    name_uk: "Михайло Драпатий"
+    kind: person
+    country: "UA"
+    aliases: ["Mykhailo Drapaty","Драпатий","Михаил Драпатый"]
+    ambiguous_aliases: []
+    categories: ["defense","politics"]
+
+  - name: "Andrii Hnatov"
+    name_uk: "Андрій Гнатов"
+    kind: person
+    country: "UA"
+    aliases: ["Andriy Hnatov","Гнатов","Андрей Гнатов"]
+    ambiguous_aliases: []
+    categories: ["defense","politics"]
+
+  - name: "Anatolii Barhylevych"
+    name_uk: "Анатолій Баргилевич"
+    kind: person
+    country: "UA"
+    aliases: ["Anatoliy Bargilevich","Баргилевич","Анатолий Баргилевич"]
+    ambiguous_aliases: []
+    categories: ["defense","politics"]
+
+  - name: "Serhii Shaptala"
+    name_uk: "Сергій Шаптала"
+    kind: person
+    country: "UA"
+    aliases: ["Serhiy Shaptala","Шаптала","Сергей Шаптала"]
+    ambiguous_aliases: []
+    categories: ["defense","politics"]
+
+  - name: "Ihor Klymenko"
+    name_uk: "Ігор Клименко"
+    kind: person
+    country: "UA"
+    aliases: ["Ihor Klymenko","Игорь Клименко"]
+    ambiguous_aliases: ["Klymenko","Клименко"]
+    categories: ["politics"]
+
+  - name: "Serhii Deineko"
+    name_uk: "Сергій Дейнеко"
+    kind: person
+    country: "UA"
+    aliases: ["Serhiy Deineko","Дейнеко","Сергей Дейнеко"]
+    ambiguous_aliases: []
+    categories: ["defense","politics"]
+
+  - name: "Oleksandr Pivnenko"
+    name_uk: "Олександр Півненко"
+    kind: person
+    country: "UA"
+    aliases: ["Pivnenko","Півненко","Александр Пивненко"]
+    ambiguous_aliases: []
+    categories: ["defense","politics"]
+
+  - name: "Mykola Oleshchuk"
+    name_uk: "Микола Олещук"
+    kind: person
+    country: "UA"
+    aliases: ["Oleshchuk","Олещук","Николай Олещук"]
+    ambiguous_aliases: []
+    categories: ["defense","politics"]
+
+  - name: "Anatolii Kryvonozhko"
+    name_uk: "Анатолій Кривоножко"
+    kind: person
+    country: "UA"
+    aliases: ["Anatoliy Kryvonozhko","Кривоножко","Анатолий Кривоножко"]
+    ambiguous_aliases: []
+    categories: ["defense","politics"]
+
+  - name: "Oleksii Neizhpapa"
+    name_uk: "Олексій Неїжпапа"
+    kind: person
+    country: "UA"
+    aliases: ["Oleksiy Neizhpapa","Неїжпапа","Алексей Неижпапа"]
+    ambiguous_aliases: []
+    categories: ["defense","politics"]
+
+  - name: "Vadym Sukharevskyi"
+    name_uk: "Вадим Сухаревський"
+    kind: person
+    country: "UA"
+    aliases: ["Vadym Sukharevsky","Сухаревський","Вадим Сухаревский"]
+    ambiguous_aliases: []
+    categories: ["defense","politics"]
+
+  - name: "Robert Brovdi"
+    name_uk: "Роберт Бровді"
+    kind: person
+    country: "UA"
+    aliases: ["Robert Brovdy","Бровді","Роберт Бровди","Мадяр"]
+    ambiguous_aliases: []
+    categories: ["defense","politics"]
+
+  - name: "Denys Prokopenko"
+    name_uk: "Денис Прокопенко"
+    kind: person
+    country: "UA"
+    aliases: ["Denys Prokopenko","Денис Прокопенко"]
+    ambiguous_aliases: ["Редіс","Redis"]
+    categories: ["defense","politics"]
+
+  - name: "Andrii Biletskyi"
+    name_uk: "Андрій Білецький"
+    kind: person
+    country: "UA"
+    aliases: ["Andriy Biletsky","Білецький","Андрей Билецкий"]
+    ambiguous_aliases: []
+    categories: ["defense","politics"]
+
+  - name: "Pavlo Palisa"
+    name_uk: "Павло Паліса"
+    kind: person
+    country: "UA"
+    aliases: ["Palisa","Паліса","Павел Палиса"]
+    ambiguous_aliases: []
+    categories: ["defense","politics"]
+
+  - name: "Dmytro Lubinets"
+    name_uk: "Дмитро Лубінець"
+    kind: person
+    country: "UA"
+    aliases: ["Lubinets","Лубінець","Дмитрий Лубинец"]
+    ambiguous_aliases: []
+    categories: ["law","politics"]
+
+  - name: "Ruslan Stefanchuk"
+    name_uk: "Руслан Стефанчук"
+    kind: person
+    country: "UA"
+    aliases: ["Stefanchuk","Стефанчук"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Oleksandr Korniienko"
+    name_uk: "Олександр Корнієнко"
+    kind: person
+    country: "UA"
+    aliases: ["Oleksandr Kornienko","Корнієнко","Александр Корниенко"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "David Arakhamia"
+    name_uk: "Давид Арахамія"
+    kind: person
+    country: "UA"
+    aliases: ["Davyd Arakhamiia","Arakhamia","Арахамія","Давид Арахамия"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Yaroslav Zhelezniak"
+    name_uk: "Ярослав Железняк"
+    kind: person
+    country: "UA"
+    aliases: ["Yaroslav Zheleznyak","Железняк"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Danylo Hetmantsev"
+    name_uk: "Данило Гетманцев"
+    kind: person
+    country: "UA"
+    aliases: ["Hetmantsev","Гетманцев","Даниил Гетманцев"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Oleksandr Merezhko"
+    name_uk: "Олександр Мережко"
+    kind: person
+    country: "UA"
+    aliases: ["Merezhko","Мережко","Александр Мережко"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Iryna Herashchenko"
+    name_uk: "Ірина Геращенко"
+    kind: person
+    country: "UA"
+    aliases: ["Iryna Gerashchenko","Ирина Геращенко"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Ivanna Klympush-Tsintsadze"
+    name_uk: "Іванна Климпуш-Цинцадзе"
+    kind: person
+    country: "UA"
+    aliases: ["Klympush-Tsintsadze","Климпуш-Цинцадзе","Иванна Климпуш-Цинцадзе"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Petro Poroshenko"
+    name_uk: "Петро Порошенко"
+    kind: person
+    country: "UA"
+    aliases: ["Poroshenko","Poroschenko","Порошенко","Пётр Порошенко","Петр Порошенко"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Yulia Tymoshenko"
+    name_uk: "Юлія Тимошенко"
+    kind: person
+    country: "UA"
+    aliases: ["Tymoshenko","Timoschenko","Тимошенко","Юлия Тимошенко"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Arseniy Yatsenyuk"
+    name_uk: "Арсеній Яценюк"
+    kind: person
+    country: "UA"
+    aliases: ["Yatsenyuk","Jazenjuk","Яценюк","Арсений Яценюк"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Volodymyr Groysman"
+    name_uk: "Володимир Гройсман"
+    kind: person
+    country: "UA"
+    aliases: ["Volodymyr Hroisman","Groysman","Гройсман","Владимир Гройсман"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Viktor Yushchenko"
+    name_uk: "Віктор Ющенко"
+    kind: person
+    country: "UA"
+    aliases: ["Yushchenko","Juschtschenko","Ющенко","Виктор Ющенко"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Leonid Kuchma"
+    name_uk: "Леонід Кучма"
+    kind: person
+    country: "UA"
+    aliases: ["Kuchma","Kutschma","Кучма","Леонид Кучма"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Viktor Yanukovych"
+    name_uk: "Віктор Янукович"
+    kind: person
+    country: "UA"
+    aliases: ["Yanukovych","Janukowytsch","Янукович","Виктор Янукович"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Vitali Klitschko"
+    name_uk: "Віталій Кличко"
+    kind: person
+    country: "UA"
+    aliases: ["Vitali Klychko","Виталий Кличко"]
+    ambiguous_aliases: ["Klitschko","Кличко"]
+    categories: ["politics","sports"]
+
+  - name: "Andriy Sadovyi"
+    name_uk: "Андрій Садовий"
+    kind: person
+    country: "UA"
+    aliases: ["Andriy Sadovy","Садовий","Андрей Садовый"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Borys Filatov"
+    name_uk: "Борис Філатов"
+    kind: person
+    country: "UA"
+    aliases: ["Boris Filatov","Філатов","Борис Филатов"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Ihor Terekhov"
+    name_uk: "Ігор Терехов"
+    kind: person
+    country: "UA"
+    aliases: ["Igor Terekhov","Терехов","Игорь Терехов"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Oleksandr Sienkevych"
+    name_uk: "Олександр Сєнкевич"
+    kind: person
+    country: "UA"
+    aliases: ["Oleksandr Senkevych","Сєнкевич","Александр Сенкевич"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Vitalii Kim"
+    name_uk: "Віталій Кім"
+    kind: person
+    country: "UA"
+    aliases: ["Vitaliy Kim","Виталий Ким"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Oleh Syniehubov"
+    name_uk: "Олег Синєгубов"
+    kind: person
+    country: "UA"
+    aliases: ["Oleh Synehubov","Синєгубов","Олег Синегубов"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Oleksandr Prokudin"
+    name_uk: "Олександр Прокудін"
+    kind: person
+    country: "UA"
+    aliases: ["Prokudin","Прокудін","Александр Прокудин"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Vadym Filashkin"
+    name_uk: "Вадим Філашкін"
+    kind: person
+    country: "UA"
+    aliases: ["Filashkin","Філашкін","Вадим Филашкин"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Ivan Fedorov"
+    name_uk: "Іван Федоров"
+    kind: person
+    country: "UA"
+    aliases: ["Иван Федоров"]
+    ambiguous_aliases: ["Fedorov","Федоров"]
+    categories: ["politics"]
+
+  - name: "Serhii Lysak"
+    name_uk: "Сергій Лисак"
+    kind: person
+    country: "UA"
+    aliases: ["Serhiy Lysak","Лисак","Сергей Лысак"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Maksym Kozytskyi"
+    name_uk: "Максим Козицький"
+    kind: person
+    country: "UA"
+    aliases: ["Maksym Kozytsky","Козицький","Максим Козицкий"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Serhii Marchenko"
+    name_uk: "Сергій Марченко"
+    kind: person
+    country: "UA"
+    aliases: ["Serhiy Marchenko","Сергей Марченко"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Andriy Pyshnyy"
+    name_uk: "Андрій Пишний"
+    kind: person
+    country: "UA"
+    aliases: ["Andriy Pyshnyi","Pyshnyy","Пишний","Андрей Пышный"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Kyrylo Shevchenko"
+    name_uk: "Кирило Шевченко"
+    kind: person
+    country: "UA"
+    aliases: ["Кирилл Шевченко"]
+    ambiguous_aliases: ["Shevchenko","Шевченко"]
+    categories: ["politics"]
+
+  - name: "Oksana Markarova"
+    name_uk: "Оксана Маркарова"
+    kind: person
+    country: "UA"
+    aliases: ["Markarova","Маркарова"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Olha Stefanishyna"
+    name_uk: "Ольга Стефанішина"
+    kind: person
+    country: "UA"
+    aliases: ["Olga Stefanishyna","Стефанішина","Ольга Стефанишина"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Olha Pishchanska"
+    name_uk: "Ольга Піщанська"
+    kind: person
+    country: "UA"
+    aliases: ["Olga Pishchanska","Піщанська","Ольга Пищанская"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Olena Shuliak"
+    name_uk: "Олена Шуляк"
+    kind: person
+    country: "UA"
+    aliases: ["Olena Shulyak","Шуляк","Елена Шуляк"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Inna Sovsun"
+    name_uk: "Інна Совсун"
+    kind: person
+    country: "UA"
+    aliases: ["Sovsun","Совсун","Инна Совсун"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Kira Rudik"
+    name_uk: "Кіра Рудик"
+    kind: person
+    country: "UA"
+    aliases: ["Rudik","Рудик","Кира Рудик"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Solomiia Bobrovska"
+    name_uk: "Соломія Бобровська"
+    kind: person
+    country: "UA"
+    aliases: ["Solomiya Bobrovska","Бобровська","Соломия Бобровская"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Oleksandra Ustinova"
+    name_uk: "Олександра Устінова"
+    kind: person
+    country: "UA"
+    aliases: ["Ustinova","Устінова","Александра Устинова"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Serhii Prytula"
+    name_uk: "Сергій Притула"
+    kind: person
+    country: "UA"
+    aliases: ["Serhiy Prytula","Prytula","Притула","Сергей Притула"]
+    ambiguous_aliases: []
+    categories: ["defense","politics"]
+
+  - name: "Serhii Sternenko"
+    name_uk: "Сергій Стерненко"
+    kind: person
+    country: "UA"
+    aliases: ["Serhiy Sternenko","Sternenko","Стерненко","Сергей Стерненко"]
+    ambiguous_aliases: []
+    categories: ["defense","politics"]
+
+  - name: "Taras Chmut"
+    name_uk: "Тарас Чмут"
+    kind: person
+    country: "UA"
+    aliases: ["Chmut","Чмут"]
+    ambiguous_aliases: []
+    categories: ["defense","politics"]
+
+  - name: "Vitaliy Shabunin"
+    name_uk: "Віталій Шабунін"
+    kind: person
+    country: "UA"
+    aliases: ["Vitalii Shabunin","Shabunin","Шабунін","Виталий Шабунин"]
+    ambiguous_aliases: []
+    categories: ["law","politics"]
+
+  - name: "Daria Kaleniuk"
+    name_uk: "Дар'я Каленюк"
+    kind: person
+    country: "UA"
+    aliases: ["Дар’я Каленюк","Kaleniuk","Каленюк","Дарья Каленюк"]
+    ambiguous_aliases: []
+    categories: ["law","politics"]
+
+  - name: "Oleksandra Matviichuk"
+    name_uk: "Олександра Матвійчук"
+    kind: person
+    country: "UA"
+    aliases: ["Oleksandra Matviychuk","Матвійчук","Александра Матвийчук"]
+    ambiguous_aliases: []
+    categories: ["law","politics"]
+
+  - name: "Myroslav Marynovych"
+    name_uk: "Мирослав Маринович"
+    kind: person
+    country: "UA"
+    aliases: ["Marynovych","Маринович"]
+    ambiguous_aliases: []
+    categories: ["law","politics"]
+
+  - name: "Mustafa Dzhemilev"
+    name_uk: "Мустафа Джемілєв"
+    kind: person
+    country: "UA"
+    aliases: ["Mustafa Dzhemilev","Джемілєв","Мустафа Джемилев"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Refat Chubarov"
+    name_uk: "Рефат Чубаров"
+    kind: person
+    country: "UA"
+    aliases: ["Chubarov","Чубаров"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Tamila Tasheva"
+    name_uk: "Таміла Ташева"
+    kind: person
+    country: "UA"
+    aliases: ["Tasheva","Ташева","Тамила Ташева"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Nariman Dzhelyal"
+    name_uk: "Наріман Джелял"
+    kind: person
+    country: "UA"
+    aliases: ["Nariman Dzhelial","Джелял","Нариман Джелял"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Sviatoslav Vakarchuk"
+    name_uk: "Святослав Вакарчук"
+    kind: person
+    country: "UA"
+    aliases: ["Svyatoslav Vakarchuk","Vakarchuk","Вакарчук"]
+    ambiguous_aliases: []
+    categories: ["culture"]
+
+  - name: "Serhiy Zhadan"
+    name_uk: "Сергій Жадан"
+    kind: person
+    country: "UA"
+    aliases: ["Serhii Zhadan","Zhadan","Жадан","Сергей Жадан"]
+    ambiguous_aliases: []
+    categories: ["culture"]
+
+  - name: "Oksana Zabuzhko"
+    name_uk: "Оксана Забужко"
+    kind: person
+    country: "UA"
+    aliases: ["Zabuzhko","Забужко"]
+    ambiguous_aliases: []
+    categories: ["culture"]
+
+  - name: "Lina Kostenko"
+    name_uk: "Ліна Костенко"
+    kind: person
+    country: "UA"
+    aliases: ["Lina Kostenko","Лина Костенко"]
+    ambiguous_aliases: []
+    categories: ["culture"]
+
+  - name: "Andriy Shevchenko"
+    name_uk: "Андрій Шевченко"
+    kind: person
+    country: "UA"
+    aliases: ["Andrii Shevchenko","Andrij Schewtschenko","Андрей Шевченко"]
+    ambiguous_aliases: ["Shevchenko","Шевченко"]
+    categories: ["sports"]
+
+  - name: "Oleksandr Usyk"
+    name_uk: "Олександр Усик"
+    kind: person
+    country: "UA"
+    aliases: ["Usyk","Усик","Александр Усик"]
+    ambiguous_aliases: []
+    categories: ["sports"]
+
+  - name: "Wladimir Klitschko"
+    name_uk: "Володимир Кличко"
+    kind: person
+    country: "UA"
+    aliases: ["Volodymyr Klitschko","Владимир Кличко"]
+    ambiguous_aliases: ["Klitschko","Кличко"]
+    categories: ["sports"]
+
+  - name: "Dmytro Komarov"
+    name_uk: "Дмитро Комаров"
+    kind: person
+    country: "UA"
+    aliases: ["Dmytro Komarov","Дмитрий Комаров"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Dmytro Lytvyn"
+    name_uk: "Дмитро Литвин"
+    kind: person
+    country: "UA"
+    aliases: ["Dmytro Lytvyn","Дмитрий Литвин"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Andrii Kovalenko"
+    name_uk: "Андрій Коваленко"
+    kind: person
+    country: "UA"
+    aliases: ["Andriy Kovalenko","Андрей Коваленко"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Mykhailo Podolyak"
+    name_uk: "Михайло Подоляк"
+    kind: person
+    country: "UA"
+    aliases: ["Mykhailo Podoliak","Podolyak","Подоляк","Михаил Подоляк"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Iryna Vereshchuk"
+    name_uk: "Ірина Верещук"
+    kind: person
+    country: "UA"
+    aliases: ["Vereshchuk","Верещук","Ирина Верещук"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Iryna Fedoriv"
+    name_uk: "Ірина Федорів"
+    kind: person
+    country: "UA"
+    aliases: ["Iryna Fedoriv","Ирина Федорив"]
+    ambiguous_aliases: []
+    categories: ["law","politics"]
+
+  - name: "Donald Trump"
+    name_uk: "Дональд Трамп"
+    kind: person
+    country: "US"
+    aliases: ["Trump","Трамп"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Joe Biden"
+    name_uk: "Джо Байден"
+    kind: person
+    country: "US"
+    aliases: ["Joseph Biden","Biden","Байден","Джозеф Байден"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Kamala Harris"
+    name_uk: "Камала Гарріс"
+    kind: person
+    country: "US"
+    aliases: ["Harris","Гарріс","Камала Харрис"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "JD Vance"
+    name_uk: "Джей Ді Венс"
+    kind: person
+    country: "US"
+    aliases: ["J. D. Vance","J.D. Vance","James David Vance","Vance","Венс","Джей Ди Вэнс"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Marco Rubio"
+    name_uk: "Марко Рубіо"
+    kind: person
+    country: "US"
+    aliases: ["Rubio","Рубіо","Марко Рубио"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Pete Hegseth"
+    name_uk: "Піт Гегсет"
+    kind: person
+    country: "US"
+    aliases: ["Hegseth","Гегсет","Пит Хегсет"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Scott Bessent"
+    name_uk: "Скотт Бессент"
+    kind: person
+    country: "US"
+    aliases: ["Bessent","Бессент"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Howard Lutnick"
+    name_uk: "Говард Лютнік"
+    kind: person
+    country: "US"
+    aliases: ["Lutnick","Лютнік","Говард Латник"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Mike Waltz"
+    name_uk: "Майк Волц"
+    kind: person
+    country: "US"
+    aliases: ["Michael Waltz","Waltz","Волц","Майк Уолтц"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Keith Kellogg"
+    name_uk: "Кіт Келлог"
+    kind: person
+    country: "US"
+    aliases: ["Kellogg","Келлог","Кит Келлог"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Steve Witkoff"
+    name_uk: "Стів Віткофф"
+    kind: person
+    country: "US"
+    aliases: ["Steven Witkoff","Witkoff","Віткофф","Стив Уиткофф"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Tulsi Gabbard"
+    name_uk: "Тулсі Габбард"
+    kind: person
+    country: "US"
+    aliases: ["Gabbard","Габбард","Тулси Габбард"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "John Ratcliffe"
+    name_uk: "Джон Реткліфф"
+    kind: person
+    country: "US"
+    aliases: ["Ratcliffe","Реткліфф","Джон Рэтклифф"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Mike Johnson"
+    name_uk: "Майк Джонсон"
+    kind: person
+    country: "US"
+    aliases: ["Майк Джонсон"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Hakeem Jeffries"
+    name_uk: "Гакім Джеффріс"
+    kind: person
+    country: "US"
+    aliases: ["Jeffries","Джеффріс","Хаким Джеффрис"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Chuck Schumer"
+    name_uk: "Чак Шумер"
+    kind: person
+    country: "US"
+    aliases: ["Schumer","Шумер"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Mitch McConnell"
+    name_uk: "Мітч Макконнелл"
+    kind: person
+    country: "US"
+    aliases: ["McConnell","Макконнелл","Митч Макконнелл"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "John Thune"
+    name_uk: "Джон Тун"
+    kind: person
+    country: "US"
+    aliases: ["Thune","Джон Тьюн"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Lindsey Graham"
+    name_uk: "Ліндсі Грем"
+    kind: person
+    country: "US"
+    aliases: ["Graham","Ліндсі Ґрем","Линдси Грэм"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Bernie Sanders"
+    name_uk: "Берні Сандерс"
+    kind: person
+    country: "US"
+    aliases: ["Sanders","Сандерс","Берни Сандерс"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Alexandria Ocasio-Cortez"
+    name_uk: "Александрія Окасіо-Кортес"
+    kind: person
+    country: "US"
+    aliases: ["Ocasio-Cortez","Окасіо-Кортес","Александрия Окасио-Кортес"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Gavin Newsom"
+    name_uk: "Гевін Ньюсом"
+    kind: person
+    country: "US"
+    aliases: ["Newsom","Ньюсом","Гэвин Ньюсом"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Ron DeSantis"
+    name_uk: "Рон Десантіс"
+    kind: person
+    country: "US"
+    aliases: ["DeSantis","Десантіс","Рон Десантис"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Nikki Haley"
+    name_uk: "Ніккі Гейлі"
+    kind: person
+    country: "US"
+    aliases: ["Haley","Гейлі","Никки Хейли"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Antony Blinken"
+    name_uk: "Ентоні Блінкен"
+    kind: person
+    country: "US"
+    aliases: ["Blinken","Блінкен","Энтони Блинкен"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Lloyd Austin"
+    name_uk: "Ллойд Остін"
+    kind: person
+    country: "US"
+    aliases: ["Остін","Ллойд Остин"]
+    ambiguous_aliases: ["Austin"]
+    categories: ["politics"]
+
+  - name: "Jake Sullivan"
+    name_uk: "Джейк Салліван"
+    kind: person
+    country: "US"
+    aliases: ["Sullivan","Салліван","Джейк Салливан"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Janet Yellen"
+    name_uk: "Джанет Єллен"
+    kind: person
+    country: "US"
+    aliases: ["Yellen","Єллен","Джанет Йеллен"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Jerome Powell"
+    name_uk: "Джером Павелл"
+    kind: person
+    country: "US"
+    aliases: ["Powell","Павелл","Джером Пауэлл"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Barack Obama"
+    name_uk: "Барак Обама"
+    kind: person
+    country: "US"
+    aliases: ["Obama","Обама"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "George W. Bush"
+    name_uk: "Джордж Буш-молодший"
+    kind: person
+    country: "US"
+    aliases: ["George Walker Bush","Джордж Уокер Буш"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Bill Clinton"
+    name_uk: "Білл Клінтон"
+    kind: person
+    country: "US"
+    aliases: ["William Jefferson Clinton","Билл Клинтон"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Hillary Clinton"
+    name_uk: "Гілларі Клінтон"
+    kind: person
+    country: "US"
+    aliases: ["Hillary Rodham Clinton","Хиллари Клинтон"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Nancy Pelosi"
+    name_uk: "Ненсі Пелосі"
+    kind: person
+    country: "US"
+    aliases: ["Pelosi","Пелосі","Нэнси Пелоси"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Robert F. Kennedy Jr."
+    name_uk: "Роберт Кеннеді-молодший"
+    kind: person
+    country: "US"
+    aliases: ["Robert Kennedy Jr.","RFK Jr.","Роберт Кеннеди-младший"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Ursula von der Leyen"
+    name_uk: "Урсула фон дер Ляєн"
+    kind: person
+    country: "DE"
+    aliases: ["von der Leyen","фон дер Ляєн","Урсула фон дер Ляйен"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "António Costa"
+    name_uk: "Антоніу Кошта"
+    kind: person
+    country: "PT"
+    aliases: ["Antonio Costa","António Luís Santos da Costa","Антониу Кошта"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Kaja Kallas"
+    name_uk: "Кая Каллас"
+    kind: person
+    country: "EE"
+    aliases: ["Kallas","Каллас"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Roberta Metsola"
+    name_uk: "Роберта Мецола"
+    kind: person
+    country: "MT"
+    aliases: ["Metsola","Мецола"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Christine Lagarde"
+    name_uk: "Крістін Лагард"
+    kind: person
+    country: "FR"
+    aliases: ["Lagarde","Лагард","Кристин Лагард"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Valdis Dombrovskis"
+    name_uk: "Валдіс Домбровскіс"
+    kind: person
+    country: "LV"
+    aliases: ["Dombrovskis","Домбровскіс","Валдис Домбровскис"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Andrius Kubilius"
+    name_uk: "Андрюс Кубілюс"
+    kind: person
+    country: "LT"
+    aliases: ["Kubilius","Кубілюс","Андрюс Кубилюс"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Marta Kos"
+    name_uk: "Марта Кос"
+    kind: person
+    country: "SI"
+    aliases: ["Marta Kos"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Henna Virkkunen"
+    name_uk: "Генна Вірккунен"
+    kind: person
+    country: "FI"
+    aliases: ["Virkkunen","Вірккунен","Хенна Вирккунен"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Teresa Ribera"
+    name_uk: "Тереса Рібера"
+    kind: person
+    country: "ES"
+    aliases: ["Ribera","Рібера","Тереса Рибера"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Stéphane Séjourné"
+    name_uk: "Стефан Сежурне"
+    kind: person
+    country: "FR"
+    aliases: ["Stephane Sejourne","Séjourné","Сежурне"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Roxana Mînzatu"
+    name_uk: "Роксана Минзату"
+    kind: person
+    country: "RO"
+    aliases: ["Roxana Minzatu","Роксана Мінзату"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Raffaele Fitto"
+    name_uk: "Раффаеле Фітто"
+    kind: person
+    country: "IT"
+    aliases: ["Fitto","Фітто","Раффаэле Фитто"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Maroš Šefčovič"
+    name_uk: "Марош Шефчович"
+    kind: person
+    country: "SK"
+    aliases: ["Maros Sefcovic","Šefčovič","Шефчович"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Wopke Hoekstra"
+    name_uk: "Вопке Гукстра"
+    kind: person
+    country: "NL"
+    aliases: ["Hoekstra","Гукстра","Вопке Хукстра"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Hadja Lahbib"
+    name_uk: "Хаджа Лябіб"
+    kind: person
+    country: "BE"
+    aliases: ["Lahbib","Лябіб","Хаджа Лахбиб"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Michael McGrath"
+    name_uk: "Майкл Макграт"
+    kind: person
+    country: "IE"
+    aliases: ["McGrath","Макграт"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Magnus Brunner"
+    name_uk: "Магнус Бруннер"
+    kind: person
+    country: "AT"
+    aliases: ["Brunner","Бруннер"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Piotr Serafin"
+    name_uk: "Пйотр Серафін"
+    kind: person
+    country: "PL"
+    aliases: ["Serafin","Серафін","Пётр Серафин"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Dan Jørgensen"
+    name_uk: "Дан Йоргенсен"
+    kind: person
+    country: "DK"
+    aliases: ["Dan Jorgensen","Jørgensen","Йоргенсен"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Jessika Roswall"
+    name_uk: "Джессіка Росвалл"
+    kind: person
+    country: "SE"
+    aliases: ["Roswall","Росвалл","Джессика Росвалль"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Ekaterina Zaharieva"
+    name_uk: "Екатеріна Захарієва"
+    kind: person
+    country: "BG"
+    aliases: ["Zaharieva","Захарієва","Екатерина Захариева"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Apostolos Tzitzikostas"
+    name_uk: "Апостолос Цицикостас"
+    kind: person
+    country: "GR"
+    aliases: ["Tzitzikostas","Цицикостас"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Christophe Hansen"
+    name_uk: "Крістоф Гансен"
+    kind: person
+    country: "LU"
+    aliases: ["Christophe Hansen","Кристоф Хансен"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Glenn Micallef"
+    name_uk: "Гленн Мікаллеф"
+    kind: person
+    country: "MT"
+    aliases: ["Micallef","Мікаллеф","Гленн Микаллеф"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Costas Kadis"
+    name_uk: "Костас Кадіс"
+    kind: person
+    country: "CY"
+    aliases: ["Kostas Kadis","Кадіс","Костас Кадис"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Dubravka Šuica"
+    name_uk: "Дубравка Шуїця"
+    kind: person
+    country: "HR"
+    aliases: ["Dubravka Suica","Šuica","Шуїця","Дубравка Шуица"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Olivér Várhelyi"
+    name_uk: "Олівер Варгеї"
+    kind: person
+    country: "HU"
+    aliases: ["Oliver Varhelyi","Várhelyi","Варгеї","Оливер Варгей"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Jozef Síkela"
+    name_uk: "Йозеф Сікела"
+    kind: person
+    country: "CZ"
+    aliases: ["Jozef Sikela","Síkela","Сікела","Йозеф Сикела"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Michael Hager"
+    name_uk: "Міхаель Гагер"
+    kind: person
+    country: "DE"
+    aliases: ["Michael Hager","Михаэль Хагер"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Mark Rutte"
+    name_uk: "Марк Рютте"
+    kind: person
+    country: "NL"
+    aliases: ["Rutte","Рютте"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Jens Stoltenberg"
+    name_uk: "Єнс Столтенберг"
+    kind: person
+    country: "NO"
+    aliases: ["Stoltenberg","Столтенберг","Йенс Столтенберг"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Keir Starmer"
+    name_uk: "Кір Стармер"
+    kind: person
+    country: "GB"
+    aliases: ["Starmer","Стармер","Кир Стармер"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Rishi Sunak"
+    name_uk: "Ріші Сунак"
+    kind: person
+    country: "GB"
+    aliases: ["Sunak","Сунак","Риши Сунак"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Boris Johnson"
+    name_uk: "Борис Джонсон"
+    kind: person
+    country: "GB"
+    aliases: ["Boris Johnson"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "David Lammy"
+    name_uk: "Девід Леммі"
+    kind: person
+    country: "GB"
+    aliases: ["Lammy","Леммі","Дэвид Лэмми"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "John Healey"
+    name_uk: "Джон Гілі"
+    kind: person
+    country: "GB"
+    aliases: ["Healey","Гілі","Джон Хили"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Rachel Reeves"
+    name_uk: "Рейчел Рівз"
+    kind: person
+    country: "GB"
+    aliases: ["Reeves","Рівз","Рэйчел Ривз"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Angela Rayner"
+    name_uk: "Анджела Рейнер"
+    kind: person
+    country: "GB"
+    aliases: ["Rayner","Рейнер","Анджела Рэйнер"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Yvette Cooper"
+    name_uk: "Іветт Купер"
+    kind: person
+    country: "GB"
+    aliases: ["Yvette Cooper","Иветт Купер"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "David Cameron"
+    name_uk: "Девід Кемерон"
+    kind: person
+    country: "GB"
+    aliases: ["Cameron","Кемерон","Дэвид Кэмерон"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Charles III"
+    name_uk: "Чарльз III"
+    kind: person
+    country: "GB"
+    aliases: ["Charles III","Чарльз III","Карл III","Charles Windsor"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Friedrich Merz"
+    name_uk: "Фрідріх Мерц"
+    kind: person
+    country: "DE"
+    aliases: ["Merz","Мерц","Фридрих Мерц"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Olaf Scholz"
+    name_uk: "Олаф Шольц"
+    kind: person
+    country: "DE"
+    aliases: ["Scholz","Шольц"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Frank-Walter Steinmeier"
+    name_uk: "Франк-Вальтер Штайнмаєр"
+    kind: person
+    country: "DE"
+    aliases: ["Steinmeier","Штайнмаєр","Франк-Вальтер Штайнмайер"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Boris Pistorius"
+    name_uk: "Борис Пісторіус"
+    kind: person
+    country: "DE"
+    aliases: ["Pistorius","Пісторіус","Борис Писториус"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Annalena Baerbock"
+    name_uk: "Анналена Бербок"
+    kind: person
+    country: "DE"
+    aliases: ["Baerbock","Бербок"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Johann Wadephul"
+    name_uk: "Йоганн Вадефуль"
+    kind: person
+    country: "DE"
+    aliases: ["Wadephul","Вадефуль","Йоханн Вадефуль"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Lars Klingbeil"
+    name_uk: "Ларс Клінгбайль"
+    kind: person
+    country: "DE"
+    aliases: ["Klingbeil","Клінгбайль","Ларс Клингбайль"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Robert Habeck"
+    name_uk: "Роберт Габек"
+    kind: person
+    country: "DE"
+    aliases: ["Habeck","Габек","Роберт Хабек"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Angela Merkel"
+    name_uk: "Ангела Меркель"
+    kind: person
+    country: "DE"
+    aliases: ["Merkel","Меркель"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Emmanuel Macron"
+    name_uk: "Емманюель Макрон"
+    kind: person
+    country: "FR"
+    aliases: ["Macron","Макрон","Эмманюэль Макрон"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Sébastien Lecornu"
+    name_uk: "Себастьєн Лекорню"
+    kind: person
+    country: "FR"
+    aliases: ["Sebastien Lecornu","Lecornu","Лекорню","Себастьен Лекорню"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "François Bayrou"
+    name_uk: "Франсуа Байру"
+    kind: person
+    country: "FR"
+    aliases: ["Francois Bayrou","Bayrou","Байру"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Michel Barnier"
+    name_uk: "Мішель Барньє"
+    kind: person
+    country: "FR"
+    aliases: ["Barnier","Барньє","Мишель Барнье"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Jean-Noël Barrot"
+    name_uk: "Жан-Ноель Барро"
+    kind: person
+    country: "FR"
+    aliases: ["Jean-Noel Barrot","Barrot","Барро","Жан-Ноэль Барро"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Marine Le Pen"
+    name_uk: "Марін Ле Пен"
+    kind: person
+    country: "FR"
+    aliases: ["Le Pen","Ле Пен","Марин Ле Пен"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Donald Tusk"
+    name_uk: "Дональд Туск"
+    kind: person
+    country: "PL"
+    aliases: ["Tusk","Туск"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Karol Nawrocki"
+    name_uk: "Кароль Навроцький"
+    kind: person
+    country: "PL"
+    aliases: ["Nawrocki","Навроцький","Кароль Навроцкий"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Andrzej Duda"
+    name_uk: "Анджей Дуда"
+    kind: person
+    country: "PL"
+    aliases: ["Duda","Дуда"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Radosław Sikorski"
+    name_uk: "Радослав Сікорський"
+    kind: person
+    country: "PL"
+    aliases: ["Radoslaw Sikorski","Sikorski","Сікорський","Радослав Сикорский"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Władysław Kosiniak-Kamysz"
+    name_uk: "Владислав Косіняк-Камиш"
+    kind: person
+    country: "PL"
+    aliases: ["Wladyslaw Kosiniak-Kamysz","Kosiniak-Kamysz","Косіняк-Камиш","Владислав Косиняк-Камыш"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Gitanas Nausėda"
+    name_uk: "Гітанас Науседа"
+    kind: person
+    country: "LT"
+    aliases: ["Gitanas Nauseda","Nausėda","Науседа","Гитанас Науседа"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Ingrida Šimonytė"
+    name_uk: "Інгріда Шимоніте"
+    kind: person
+    country: "LT"
+    aliases: ["Ingrida Simonyte","Šimonytė","Шимоніте","Ингрида Шимоните"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Edgars Rinkēvičs"
+    name_uk: "Едгарс Рінкевичс"
+    kind: person
+    country: "LV"
+    aliases: ["Edgars Rinkevics","Rinkēvičs","Рінкевичс","Эдгарс Ринкевичс"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Evika Siliņa"
+    name_uk: "Евіка Сіліня"
+    kind: person
+    country: "LV"
+    aliases: ["Evika Silina","Siliņa","Сіліня","Эвика Силиня"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Alar Karis"
+    name_uk: "Алар Каріс"
+    kind: person
+    country: "EE"
+    aliases: ["Karis","Каріс","Алар Карис"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Kristen Michal"
+    name_uk: "Крістен Міхал"
+    kind: person
+    country: "EE"
+    aliases: ["Michal","Міхал","Кристен Михал"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Viktor Orbán"
+    name_uk: "Віктор Орбан"
+    kind: person
+    country: "HU"
+    aliases: ["Viktor Orban","Orbán","Орбан","Виктор Орбан"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Péter Szijjártó"
+    name_uk: "Петер Сіярто"
+    kind: person
+    country: "HU"
+    aliases: ["Peter Szijjarto","Szijjártó","Сіярто","Петер Сийярто"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Péter Magyar"
+    name_uk: "Петер Мадяр"
+    kind: person
+    country: "HU"
+    aliases: ["Peter Magyar","Петер Мадьяр"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Robert Fico"
+    name_uk: "Роберт Фіцо"
+    kind: person
+    country: "SK"
+    aliases: ["Fico","Фіцо","Роберт Фицо"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Peter Pellegrini"
+    name_uk: "Петер Пеллегріні"
+    kind: person
+    country: "SK"
+    aliases: ["Pellegrini","Пеллегріні","Петер Пеллегрини"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Petr Pavel"
+    name_uk: "Петр Павел"
+    kind: person
+    country: "CZ"
+    aliases: ["Petr Pavel"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Petr Fiala"
+    name_uk: "Петр Фіала"
+    kind: person
+    country: "CZ"
+    aliases: ["Fiala","Фіала","Петр Фиала"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Andrej Babiš"
+    name_uk: "Андрей Бабіш"
+    kind: person
+    country: "CZ"
+    aliases: ["Andrej Babis","Babiš","Бабіш","Андрей Бабиш"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Nicușor Dan"
+    name_uk: "Нікушор Дан"
+    kind: person
+    country: "RO"
+    aliases: ["Nicusor Dan","Никушор Дан"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Maia Sandu"
+    name_uk: "Мая Санду"
+    kind: person
+    country: "MD"
+    aliases: ["Sandu","Санду","Майя Санду"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Dorin Recean"
+    name_uk: "Дорін Речан"
+    kind: person
+    country: "MD"
+    aliases: ["Recean","Речан","Дорин Речан"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Alexander Stubb"
+    name_uk: "Александр Стубб"
+    kind: person
+    country: "FI"
+    aliases: ["Stubb","Стубб"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Ulf Kristersson"
+    name_uk: "Ульф Крістерссон"
+    kind: person
+    country: "SE"
+    aliases: ["Kristersson","Крістерссон","Ульф Кристерссон"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Mette Frederiksen"
+    name_uk: "Метте Фредеріксен"
+    kind: person
+    country: "DK"
+    aliases: ["Frederiksen","Фредеріксен","Метте Фредериксен"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Jonas Gahr Støre"
+    name_uk: "Йонас Гар Стьоре"
+    kind: person
+    country: "NO"
+    aliases: ["Jonas Gahr Store","Støre","Стьоре","Йонас Гар Стёре"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Giorgia Meloni"
+    name_uk: "Джорджа Мелоні"
+    kind: person
+    country: "IT"
+    aliases: ["Meloni","Мелоні","Джорджа Мелони"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Sergio Mattarella"
+    name_uk: "Серджо Маттарелла"
+    kind: person
+    country: "IT"
+    aliases: ["Mattarella","Маттарелла"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Pedro Sánchez"
+    name_uk: "Педро Санчес"
+    kind: person
+    country: "ES"
+    aliases: ["Pedro Sanchez","Sánchez","Санчес"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Luís Montenegro"
+    name_uk: "Луїш Монтенегру"
+    kind: person
+    country: "PT"
+    aliases: ["Luis Montenegro","Луиш Монтенегру"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Kyriakos Mitsotakis"
+    name_uk: "Кіріакос Міцотакіс"
+    kind: person
+    country: "GR"
+    aliases: ["Mitsotakis","Міцотакіс","Кириакос Мицотакис"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Recep Tayyip Erdoğan"
+    name_uk: "Реджеп Таїп Ердоган"
+    kind: person
+    country: "TR"
+    aliases: ["Recep Tayyip Erdogan","Erdoğan","Erdogan","Ердоган","Реджеп Тайип Эрдоган"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Hakan Fidan"
+    name_uk: "Хакан Фідан"
+    kind: person
+    country: "TR"
+    aliases: ["Fidan","Фідан","Хакан Фидан"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Xi Jinping"
+    name_uk: "Сі Цзіньпін"
+    kind: person
+    country: "CN"
+    aliases: ["Xi Jinping","Си Цзиньпин","習近平","习近平"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Li Qiang"
+    name_uk: "Лі Цян"
+    kind: person
+    country: "CN"
+    aliases: ["Li Qiang","Ли Цян"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Wang Yi"
+    name_uk: "Ван Ї"
+    kind: person
+    country: "CN"
+    aliases: ["Wang Yi","Ван И"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Narendra Modi"
+    name_uk: "Нарендра Моді"
+    kind: person
+    country: "IN"
+    aliases: ["Modi","Моді","Нарендра Моди"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Subrahmanyam Jaishankar"
+    name_uk: "Субраманьям Джайшанкар"
+    kind: person
+    country: "IN"
+    aliases: ["S. Jaishankar","Jaishankar","Джайшанкар"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Shigeru Ishiba"
+    name_uk: "Сігеру Ісіба"
+    kind: person
+    country: "JP"
+    aliases: ["Shigeru Ishiba","Сигэру Исиба"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Fumio Kishida"
+    name_uk: "Фуміо Кісіда"
+    kind: person
+    country: "JP"
+    aliases: ["Kishida","Кісіда","Фумио Кисида"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Sanae Takaichi"
+    name_uk: "Санае Такаїчі"
+    kind: person
+    country: "JP"
+    aliases: ["Takaichi","Такаїчі","Санаэ Такаити"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Lee Jae-myung"
+    name_uk: "Лі Чже Мьон"
+    kind: person
+    country: "KR"
+    aliases: ["Lee Jae Myung","Ли Чжэ Мён"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Yoon Suk Yeol"
+    name_uk: "Юн Сок Йоль"
+    kind: person
+    country: "KR"
+    aliases: ["Yoon Suk-yeol","Юн Сок Ёль"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Kim Jong Un"
+    name_uk: "Кім Чен Ин"
+    kind: person
+    country: "KP"
+    aliases: ["Kim Jong-un","Ким Чен Ын"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Benjamin Netanyahu"
+    name_uk: "Беньямін Нетаньягу"
+    kind: person
+    country: "IL"
+    aliases: ["Netanyahu","Нетаньягу","Биньямин Нетаньяху"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Isaac Herzog"
+    name_uk: "Іцхак Герцог"
+    kind: person
+    country: "IL"
+    aliases: ["Herzog","Герцог","Ицхак Герцог"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Israel Katz"
+    name_uk: "Ісраель Кац"
+    kind: person
+    country: "IL"
+    aliases: ["Israel Katz","Исраэль Кац"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Benny Gantz"
+    name_uk: "Бені Ганц"
+    kind: person
+    country: "IL"
+    aliases: ["Benny Gantz","Бени Ганц"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Ali Khamenei"
+    name_uk: "Алі Хаменеї"
+    kind: person
+    country: "IR"
+    aliases: ["Khamenei","Хаменеї","Али Хаменеи"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Masoud Pezeshkian"
+    name_uk: "Масуд Пезешкіан"
+    kind: person
+    country: "IR"
+    aliases: ["Pezeshkian","Пезешкіан","Масуд Пезешкиан"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Abbas Araghchi"
+    name_uk: "Аббас Арагчі"
+    kind: person
+    country: "IR"
+    aliases: ["Abbas Araqchi","Araghchi","Арагчі","Аббас Аракчи"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Mohammed bin Salman"
+    name_uk: "Мухаммед бін Салман"
+    kind: person
+    country: "SA"
+    aliases: ["Mohammed bin Salman Al Saud","Мухаммед ибн Салман"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Mohamed bin Zayed Al Nahyan"
+    name_uk: "Мухаммед бін Заїд Аль Нахаян"
+    kind: person
+    country: "AE"
+    aliases: ["Mohammed bin Zayed","Мухаммед ибн Заид Аль Нахайян"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Tamim bin Hamad Al Thani"
+    name_uk: "Тамім бін Хамад Аль Тані"
+    kind: person
+    country: "QA"
+    aliases: ["Tamim bin Hamad","Тамим бин Хамад Аль Тани"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Abdel Fattah el-Sisi"
+    name_uk: "Абдель Фаттах ас-Сісі"
+    kind: person
+    country: "EG"
+    aliases: ["Abdel Fattah al-Sisi","el-Sisi","ас-Сісі","Абдель Фаттах ас-Сиси"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Abdullah II of Jordan"
+    name_uk: "Абдалла II"
+    kind: person
+    country: "JO"
+    aliases: ["Abdullah II","Абдалла II"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Luiz Inácio Lula da Silva"
+    name_uk: "Луїс Інасіу Лула да Сілва"
+    kind: person
+    country: "BR"
+    aliases: ["Luiz Inacio Lula da Silva","Lula da Silva","Лула да Сілва","Луис Инасиу Лула да Силва"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Javier Milei"
+    name_uk: "Хав'єр Мілей"
+    kind: person
+    country: "AR"
+    aliases: ["Хав’єр Мілей","Milei","Мілей","Хавьер Милей"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Claudia Sheinbaum"
+    name_uk: "Клаудія Шейнбаум"
+    kind: person
+    country: "MX"
+    aliases: ["Sheinbaum","Шейнбаум","Клаудия Шейнбаум"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Mark Carney"
+    name_uk: "Марк Карні"
+    kind: person
+    country: "CA"
+    aliases: ["Carney","Карні","Марк Карни"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Justin Trudeau"
+    name_uk: "Джастін Трюдо"
+    kind: person
+    country: "CA"
+    aliases: ["Trudeau","Трюдо","Джастин Трюдо"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Anthony Albanese"
+    name_uk: "Ентоні Албанізі"
+    kind: person
+    country: "AU"
+    aliases: ["Albanese","Албанізі","Энтони Альбанезе"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Christopher Luxon"
+    name_uk: "Крістофер Лаксон"
+    kind: person
+    country: "NZ"
+    aliases: ["Luxon","Лаксон","Кристофер Лаксон"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Cyril Ramaphosa"
+    name_uk: "Сіріл Рамафоса"
+    kind: person
+    country: "ZA"
+    aliases: ["Ramaphosa","Рамафоса","Сирил Рамафоса"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Prabowo Subianto"
+    name_uk: "Прабово Субіанто"
+    kind: person
+    country: "ID"
+    aliases: ["Prabowo Subianto","Прабово Субианто"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Anwar Ibrahim"
+    name_uk: "Анвар Ібрагім"
+    kind: person
+    country: "MY"
+    aliases: ["Anwar Ibrahim","Анвар Ибрагим"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Ferdinand Marcos Jr."
+    name_uk: "Фердинанд Маркос-молодший"
+    kind: person
+    country: "PH"
+    aliases: ["Bongbong Marcos","Ferdinand Marcos Junior","Фердинанд Маркос-младший"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "António Guterres"
+    name_uk: "Антоніу Гутерреш"
+    kind: person
+    aliases: ["Antonio Guterres","Guterres","Гутерреш","Антониу Гутерриш"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Rafael Grossi"
+    name_uk: "Рафаель Гроссі"
+    kind: person
+    aliases: ["Rafael Mariano Grossi","Grossi","Гроссі","Рафаэль Гросси"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Tedros Adhanom Ghebreyesus"
+    name_uk: "Тедрос Адханом Гебреєсус"
+    kind: person
+    aliases: ["Tedros Ghebreyesus","Тедрос Адханом Гебрейесус"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Kristalina Georgieva"
+    name_uk: "Крісталіна Георгієва"
+    kind: person
+    aliases: ["Georgieva","Георгієва","Кристалина Георгиева"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Ajay Banga"
+    name_uk: "Аджай Банга"
+    kind: person
+    aliases: ["Ajay Banga"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Ngozi Okonjo-Iweala"
+    name_uk: "Нгозі Оконджо-Івеала"
+    kind: person
+    aliases: ["Ngozi Okonjo Iweala","Оконджо-Івеала","Нгози Оконджо-Ивеала"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Karin Keller-Sutter"
+    name_uk: "Карін Келлер-Зуттер"
+    kind: person
+    country: "CH"
+    aliases: ["Keller-Sutter","Келлер-Зуттер","Карин Келлер-Зуттер"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Alexander Lukashenko"
+    name_uk: "Олександр Лукашенко"
+    kind: person
+    country: "BY"
+    aliases: ["Alyaksandr Lukashenka","Lukashenko","Lukaschenko","Лукашенко","Александр Лукашенко"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Sviatlana Tsikhanouskaya"
+    name_uk: "Світлана Тихановська"
+    kind: person
+    country: "BY"
+    aliases: ["Svetlana Tikhanovskaya","Tsikhanouskaya","Тихановська","Светлана Тихановская"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Salome Zourabichvili"
+    name_uk: "Саломе Зурабішвілі"
+    kind: person
+    country: "GE"
+    aliases: ["Salome Zurabishvili","Зурабішвілі","Саломе Зурабишвили"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Nikol Pashinyan"
+    name_uk: "Нікол Пашинян"
+    kind: person
+    country: "AM"
+    aliases: ["Pashinyan","Пашинян","Никол Пашинян"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Ilham Aliyev"
+    name_uk: "Ільхам Алієв"
+    kind: person
+    country: "AZ"
+    aliases: ["Aliyev","Алієв","Ильхам Алиев"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Kassym-Jomart Tokayev"
+    name_uk: "Касим-Жомарт Токаєв"
+    kind: person
+    country: "KZ"
+    aliases: ["Tokayev","Токаєв","Касым-Жомарт Токаев"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Lai Ching-te"
+    name_uk: "Лай Цінде"
+    kind: person
+    country: "TW"
+    aliases: ["William Lai","Lai Ching Te","Лай Циндэ"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Ahmed al-Sharaa"
+    name_uk: "Ахмед аш-Шараа"
+    kind: person
+    country: "SY"
+    aliases: ["Ahmed al-Shara","Ahmad al-Sharaa","Abu Mohammed al-Jolani","Абу Мухаммад аль-Джулані","Ахмед аш-Шараа"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Mahmoud Abbas"
+    name_uk: "Махмуд Аббас"
+    kind: person
+    country: "PS"
+    aliases: ["Mahmoud Abbas"]
+    ambiguous_aliases: []
+    categories: ["politics"]
+
+  - name: "Vladimir Putin"
+    name_uk: "Володимир Путін"
+    kind: person
+    country: "RU"
+    aliases: ["Putin","Путін","Владимир Путин","Путин"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Dmitry Medvedev"
+    name_uk: "Дмитро Медведєв"
+    kind: person
+    country: "RU"
+    aliases: ["Medvedev","Medwedew","Медведєв","Дмитрий Медведев"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Mikhail Mishustin"
+    name_uk: "Михайло Мішустін"
+    kind: person
+    country: "RU"
+    aliases: ["Mishustin","Mischustin","Мішустін","Михаил Мишустин"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Sergey Lavrov"
+    name_uk: "Сергій Лавров"
+    kind: person
+    country: "RU"
+    aliases: ["Sergei Lavrov","Lavrov","Lawrow","Лавров","Сергей Лавров"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Andrey Belousov"
+    name_uk: "Андрій Бєлоусов"
+    kind: person
+    country: "RU"
+    aliases: ["Andrei Belousov","Belousov","Бєлоусов","Андрей Белоусов"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Sergei Shoigu"
+    name_uk: "Сергій Шойгу"
+    kind: person
+    country: "RU"
+    aliases: ["Sergey Shoygu","Shoigu","Schoigu","Шойгу","Сергей Шойгу"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Valery Gerasimov"
+    name_uk: "Валерій Герасимов"
+    kind: person
+    country: "RU"
+    aliases: ["Valeriy Gerasimov","Gerasimov","Gerassimow","Герасимов","Валерий Герасимов"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Dmitry Peskov"
+    name_uk: "Дмитро Пєсков"
+    kind: person
+    country: "RU"
+    aliases: ["Peskov","Пєсков","Дмитрий Песков"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Sergei Naryshkin"
+    name_uk: "Сергій Наришкін"
+    kind: person
+    country: "RU"
+    aliases: ["Sergey Naryshkin","Naryshkin","Наришкін","Сергей Нарышкин"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Alexander Bortnikov"
+    name_uk: "Олександр Бортніков"
+    kind: person
+    country: "RU"
+    aliases: ["Bortnikov","Бортніков","Александр Бортников"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Nikolai Patrushev"
+    name_uk: "Микола Патрушев"
+    kind: person
+    country: "RU"
+    aliases: ["Patrushev","Патрушев","Николай Патрушев"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Alexei Navalny"
+    name_uk: "Олексій Навальний"
+    kind: person
+    country: "RU"
+    aliases: ["Alexey Navalny","Navalny","Nawalny","Навальний","Алексей Навальный"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Yevgeny Prigozhin"
+    name_uk: "Євген Пригожин"
+    kind: person
+    country: "RU"
+    aliases: ["Evgeny Prigozhin","Prigozhin","Prigoschin","Пригожин","Евгений Пригожин"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Elvira Nabiullina"
+    name_uk: "Ельвіра Набіулліна"
+    kind: person
+    country: "RU"
+    aliases: ["Nabiullina","Набіулліна","Эльвира Набиуллина"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Vladimir Solovyov"
+    name_uk: "Володимир Соловйов"
+    kind: person
+    country: "RU"
+    aliases: ["Vladimir Soloviev","Solovyov","Соловйов","Владимир Соловьёв"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Government of Russia"
+    name_uk: "Уряд Росії"
+    kind: government
+    country: "RU"
+    aliases: ["Правительство России","Russian Government","Regierung Russlands"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Ministry of Defence of Russia"
+    name_uk: "Міністерство оборони Росії"
+    kind: government
+    country: "RU"
+    aliases: ["Міноборони РФ","Минобороны России","Минобороны РФ","Russian Defence Ministry"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Ministry of Foreign Affairs of Russia"
+    name_uk: "Міністерство закордонних справ Росії"
+    kind: government
+    country: "RU"
+    aliases: ["МЗС РФ","МИД России","МИД РФ","Russian Foreign Ministry"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Federal Security Service"
+    name_uk: "Федеральна служба безпеки Росії"
+    kind: government
+    country: "RU"
+    aliases: ["ФСБ","ФСБ России"]
+    ambiguous_aliases: ["FSB"]
+    categories: ["politics","defense"]
+
+  - name: "Foreign Intelligence Service of Russia"
+    name_uk: "Служба зовнішньої розвідки Росії"
+    kind: government
+    country: "RU"
+    aliases: ["СВР РФ","Служба внешней разведки России"]
+    ambiguous_aliases: ["SVR"]
+    categories: ["politics","defense"]
+
+  - name: "Main Directorate of the General Staff of Russia"
+    name_uk: "Головне управління Генерального штабу РФ"
+    kind: government
+    country: "RU"
+    aliases: ["ГРУ РФ","Главное управление Генштаба РФ"]
+    ambiguous_aliases: ["ГРУ","GRU"]
+    categories: ["politics","defense"]
+
+  - name: "State Duma"
+    name_uk: "Державна дума Росії"
+    kind: government
+    country: "RU"
+    aliases: ["Держдума","Госдума","Государственная дума","Staatsduma"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Central Bank of Russia"
+    name_uk: "Центральний банк Росії"
+    kind: government
+    country: "RU"
+    aliases: ["Банк России","ЦБ РФ","Bank of Russia","Russische Zentralbank"]
+    ambiguous_aliases: []
+    categories: ["politics","defense"]
+
+  - name: "Wagner Group"
+    name_uk: "Група Вагнера"
+    kind: group
+    country: "RU"
+    aliases: ["ПВК Вагнер","ЧВК Вагнер","Wagner PMC","Gruppe Wagner"]
+    ambiguous_aliases: ["Вагнер","Wagner"]
+    categories: ["defense"]
+
+  - name: "Africa Corps"
+    name_uk: "Африканський корпус"
+    kind: group
+    country: "RU"
+    aliases: ["Russian Africa Corps","Африканский корпус","Afrikakorps"]
+    ambiguous_aliases: []
+    categories: ["defense"]
+
+  - name: "Russian Airborne Forces"
+    name_uk: "Повітрянодесантні війська Росії"
+    kind: group
+    country: "RU"
+    aliases: ["ВДВ РФ","Воздушно-десантные войска России"]
+    ambiguous_aliases: ["ВДВ","VDV"]
+    categories: ["defense"]
+
+  - name: "Black Sea Fleet"
+    name_uk: "Чорноморський флот РФ"
+    kind: group
+    country: "RU"
+    aliases: ["Черноморский флот","Russian Black Sea Fleet","Schwarzmeerflotte"]
+    ambiguous_aliases: []
+    categories: ["defense"]
+
+  - name: "155th Naval Infantry Brigade"
+    name_uk: "155-та бригада морської піхоти РФ"
+    kind: group
+    country: "RU"
+    aliases: ["155-я бригада морской пехоты","155th Marine Brigade"]
+    ambiguous_aliases: []
+    categories: ["defense"]
+
+  - name: "76th Guards Air Assault Division"
+    name_uk: "76-та гвардійська десантно-штурмова дивізія"
+    kind: group
+    country: "RU"
+    aliases: ["76-я гвардейская десантно-штурмовая дивизия","76th Air Assault Division"]
+    ambiguous_aliases: []
+    categories: ["defense"]
+
+  - name: "United Nations"
+    name_uk: "Організація Об'єднаних Націй"
+    kind: organization
+    aliases: ["Організація Об’єднаних Націй","ООН","Vereinte Nationen","Организация Объединённых Наций"]
+    ambiguous_aliases: ["UN","UNO"]
+    categories: ["politics","economy"]
+
+  - name: "United Nations High Commissioner for Refugees"
+    name_uk: "Управління Верховного комісара ООН у справах біженців"
+    kind: organization
+    aliases: ["УВКБ ООН","UNHCR","Агентство ООН у справах біженців"]
+    ambiguous_aliases: []
+    categories: ["politics","economy"]
+
+  - name: "International Atomic Energy Agency"
+    name_uk: "Міжнародне агентство з атомної енергії"
+    kind: organization
+    aliases: ["МАГАТЕ","IAEA","Internationale Atomenergie-Organisation"]
+    ambiguous_aliases: []
+    categories: ["climate_energy","science_space","politics"]
+
+  - name: "World Health Organization"
+    name_uk: "Всесвітня організація охорони здоров'я"
+    kind: organization
+    aliases: ["ВООЗ","Weltgesundheitsorganisation","Всемирная организация здравоохранения"]
+    ambiguous_aliases: ["WHO"]
+    categories: ["health","research"]
+
+  - name: "World Food Programme"
+    name_uk: "Всесвітня продовольча програма"
+    kind: organization
+    aliases: ["WFP","ВПП ООН","Welternährungsprogramm"]
+    ambiguous_aliases: []
+    categories: ["politics","economy"]
+
+  - name: "Food and Agriculture Organization"
+    name_uk: "Продовольча та сільськогосподарська організація ООН"
+    kind: organization
+    aliases: ["FAO","ФАО"]
+    ambiguous_aliases: []
+    categories: ["politics","economy"]
+
+  - name: "UNESCO"
+    name_uk: "ЮНЕСКО"
+    kind: organization
+    aliases: ["United Nations Educational, Scientific and Cultural Organization"]
+    ambiguous_aliases: []
+    categories: ["politics","economy"]
+
+  - name: "UNICEF"
+    name_uk: "ЮНІСЕФ"
+    kind: organization
+    aliases: ["United Nations Children's Fund","Дитячий фонд ООН","ЮНИСЕФ"]
+    ambiguous_aliases: []
+    categories: ["politics","economy"]
+
+  - name: "Office of the United Nations High Commissioner for Human Rights"
+    name_uk: "Управління Верховного комісара ООН з прав людини"
+    kind: organization
+    aliases: ["OHCHR","УВКПЛ"]
+    ambiguous_aliases: []
+    categories: ["politics","economy"]
+
+  - name: "International Criminal Court"
+    name_uk: "Міжнародний кримінальний суд"
+    kind: organization
+    aliases: ["МКС","ICC","Internationaler Strafgerichtshof","Международный уголовный суд"]
+    ambiguous_aliases: []
+    categories: ["politics","economy"]
+
+  - name: "International Court of Justice"
+    name_uk: "Міжнародний суд ООН"
+    kind: organization
+    aliases: ["Internationaler Gerichtshof","Международный суд ООН"]
+    ambiguous_aliases: ["ICJ"]
+    categories: ["politics","economy"]
+
+  - name: "North Atlantic Treaty Organization"
+    name_uk: "Організація Північноатлантичного договору"
+    kind: organization
+    aliases: ["НАТО","NATO","Північноатлантичний альянс","Nordatlantikpakt"]
+    ambiguous_aliases: []
+    categories: ["politics","economy"]
+
+  - name: "European Union"
+    name_uk: "Європейський Союз"
+    kind: organization
+    aliases: ["Євросоюз","Евросоюз","Europäische Union"]
+    ambiguous_aliases: ["EU","ЕС","ЄС"]
+    categories: ["politics","economy"]
+
+  - name: "European Commission"
+    name_uk: "Європейська комісія"
+    kind: organization
+    aliases: ["Єврокомісія","Еврокомиссия","Europäische Kommission"]
+    ambiguous_aliases: ["ЄК","EC"]
+    categories: ["politics","economy"]
+
+  - name: "European Parliament"
+    name_uk: "Європейський парламент"
+    kind: organization
+    aliases: ["Європарламент","Европарламент","Europäisches Parlament"]
+    ambiguous_aliases: ["ЄП","EP"]
+    categories: ["politics","economy"]
+
+  - name: "Council of the European Union"
+    name_uk: "Рада Європейського Союзу"
+    kind: organization
+    aliases: ["Рада ЄС","Council of the EU","Rat der Europäischen Union","Совет Европейского союза"]
+    ambiguous_aliases: []
+    categories: ["politics","economy"]
+
+  - name: "European Council"
+    name_uk: "Європейська рада"
+    kind: organization
+    aliases: ["Europäischer Rat","Европейский совет"]
+    ambiguous_aliases: []
+    categories: ["politics","economy"]
+
+  - name: "European Central Bank"
+    name_uk: "Європейський центральний банк"
+    kind: organization
+    aliases: ["ЄЦБ","ECB","EZB","Europäische Zentralbank","Европейский центральный банк"]
+    ambiguous_aliases: []
+    categories: ["finance","economy"]
+
+  - name: "International Monetary Fund"
+    name_uk: "Міжнародний валютний фонд"
+    kind: organization
+    aliases: ["МВФ","IMF","Internationaler Währungsfonds","Международный валютный фонд"]
+    ambiguous_aliases: []
+    categories: ["finance","economy"]
+
+  - name: "World Bank"
+    name_uk: "Світовий банк"
+    kind: organization
+    aliases: ["Weltbank","Всемирный банк"]
+    ambiguous_aliases: []
+    categories: ["finance","economy"]
+
+  - name: "European Bank for Reconstruction and Development"
+    name_uk: "Європейський банк реконструкції та розвитку"
+    kind: organization
+    aliases: ["ЄБРР","EBRD","EBWE","ЕБРР"]
+    ambiguous_aliases: []
+    categories: ["finance","economy"]
+
+  - name: "European Investment Bank"
+    name_uk: "Європейський інвестиційний банк"
+    kind: organization
+    aliases: ["ЄІБ","EIB","Европейский инвестиционный банк"]
+    ambiguous_aliases: []
+    categories: ["finance","economy"]
+
+  - name: "Organisation for Economic Co-operation and Development"
+    name_uk: "Організація економічного співробітництва та розвитку"
+    kind: organization
+    aliases: ["ОЕСР","OECD","ОЭСР"]
+    ambiguous_aliases: []
+    categories: ["politics","economy"]
+
+  - name: "World Trade Organization"
+    name_uk: "Світова організація торгівлі"
+    kind: organization
+    aliases: ["СОТ","WTO","Welthandelsorganisation","Всемирная торговая организация"]
+    ambiguous_aliases: []
+    categories: ["politics","economy"]
+
+  - name: "Group of Seven"
+    name_uk: "Група семи"
+    kind: organization
+    aliases: ["G7","Велика сімка","Большая семёрка"]
+    ambiguous_aliases: []
+    categories: ["politics","economy"]
+
+  - name: "Group of Twenty"
+    name_uk: "Група двадцяти"
+    kind: organization
+    aliases: ["G20","Велика двадцятка","Большая двадцатка"]
+    ambiguous_aliases: []
+    categories: ["politics","economy"]
+
+  - name: "Organization for Security and Co-operation in Europe"
+    name_uk: "Організація з безпеки і співробітництва в Європі"
+    kind: organization
+    aliases: ["ОБСЄ","OSCE","OSZE","ОБСЕ"]
+    ambiguous_aliases: []
+    categories: ["politics","economy"]
+
+  - name: "Council of Europe"
+    name_uk: "Рада Європи"
+    kind: organization
+    aliases: ["Europarat","Совет Европы"]
+    ambiguous_aliases: []
+    categories: ["politics","economy"]
+
+  - name: "BRICS"
+    name_uk: "БРІКС"
+    kind: organization
+    aliases: ["БРИКС"]
+    ambiguous_aliases: []
+    categories: ["politics","economy"]
+
+  - name: "Organization of the Petroleum Exporting Countries"
+    name_uk: "Організація країн — експортерів нафти"
+    kind: organization
+    aliases: ["ОПЕК","OPEC","Организация стран — экспортёров нефти"]
+    ambiguous_aliases: []
+    categories: ["politics","economy"]
+
+  - name: "OPEC Plus"
+    name_uk: "ОПЕК+"
+    kind: organization
+    aliases: ["OPEC+","OPEC Plus alliance"]
+    ambiguous_aliases: []
+    categories: ["politics","economy"]
+
+  - name: "Ukraine Defense Contact Group"
+    name_uk: "Контактна група з питань оборони України"
+    kind: organization
+    aliases: ["UDCG","Ramstein group","Група Рамштайн","Контактная группа по обороне Украины"]
+    ambiguous_aliases: ["Рамштайн","Ramstein"]
+    categories: ["politics","economy"]
+
+  - name: "Financial Action Task Force"
+    name_uk: "Група з розробки фінансових заходів боротьби з відмиванням грошей"
+    kind: organization
+    aliases: ["FATF","ФАТФ"]
+    ambiguous_aliases: []
+    categories: ["finance","economy"]
+
+  - name: "International Committee of the Red Cross"
+    name_uk: "Міжнародний комітет Червоного Хреста"
+    kind: organization
+    aliases: ["МКЧХ","ICRC","IKRK","Международный комитет Красного Креста"]
+    ambiguous_aliases: []
+    categories: ["politics","economy"]
+
+  - name: "European Space Agency"
+    name_uk: "Європейське космічне агентство"
+    kind: organization
+    aliases: ["ЄКА","Europäische Weltraumorganisation"]
+    ambiguous_aliases: ["ESA"]
+    categories: ["science_space","research"]
+
+  - name: "National Aeronautics and Space Administration"
+    name_uk: "Національне управління з аеронавтики і дослідження космічного простору"
+    kind: organization
+    aliases: ["NASA","НАСА"]
+    ambiguous_aliases: []
+    categories: ["science_space","research"]
+
+  - name: "Apple Inc."
+    name_uk: "Епл"
+    kind: company
+    country: "US"
+    aliases: ["Apple Inc.","Apple Incorporated","Епл Інк"]
+    ambiguous_aliases: ["Apple","Епл","Эппл"]
+    categories: ["global_tech","business"]
+
+  - name: "Microsoft Corporation"
+    name_uk: "Майкрософт"
+    kind: company
+    country: "US"
+    aliases: ["Microsoft Corporation","Microsoft","Майкрософт"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Alphabet Inc."
+    name_uk: "Алфабет"
+    kind: company
+    country: "US"
+    aliases: ["Alphabet Inc.","Alphabet Incorporated"]
+    ambiguous_aliases: ["Alphabet","Алфабет"]
+    categories: ["global_tech","business"]
+
+  - name: "Google LLC"
+    name_uk: "Гугл"
+    kind: company
+    country: "US"
+    aliases: ["Google LLC","Google","Ґуґл","Гугл"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Amazon.com Inc."
+    name_uk: "Амазон"
+    kind: company
+    country: "US"
+    aliases: ["Amazon.com Inc.","Amazon.com"]
+    ambiguous_aliases: ["Amazon","Амазон"]
+    categories: ["global_tech","business"]
+
+  - name: "Meta Platforms"
+    name_uk: "Мета Платформс"
+    kind: company
+    country: "US"
+    aliases: ["Meta Platforms","Meta Platforms Inc.","Facebook Inc."]
+    ambiguous_aliases: ["Meta","Мета"]
+    categories: ["global_tech","business"]
+
+  - name: "NVIDIA Corporation"
+    name_uk: "Нвідіа"
+    kind: company
+    country: "US"
+    aliases: ["NVIDIA Corporation","NVIDIA","Nvidia","Нвідіа","Нвидиа"]
+    ambiguous_aliases: []
+    categories: ["hardware_gaming","global_tech","business"]
+
+  - name: "Advanced Micro Devices"
+    name_uk: "Ей-ем-ді"
+    kind: company
+    country: "US"
+    aliases: ["Advanced Micro Devices","AMD","Адванст Майкро Девайсез"]
+    ambiguous_aliases: []
+    categories: ["hardware_gaming","global_tech","business"]
+
+  - name: "Intel Corporation"
+    name_uk: "Інтел"
+    kind: company
+    country: "US"
+    aliases: ["Intel Corporation","Intel","Інтел","Интел"]
+    ambiguous_aliases: []
+    categories: ["hardware_gaming","global_tech","business"]
+
+  - name: "Taiwan Semiconductor Manufacturing Company"
+    name_uk: "Тайванська компанія з виробництва напівпровідників"
+    kind: company
+    country: "TW"
+    aliases: ["Taiwan Semiconductor Manufacturing Company","TSMC","Ті-ес-ем-сі"]
+    ambiguous_aliases: []
+    categories: ["hardware_gaming","global_tech","business"]
+
+  - name: "ASML Holding"
+    name_uk: "АСМЛ"
+    kind: company
+    country: "NL"
+    aliases: ["ASML Holding","ASML"]
+    ambiguous_aliases: []
+    categories: ["hardware_gaming","global_tech","business"]
+
+  - name: "Samsung Electronics"
+    name_uk: "Самсунг Електронікс"
+    kind: company
+    country: "KR"
+    aliases: ["Samsung Electronics","Samsung","Самсунг"]
+    ambiguous_aliases: []
+    categories: ["hardware_gaming","global_tech","business"]
+
+  - name: "SK hynix"
+    name_uk: "Ес-кей Гайнікс"
+    kind: company
+    country: "KR"
+    aliases: ["SK hynix","SK Hynix","SK Hynix Inc.","Хайникс"]
+    ambiguous_aliases: []
+    categories: ["hardware_gaming","global_tech","business"]
+
+  - name: "Qualcomm Incorporated"
+    name_uk: "Квалком"
+    kind: company
+    country: "US"
+    aliases: ["Qualcomm Incorporated","Qualcomm","Квалком"]
+    ambiguous_aliases: []
+    categories: ["hardware_gaming","global_tech","business"]
+
+  - name: "Arm Holdings"
+    name_uk: "Арм Голдінгс"
+    kind: company
+    country: "GB"
+    aliases: ["Arm Holdings","Arm Holdings plc"]
+    ambiguous_aliases: ["Arm","ARM","Арм"]
+    categories: ["hardware_gaming","global_tech","business"]
+
+  - name: "Broadcom Inc."
+    name_uk: "Бродком"
+    kind: company
+    country: "US"
+    aliases: ["Broadcom Inc.","Broadcom","Бродком"]
+    ambiguous_aliases: []
+    categories: ["hardware_gaming","global_tech","business"]
+
+  - name: "Micron Technology"
+    name_uk: "Майкрон Текнолоджі"
+    kind: company
+    country: "US"
+    aliases: ["Micron Technology","Micron","Майкрон"]
+    ambiguous_aliases: []
+    categories: ["hardware_gaming","global_tech","business"]
+
+  - name: "Texas Instruments"
+    name_uk: "Тексас Інструментс"
+    kind: company
+    country: "US"
+    aliases: ["Texas Instruments","Texas Instruments Inc."]
+    ambiguous_aliases: ["TI"]
+    categories: ["hardware_gaming","global_tech","business"]
+
+  - name: "MediaTek"
+    name_uk: "Медіатек"
+    kind: company
+    country: "TW"
+    aliases: ["MediaTek","MediaTek Inc.","Медіатек","Медиатек"]
+    ambiguous_aliases: []
+    categories: ["hardware_gaming","global_tech","business"]
+
+  - name: "Huawei Technologies"
+    name_uk: "Хуавей"
+    kind: company
+    country: "CN"
+    aliases: ["Huawei Technologies","Huawei","Хуавей"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Xiaomi Corporation"
+    name_uk: "Сяомі"
+    kind: company
+    country: "CN"
+    aliases: ["Xiaomi Corporation","Xiaomi","Сяомі","Сяоми"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Sony Group Corporation"
+    name_uk: "Соні"
+    kind: company
+    country: "JP"
+    aliases: ["Sony Group Corporation","Sony","Соні","Сони"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "LG Electronics"
+    name_uk: "Ел-джі Електронікс"
+    kind: company
+    country: "KR"
+    aliases: ["LG Electronics","LG Electronics Inc."]
+    ambiguous_aliases: ["LG"]
+    categories: ["global_tech","business"]
+
+  - name: "Dell Technologies"
+    name_uk: "Делл Текнолоджіз"
+    kind: company
+    country: "US"
+    aliases: ["Dell Technologies","Dell","Делл"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "HP Inc."
+    name_uk: "Ейч-пі"
+    kind: company
+    country: "US"
+    aliases: ["HP Inc.","HP Incorporated"]
+    ambiguous_aliases: ["HP"]
+    categories: ["global_tech","business"]
+
+  - name: "Hewlett Packard Enterprise"
+    name_uk: "Г'юлетт Пакард Ентерпрайз"
+    kind: company
+    country: "US"
+    aliases: ["Hewlett Packard Enterprise","Hewlett-Packard Enterprise","HPE"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Lenovo Group"
+    name_uk: "Леново"
+    kind: company
+    country: "CN"
+    aliases: ["Lenovo Group","Lenovo","Леново"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "International Business Machines"
+    name_uk: "Ай-бі-ем"
+    kind: company
+    country: "US"
+    aliases: ["International Business Machines","IBM","Айбіем"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Oracle Corporation"
+    name_uk: "Оракл"
+    kind: company
+    country: "US"
+    aliases: ["Oracle Corporation","Oracle Corp."]
+    ambiguous_aliases: ["Oracle","Оракл"]
+    categories: ["global_tech","business"]
+
+  - name: "Cisco Systems"
+    name_uk: "Сіско"
+    kind: company
+    country: "US"
+    aliases: ["Cisco Systems","Cisco","Сіско","Циско"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Salesforce Inc."
+    name_uk: "Сейлзфорс"
+    kind: company
+    country: "US"
+    aliases: ["Salesforce Inc.","Salesforce","Сейлзфорс"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Adobe Inc."
+    name_uk: "Адобі"
+    kind: company
+    country: "US"
+    aliases: ["Adobe Inc.","Adobe","Адобі","Адоб"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "SAP SE"
+    name_uk: "САП СЕ"
+    kind: company
+    country: "DE"
+    aliases: ["SAP SE"]
+    ambiguous_aliases: ["SAP","САП"]
+    categories: ["global_tech","business"]
+
+  - name: "ServiceNow Inc."
+    name_uk: "Сервіснау"
+    kind: company
+    country: "US"
+    aliases: ["ServiceNow Inc.","ServiceNow"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Cloudflare Inc."
+    name_uk: "Клаудфлер"
+    kind: company
+    country: "US"
+    aliases: ["Cloudflare Inc.","Cloudflare","Клаудфлер"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Palo Alto Networks"
+    name_uk: "Пало Альто Нетворкс"
+    kind: company
+    country: "US"
+    aliases: ["Palo Alto Networks","Palo Alto Networks Inc."]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "CrowdStrike Holdings"
+    name_uk: "Краудстрайк"
+    kind: company
+    country: "US"
+    aliases: ["CrowdStrike Holdings","CrowdStrike","Краудстрайк"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Fortinet Inc."
+    name_uk: "Фортінет"
+    kind: company
+    country: "US"
+    aliases: ["Fortinet Inc.","Fortinet","Фортінет"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "GitLab Inc."
+    name_uk: "Гітлаб"
+    kind: company
+    country: "US"
+    aliases: ["GitLab Inc.","GitLab","Гітлаб"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "GitHub Inc."
+    name_uk: "Гітхаб"
+    kind: company
+    country: "US"
+    aliases: ["GitHub Inc.","GitHub","Гітхаб"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "JetBrains"
+    name_uk: "Джетбрейнс"
+    kind: company
+    country: "CZ"
+    aliases: ["JetBrains","JetBrains s.r.o.","Джетбрейнс"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Canonical Ltd."
+    name_uk: "Канонікал"
+    kind: company
+    country: "GB"
+    aliases: ["Canonical Ltd."]
+    ambiguous_aliases: ["Canonical"]
+    categories: ["global_tech","business"]
+
+  - name: "Red Hat Inc."
+    name_uk: "Ред Гет"
+    kind: company
+    country: "US"
+    aliases: ["Red Hat Inc.","Red Hat","Ред Хат"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Docker Inc."
+    name_uk: "Докер Інк"
+    kind: company
+    country: "US"
+    aliases: ["Docker Inc."]
+    ambiguous_aliases: ["Docker","Докер"]
+    categories: ["global_tech","business"]
+
+  - name: "Databricks Inc."
+    name_uk: "Датабрікс"
+    kind: company
+    country: "US"
+    aliases: ["Databricks Inc.","Databricks","Датабрікс"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Snowflake Inc."
+    name_uk: "Сноуфлейк"
+    kind: company
+    country: "US"
+    aliases: ["Snowflake Inc."]
+    ambiguous_aliases: ["Snowflake"]
+    categories: ["global_tech","business"]
+
+  - name: "MongoDB Inc."
+    name_uk: "МонгоДБ Інк"
+    kind: company
+    country: "US"
+    aliases: ["MongoDB Inc."]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Tencent Holdings"
+    name_uk: "Тенсент"
+    kind: company
+    country: "CN"
+    aliases: ["Tencent Holdings","Tencent","Тенсент"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "ByteDance Ltd."
+    name_uk: "Байтденс"
+    kind: company
+    country: "CN"
+    aliases: ["ByteDance Ltd.","ByteDance","Байтденс"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Baidu Inc."
+    name_uk: "Байду"
+    kind: company
+    country: "CN"
+    aliases: ["Baidu Inc.","Baidu","Байду"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Alibaba Group"
+    name_uk: "Алібаба"
+    kind: company
+    country: "CN"
+    aliases: ["Alibaba Group","Alibaba","Алібаба","Алибаба"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "JD.com Inc."
+    name_uk: "Джей-ді-ком"
+    kind: company
+    country: "CN"
+    aliases: ["JD.com Inc.","JD.com"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Rakuten Group"
+    name_uk: "Ракутен"
+    kind: company
+    country: "JP"
+    aliases: ["Rakuten Group","Rakuten","Ракутен"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "SoftBank Group"
+    name_uk: "Софтбанк"
+    kind: company
+    country: "JP"
+    aliases: ["SoftBank Group","SoftBank","Софтбанк"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Spotify Technology"
+    name_uk: "Спотіфай"
+    kind: company
+    country: "SE"
+    aliases: ["Spotify Technology","Spotify","Спотіфай","Спотифай"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Netflix Inc."
+    name_uk: "Нетфлікс"
+    kind: company
+    country: "US"
+    aliases: ["Netflix Inc.","Netflix","Нетфлікс","Нетфликс"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Walt Disney Company"
+    name_uk: "Компанія Волта Діснея"
+    kind: company
+    country: "US"
+    aliases: ["Walt Disney Company","The Walt Disney Company","Disney"]
+    ambiguous_aliases: ["Дісней","Дисней"]
+    categories: ["global_tech","business"]
+
+  - name: "Warner Bros. Discovery"
+    name_uk: "Ворнер Бразерс Діскавері"
+    kind: company
+    country: "US"
+    aliases: ["Warner Bros. Discovery","Warner Bros Discovery"]
+    ambiguous_aliases: ["WBD"]
+    categories: ["global_tech","business"]
+
+  - name: "X Corp."
+    name_uk: "Ікс Корп"
+    kind: company
+    country: "US"
+    aliases: ["X Corp.","X Corporation"]
+    ambiguous_aliases: ["X","Twitter","Твіттер","Твиттер"]
+    categories: ["global_tech","business"]
+
+  - name: "OpenAI"
+    name_uk: "ОпенЕйАй"
+    kind: company
+    country: "US"
+    aliases: ["OpenAI","Open AI","ОпенАІ","ОпенЕйАй"]
+    ambiguous_aliases: []
+    categories: ["global_tech","research","business"]
+
+  - name: "Anthropic"
+    name_uk: "Антропік"
+    kind: company
+    country: "US"
+    aliases: ["Anthropic","Anthropic PBC","Антропік"]
+    ambiguous_aliases: []
+    categories: ["global_tech","research","business"]
+
+  - name: "Google DeepMind"
+    name_uk: "Гугл Діпмайнд"
+    kind: company
+    country: "GB"
+    aliases: ["Google DeepMind","DeepMind","Google Deepmind","Діпмайнд"]
+    ambiguous_aliases: []
+    categories: ["global_tech","research","business"]
+
+  - name: "xAI"
+    name_uk: "Ікс-Ей-Ай"
+    kind: company
+    country: "US"
+    aliases: ["xAI","x.AI","ІксАІ"]
+    ambiguous_aliases: []
+    categories: ["global_tech","research","business"]
+
+  - name: "Mistral AI"
+    name_uk: "Містраль АІ"
+    kind: company
+    country: "FR"
+    aliases: ["Mistral AI","Mistral AI SAS"]
+    ambiguous_aliases: ["Mistral","Містраль"]
+    categories: ["global_tech","research","business"]
+
+  - name: "DeepSeek"
+    name_uk: "Діпсік"
+    kind: company
+    country: "CN"
+    aliases: ["DeepSeek","DeepSeek AI","Діпсік","Дипсик"]
+    ambiguous_aliases: []
+    categories: ["global_tech","research","business"]
+
+  - name: "Moonshot AI"
+    name_uk: "Муншот АІ"
+    kind: company
+    country: "CN"
+    aliases: ["Moonshot AI","Beijing Moonshot Technology","月之暗面"]
+    ambiguous_aliases: []
+    categories: ["global_tech","research","business"]
+
+  - name: "Zhipu AI"
+    name_uk: "Чжипу АІ"
+    kind: company
+    country: "CN"
+    aliases: ["Zhipu AI","Zhipu","Z.ai","Чжипу"]
+    ambiguous_aliases: []
+    categories: ["global_tech","research","business"]
+
+  - name: "Cohere Inc."
+    name_uk: "Когер"
+    kind: company
+    country: "CA"
+    aliases: ["Cohere Inc.","Cohere","Когер"]
+    ambiguous_aliases: []
+    categories: ["global_tech","research","business"]
+
+  - name: "Hugging Face"
+    name_uk: "Гаггінг Фейс"
+    kind: company
+    country: "US"
+    aliases: ["Hugging Face","HuggingFace","Гаггінг Фейс"]
+    ambiguous_aliases: []
+    categories: ["global_tech","research","business"]
+
+  - name: "Perplexity AI"
+    name_uk: "Перплексіті АІ"
+    kind: company
+    country: "US"
+    aliases: ["Perplexity AI","Perplexity AI Inc."]
+    ambiguous_aliases: ["Perplexity"]
+    categories: ["global_tech","research","business"]
+
+  - name: "Stability AI"
+    name_uk: "Стабіліті АІ"
+    kind: company
+    country: "GB"
+    aliases: ["Stability AI","Stability AI Ltd."]
+    ambiguous_aliases: []
+    categories: ["global_tech","research","business"]
+
+  - name: "Inflection AI"
+    name_uk: "Інфлекшн АІ"
+    kind: company
+    country: "US"
+    aliases: ["Inflection AI","Inflection AI Inc."]
+    ambiguous_aliases: []
+    categories: ["global_tech","research","business"]
+
+  - name: "AI21 Labs"
+    name_uk: "Ей-ай-21 Лабс"
+    kind: company
+    country: "IL"
+    aliases: ["AI21 Labs","AI21","AI21 Labs Ltd."]
+    ambiguous_aliases: []
+    categories: ["global_tech","research","business"]
+
+  - name: "Aleph Alpha"
+    name_uk: "Алеф Альфа"
+    kind: company
+    country: "DE"
+    aliases: ["Aleph Alpha","Aleph Alpha GmbH"]
+    ambiguous_aliases: []
+    categories: ["global_tech","research","business"]
+
+  - name: "Sakana AI"
+    name_uk: "Сакана АІ"
+    kind: company
+    country: "JP"
+    aliases: ["Sakana AI","Sakana AI Inc."]
+    ambiguous_aliases: []
+    categories: ["global_tech","research","business"]
+
+  - name: "Runway AI"
+    name_uk: "Ранвей АІ"
+    kind: company
+    country: "US"
+    aliases: ["Runway AI","Runway AI Inc."]
+    ambiguous_aliases: ["Runway"]
+    categories: ["global_tech","research","business"]
+
+  - name: "ElevenLabs"
+    name_uk: "ІлевенЛабс"
+    kind: company
+    country: "US"
+    aliases: ["ElevenLabs","Eleven Labs","Ілевенлабс"]
+    ambiguous_aliases: []
+    categories: ["global_tech","research","business"]
+
+  - name: "Midjourney Inc."
+    name_uk: "Міджорні Інк"
+    kind: company
+    country: "US"
+    aliases: ["Midjourney Inc.","Midjourney company","Midjourney Incorporated"]
+    ambiguous_aliases: []
+    categories: ["global_tech","research","business"]
+
+  - name: "Lockheed Martin"
+    name_uk: "Локхід Мартін"
+    kind: company
+    country: "US"
+    aliases: ["Lockheed Martin","Lockheed Martin Corporation","Локхид Мартин"]
+    ambiguous_aliases: []
+    categories: ["defense","business"]
+
+  - name: "RTX Corporation"
+    name_uk: "Ар-ті-екс Корпорейшн"
+    kind: company
+    country: "US"
+    aliases: ["RTX Corporation","RTX Corp.","Raytheon Technologies","Рейтеон Текнолоджіз"]
+    ambiguous_aliases: ["RTX","Raytheon","Рейтеон"]
+    categories: ["defense","business"]
+
+  - name: "Northrop Grumman"
+    name_uk: "Нортроп Грумман"
+    kind: company
+    country: "US"
+    aliases: ["Northrop Grumman","Northrop Grumman Corporation"]
+    ambiguous_aliases: []
+    categories: ["defense","business"]
+
+  - name: "BAE Systems"
+    name_uk: "Бі-ей-і Системс"
+    kind: company
+    country: "GB"
+    aliases: ["BAE Systems","BAE Systems plc"]
+    ambiguous_aliases: []
+    categories: ["defense","business"]
+
+  - name: "Rheinmetall AG"
+    name_uk: "Райнметал"
+    kind: company
+    country: "DE"
+    aliases: ["Rheinmetall AG","Rheinmetall","Райнметалл","Рейнметалл"]
+    ambiguous_aliases: []
+    categories: ["defense","business"]
+
+  - name: "Thales Group"
+    name_uk: "Талес"
+    kind: company
+    country: "FR"
+    aliases: ["Thales Group","Thales S.A."]
+    ambiguous_aliases: ["Thales","Талес"]
+    categories: ["defense","business"]
+
+  - name: "Saab AB"
+    name_uk: "Сааб"
+    kind: company
+    country: "SE"
+    aliases: ["Saab AB"]
+    ambiguous_aliases: ["Saab","Сааб"]
+    categories: ["defense","business"]
+
+  - name: "KNDS"
+    name_uk: "КНДС"
+    kind: company
+    aliases: ["KNDS","KNDS N.V.","KMW Nexter Defense Systems"]
+    ambiguous_aliases: []
+    categories: ["defense","business"]
+
+  - name: "Baykar"
+    name_uk: "Байкар"
+    kind: company
+    country: "TR"
+    aliases: ["Baykar","Baykar Technologies","Baykar Makina","Байкар"]
+    ambiguous_aliases: []
+    categories: ["defense","business"]
+
+  - name: "Anduril Industries"
+    name_uk: "Андуріл"
+    kind: company
+    country: "US"
+    aliases: ["Anduril Industries","Anduril","Андуріл"]
+    ambiguous_aliases: []
+    categories: ["defense","business"]
+
+  - name: "Helsing GmbH"
+    name_uk: "Гельсінг"
+    kind: company
+    country: "DE"
+    aliases: ["Helsing GmbH","Helsing","Гельсінг"]
+    ambiguous_aliases: []
+    categories: ["defense","business"]
+
+  - name: "Palantir Technologies"
+    name_uk: "Палантір"
+    kind: company
+    country: "US"
+    aliases: ["Palantir Technologies","Palantir","Палантір","Палантир"]
+    ambiguous_aliases: []
+    categories: ["defense","business"]
+
+  - name: "General Dynamics"
+    name_uk: "Дженерал Дайнемікс"
+    kind: company
+    country: "US"
+    aliases: ["General Dynamics","General Dynamics Corporation"]
+    ambiguous_aliases: []
+    categories: ["defense","business"]
+
+  - name: "Boeing Company"
+    name_uk: "Боїнг"
+    kind: company
+    country: "US"
+    aliases: ["Boeing Company","Boeing","The Boeing Company","Боїнг","Боинг"]
+    ambiguous_aliases: []
+    categories: ["defense","business"]
+
+  - name: "Airbus SE"
+    name_uk: "Ейрбас"
+    kind: company
+    country: "NL"
+    aliases: ["Airbus SE","Airbus","Ейрбас","Эйрбас"]
+    ambiguous_aliases: []
+    categories: ["defense","business"]
+
+  - name: "Leonardo S.p.A."
+    name_uk: "Леонардо СпА"
+    kind: company
+    country: "IT"
+    aliases: ["Leonardo S.p.A.","Leonardo SpA"]
+    ambiguous_aliases: ["Leonardo","Леонардо"]
+    categories: ["defense","business"]
+
+  - name: "Dassault Aviation"
+    name_uk: "Дассо Авіасьйон"
+    kind: company
+    country: "FR"
+    aliases: ["Dassault Aviation","Dassault","Дассо"]
+    ambiguous_aliases: []
+    categories: ["defense","business"]
+
+  - name: "MBDA"
+    name_uk: "МБДА"
+    kind: company
+    aliases: ["MBDA","MBDA Missile Systems"]
+    ambiguous_aliases: []
+    categories: ["defense","business"]
+
+  - name: "L3Harris Technologies"
+    name_uk: "Ел-3 Гарріс"
+    kind: company
+    country: "US"
+    aliases: ["L3Harris Technologies","L3Harris"]
+    ambiguous_aliases: []
+    categories: ["defense","business"]
+
+  - name: "AeroVironment"
+    name_uk: "Аеровайронмент"
+    kind: company
+    country: "US"
+    aliases: ["AeroVironment","AeroVironment Inc."]
+    ambiguous_aliases: []
+    categories: ["defense","business"]
+
+  - name: "Shell plc"
+    name_uk: "Шелл"
+    kind: company
+    country: "GB"
+    aliases: ["Shell plc","Royal Dutch Shell"]
+    ambiguous_aliases: ["Shell","Шелл"]
+    categories: ["business","climate_energy"]
+
+  - name: "BP plc"
+    name_uk: "Бі-пі"
+    kind: company
+    country: "GB"
+    aliases: ["BP plc","British Petroleum"]
+    ambiguous_aliases: ["BP"]
+    categories: ["business","climate_energy"]
+
+  - name: "Exxon Mobil Corporation"
+    name_uk: "Ексон Мобіл"
+    kind: company
+    country: "US"
+    aliases: ["Exxon Mobil Corporation","ExxonMobil","Exxon Mobil","Exxon","ЕксонМобіл"]
+    ambiguous_aliases: []
+    categories: ["business","climate_energy"]
+
+  - name: "Chevron Corporation"
+    name_uk: "Шеврон"
+    kind: company
+    country: "US"
+    aliases: ["Chevron Corporation","Chevron Corp."]
+    ambiguous_aliases: ["Chevron","Шеврон"]
+    categories: ["business","climate_energy"]
+
+  - name: "TotalEnergies SE"
+    name_uk: "ТотальЕнерджіз"
+    kind: company
+    country: "FR"
+    aliases: ["TotalEnergies SE","TotalEnergies","Total Energies"]
+    ambiguous_aliases: ["Total"]
+    categories: ["business","climate_energy"]
+
+  - name: "Equinor ASA"
+    name_uk: "Еквінор"
+    kind: company
+    country: "NO"
+    aliases: ["Equinor ASA","Equinor","Statoil","Еквінор"]
+    ambiguous_aliases: []
+    categories: ["business","climate_energy"]
+
+  - name: "Saudi Aramco"
+    name_uk: "Сауді Арамко"
+    kind: company
+    country: "SA"
+    aliases: ["Saudi Aramco","Aramco","Saudi Arabian Oil Company","Сауди Арамко"]
+    ambiguous_aliases: []
+    categories: ["business","climate_energy"]
+
+  - name: "Gazprom"
+    name_uk: "Газпром"
+    kind: company
+    country: "RU"
+    aliases: ["Gazprom","Газпром","Gazprom PJSC"]
+    ambiguous_aliases: []
+    categories: ["business","climate_energy"]
+
+  - name: "Rosneft"
+    name_uk: "Роснафта"
+    kind: company
+    country: "RU"
+    aliases: ["Rosneft","Роснефть","Роснафта"]
+    ambiguous_aliases: []
+    categories: ["business","climate_energy"]
+
+  - name: "Sberbank"
+    name_uk: "Сбербанк"
+    kind: company
+    country: "RU"
+    aliases: ["Sberbank","Сбербанк","Sber"]
+    ambiguous_aliases: ["Сбер"]
+    categories: ["business","climate_energy"]
+
+  - name: "Lukoil"
+    name_uk: "Лукойл"
+    kind: company
+    country: "RU"
+    aliases: ["Lukoil","Лукойл","ЛУКОЙЛ"]
+    ambiguous_aliases: []
+    categories: ["business","climate_energy"]
+
+  - name: "Rosatom"
+    name_uk: "Росатом"
+    kind: company
+    country: "RU"
+    aliases: ["Rosatom","Росатом"]
+    ambiguous_aliases: []
+    categories: ["business","climate_energy"]
+
+  - name: "Novatek"
+    name_uk: "Новатек"
+    kind: company
+    country: "RU"
+    aliases: ["Novatek","Новатэк","Новатек"]
+    ambiguous_aliases: []
+    categories: ["business","climate_energy"]
+
+  - name: "Yandex"
+    name_uk: "Яндекс"
+    kind: company
+    country: "RU"
+    aliases: ["Yandex","Яндекс"]
+    ambiguous_aliases: []
+    categories: ["business","climate_energy"]
+
+  - name: "Ukrenergo"
+    name_uk: "Укренерго"
+    kind: company
+    country: "UA"
+    aliases: ["Ukrenergo","НЕК Укренерго","Укрэнерго"]
+    ambiguous_aliases: []
+    categories: ["business","climate_energy"]
+
+  - name: "Naftogaz of Ukraine"
+    name_uk: "Нафтогаз України"
+    kind: company
+    country: "UA"
+    aliases: ["Naftogaz of Ukraine","Naftogaz","Нафтогаз","Нафтогаз Украины"]
+    ambiguous_aliases: []
+    categories: ["business","climate_energy"]
+
+  - name: "Energoatom"
+    name_uk: "Енергоатом"
+    kind: company
+    country: "UA"
+    aliases: ["Energoatom","НАЕК Енергоатом","Энергоатом"]
+    ambiguous_aliases: []
+    categories: ["business","climate_energy"]
+
+  - name: "Ukrzaliznytsia"
+    name_uk: "Укрзалізниця"
+    kind: company
+    country: "UA"
+    aliases: ["Ukrzaliznytsia","Ukrzaliznytsya","Українська залізниця","Укрзализныця"]
+    ambiguous_aliases: ["УЗ"]
+    categories: ["business","climate_energy"]
+
+  - name: "DTEK"
+    name_uk: "ДТЕК"
+    kind: company
+    country: "UA"
+    aliases: ["DTEK","ДТЕК","ДТЭК"]
+    ambiguous_aliases: []
+    categories: ["business","climate_energy"]
+
+  - name: "Metinvest"
+    name_uk: "Метінвест"
+    kind: company
+    country: "UA"
+    aliases: ["Metinvest","Метінвест","Метинвест"]
+    ambiguous_aliases: []
+    categories: ["business","climate_energy"]
+
+  - name: "BlackRock Inc."
+    name_uk: "Блекрок"
+    kind: company
+    country: "US"
+    aliases: ["BlackRock Inc.","BlackRock","Блекрок"]
+    ambiguous_aliases: []
+    categories: ["finance","business"]
+
+  - name: "JPMorgan Chase & Co."
+    name_uk: "Джей-Пі Морган Чейз"
+    kind: company
+    country: "US"
+    aliases: ["JPMorgan Chase & Co.","JPMorgan Chase","JP Morgan","J.P. Morgan"]
+    ambiguous_aliases: []
+    categories: ["finance","business"]
+
+  - name: "Goldman Sachs"
+    name_uk: "Голдман Сакс"
+    kind: company
+    country: "US"
+    aliases: ["Goldman Sachs","Goldman Sachs Group"]
+    ambiguous_aliases: []
+    categories: ["finance","business"]
+
+  - name: "Morgan Stanley"
+    name_uk: "Морган Стенлі"
+    kind: company
+    country: "US"
+    aliases: ["Morgan Stanley","Morgan Stanley & Co."]
+    ambiguous_aliases: []
+    categories: ["finance","business"]
+
+  - name: "Citigroup Inc."
+    name_uk: "Сітігруп"
+    kind: company
+    country: "US"
+    aliases: ["Citigroup Inc.","Citigroup","Citibank","Сітібанк"]
+    ambiguous_aliases: []
+    categories: ["finance","business"]
+
+  - name: "Bank of America Corporation"
+    name_uk: "Банк Америки"
+    kind: company
+    country: "US"
+    aliases: ["Bank of America Corporation","Bank of America","BofA"]
+    ambiguous_aliases: []
+    categories: ["finance","business"]
+
+  - name: "Visa Inc."
+    name_uk: "Віза Інк"
+    kind: company
+    country: "US"
+    aliases: ["Visa Inc.","Visa Incorporated"]
+    ambiguous_aliases: ["Visa","Віза","Виза"]
+    categories: ["finance","business"]
+
+  - name: "Mastercard Incorporated"
+    name_uk: "Мастеркард"
+    kind: company
+    country: "US"
+    aliases: ["Mastercard Incorporated","Mastercard","MasterCard","Мастеркард"]
+    ambiguous_aliases: []
+    categories: ["finance","business"]
+
+  - name: "PayPal Holdings"
+    name_uk: "Пейпал"
+    kind: company
+    country: "US"
+    aliases: ["PayPal Holdings","PayPal","Пейпал"]
+    ambiguous_aliases: []
+    categories: ["finance","business"]
+
+  - name: "Revolut Ltd."
+    name_uk: "Револют"
+    kind: company
+    country: "GB"
+    aliases: ["Revolut Ltd.","Revolut","Револют"]
+    ambiguous_aliases: []
+    categories: ["finance","business"]
+
+  - name: "Wise plc"
+    name_uk: "Вайз"
+    kind: company
+    country: "GB"
+    aliases: ["Wise plc","TransferWise"]
+    ambiguous_aliases: ["Wise"]
+    categories: ["finance","business"]
+
+  - name: "PrivatBank"
+    name_uk: "ПриватБанк"
+    kind: company
+    country: "UA"
+    aliases: ["PrivatBank","Приватбанк","Privat Bank"]
+    ambiguous_aliases: []
+    categories: ["finance","business"]
+
+  - name: "Universal Bank"
+    name_uk: "Універсал Банк"
+    kind: company
+    country: "UA"
+    aliases: ["Universal Bank","Універсал Банк","Универсал Банк"]
+    ambiguous_aliases: []
+    categories: ["finance","business"]
+
+  - name: "monobank"
+    name_uk: "Монобанк"
+    kind: company
+    country: "UA"
+    aliases: ["monobank","Монобанк","Monobank"]
+    ambiguous_aliases: []
+    categories: ["finance","startups_fintech"]
+
+  - name: "Binance"
+    name_uk: "Бінанс"
+    kind: company
+    aliases: ["Binance","Binance exchange","Бінанс","Бинанс"]
+    ambiguous_aliases: []
+    categories: ["crypto_web3","finance"]
+
+  - name: "Coinbase Global"
+    name_uk: "Койнбейс"
+    kind: company
+    country: "US"
+    aliases: ["Coinbase Global","Coinbase","Койнбейс"]
+    ambiguous_aliases: []
+    categories: ["crypto_web3","finance"]
+
+  - name: "Tether Holdings"
+    name_uk: "Тезер Голдінгс"
+    kind: company
+    aliases: ["Tether Holdings","Tether Holdings Limited","Tether company"]
+    ambiguous_aliases: []
+    categories: ["crypto_web3","finance"]
+
+  - name: "Tesla Inc."
+    name_uk: "Тесла Інк"
+    kind: company
+    country: "US"
+    aliases: ["Tesla Inc.","Tesla Motors"]
+    ambiguous_aliases: ["Tesla","Тесла"]
+    categories: ["business","mobility_ev"]
+
+  - name: "BYD Company"
+    name_uk: "Бі-вай-ді"
+    kind: company
+    country: "CN"
+    aliases: ["BYD Company","BYD","BYD Auto"]
+    ambiguous_aliases: []
+    categories: ["business","mobility_ev"]
+
+  - name: "Volkswagen AG"
+    name_uk: "Фольксваген"
+    kind: company
+    country: "DE"
+    aliases: ["Volkswagen AG","Volkswagen","VW","Фольксваген"]
+    ambiguous_aliases: []
+    categories: ["business","mobility_ev"]
+
+  - name: "Toyota Motor Corporation"
+    name_uk: "Тойота"
+    kind: company
+    country: "JP"
+    aliases: ["Toyota Motor Corporation","Toyota","Тойота"]
+    ambiguous_aliases: []
+    categories: ["business","mobility_ev"]
+
+  - name: "BMW AG"
+    name_uk: "БМВ"
+    kind: company
+    country: "DE"
+    aliases: ["BMW AG","BMW","Bayerische Motoren Werke","БМВ"]
+    ambiguous_aliases: []
+    categories: ["business","mobility_ev"]
+
+  - name: "Mercedes-Benz Group"
+    name_uk: "Мерседес-Бенц"
+    kind: company
+    country: "DE"
+    aliases: ["Mercedes-Benz Group","Mercedes-Benz","Mercedes Benz","Daimler AG"]
+    ambiguous_aliases: []
+    categories: ["business","mobility_ev"]
+
+  - name: "Stellantis N.V."
+    name_uk: "Стеллантіс"
+    kind: company
+    country: "NL"
+    aliases: ["Stellantis N.V.","Stellantis","Стеллантіс"]
+    ambiguous_aliases: []
+    categories: ["business","mobility_ev"]
+
+  - name: "Hyundai Motor Company"
+    name_uk: "Хюндай"
+    kind: company
+    country: "KR"
+    aliases: ["Hyundai Motor Company","Hyundai","Хюндай","Хендай"]
+    ambiguous_aliases: []
+    categories: ["business","mobility_ev"]
+
+  - name: "Ford Motor Company"
+    name_uk: "Форд Мотор"
+    kind: company
+    country: "US"
+    aliases: ["Ford Motor Company","Ford Motor"]
+    ambiguous_aliases: ["Ford","Форд"]
+    categories: ["business","mobility_ev"]
+
+  - name: "General Motors Company"
+    name_uk: "Дженерал Моторс"
+    kind: company
+    country: "US"
+    aliases: ["General Motors Company","General Motors"]
+    ambiguous_aliases: ["GM"]
+    categories: ["business","mobility_ev"]
+
+  - name: "Renault Group"
+    name_uk: "Рено"
+    kind: company
+    country: "FR"
+    aliases: ["Renault Group","Renault","Рено"]
+    ambiguous_aliases: []
+    categories: ["business","mobility_ev"]
+
+  - name: "Rivian Automotive"
+    name_uk: "Рівіан"
+    kind: company
+    country: "US"
+    aliases: ["Rivian Automotive","Rivian","Рівіан"]
+    ambiguous_aliases: []
+    categories: ["business","mobility_ev"]
+
+  - name: "SpaceX"
+    name_uk: "СпейсІкс"
+    kind: company
+    country: "US"
+    aliases: ["SpaceX","Space Exploration Technologies","Спейсекс"]
+    ambiguous_aliases: []
+    categories: ["science_space","business"]
+
+  - name: "Blue Origin"
+    name_uk: "Блу Оріджин"
+    kind: company
+    country: "US"
+    aliases: ["Blue Origin","Blue Origin LLC","Блу Ориджин"]
+    ambiguous_aliases: []
+    categories: ["science_space","business"]
+
+  - name: "Rocket Lab"
+    name_uk: "Рокет Лаб"
+    kind: company
+    country: "US"
+    aliases: ["Rocket Lab","Rocket Lab USA","Rocket Lab Corporation"]
+    ambiguous_aliases: []
+    categories: ["science_space","business"]
+
+  - name: "EPAM Systems"
+    name_uk: "ЕПАМ"
+    kind: company
+    country: "US"
+    aliases: ["EPAM Systems","EPAM","ЕПАМ"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "SoftServe"
+    name_uk: "СофтСерв"
+    kind: company
+    country: "UA"
+    aliases: ["SoftServe","Soft Serve","СофтСерв"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "GlobalLogic"
+    name_uk: "ГлобалЛоджик"
+    kind: company
+    country: "US"
+    aliases: ["GlobalLogic","Global Logic","ГлобалЛоджик"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Grammarly"
+    name_uk: "Грамарлі"
+    kind: company
+    country: "US"
+    aliases: ["Grammarly","Grammarly Inc.","Грамарлі"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "MacPaw"
+    name_uk: "МакПоу"
+    kind: company
+    country: "UA"
+    aliases: ["MacPaw","MacPaw Inc.","МакПау"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Fire Point"
+    name_uk: "Фаєр Поінт"
+    kind: company
+    country: "UA"
+    aliases: ["Fire Point","FirePoint","Файр Поінт","Фаєр Пойнт"]
+    ambiguous_aliases: []
+    categories: ["defense","business"]
+
+  - name: "Ukrainian Defense Industry"
+    name_uk: "Українська оборонна промисловість"
+    kind: company
+    country: "UA"
+    aliases: ["Ukrainian Defense Industry","Ukroboronprom","Укроборонпром","Укроборонпром АТ","УОП"]
+    ambiguous_aliases: []
+    categories: ["defense","business"]
+
+  - name: "Ajax Systems"
+    name_uk: "Аякс Сістемс"
+    kind: company
+    country: "UA"
+    aliases: ["Ajax Systems","Ajax Systems company"]
+    ambiguous_aliases: ["Ajax","Аякс"]
+    categories: ["global_tech","business"]
+
+  - name: "Genesis Tech"
+    name_uk: "Дженезіс Тек"
+    kind: company
+    country: "UA"
+    aliases: ["Genesis Tech","Genesis IT","Genesis tech company"]
+    ambiguous_aliases: ["Genesis","Дженезіс"]
+    categories: ["global_tech","business"]
+
+  - name: "Intellias"
+    name_uk: "Інтелліас"
+    kind: company
+    country: "UA"
+    aliases: ["Intellias","Інтелліас","Intellias LLC"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "N-iX"
+    name_uk: "Ен-ікс"
+    kind: company
+    country: "UA"
+    aliases: ["N-iX","N-iX company","Ен-ікс"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Ciklum"
+    name_uk: "Сіклум"
+    kind: company
+    country: "GB"
+    aliases: ["Ciklum","Сіклум"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Sigma Software"
+    name_uk: "Сігма Софтвер"
+    kind: company
+    country: "UA"
+    aliases: ["Sigma Software","Sigma Software Group","Сигма Софтвер"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Nova Poshta"
+    name_uk: "Нова пошта"
+    kind: company
+    country: "UA"
+    aliases: ["Nova Poshta","Nova Post","Нова Пошта","Новая почта"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Rozetka"
+    name_uk: "Розетка"
+    kind: company
+    country: "UA"
+    aliases: ["Rozetka","Rozetka.ua"]
+    ambiguous_aliases: ["Розетка"]
+    categories: ["global_tech","business"]
+
+  - name: "Kyivstar"
+    name_uk: "Київстар"
+    kind: company
+    country: "UA"
+    aliases: ["Kyivstar","Киевстар"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Ukrtelecom"
+    name_uk: "Укртелеком"
+    kind: company
+    country: "UA"
+    aliases: ["Ukrtelecom","Укртелеком"]
+    ambiguous_aliases: []
+    categories: ["global_tech","business"]
+
+  - name: "Ukrspecsystems"
+    name_uk: "Укрспецсистемс"
+    kind: company
+    country: "UA"
+    aliases: ["Ukrspecsystems","UkrSpecSystems","Укрспецсистемс"]
+    ambiguous_aliases: []
+    categories: ["defense","business"]
+
+  - name: "Skyeton"
+    name_uk: "Скаетон"
+    kind: company
+    country: "UA"
+    aliases: ["Skyeton","Skyeton company","Скаетон"]
+    ambiguous_aliases: []
+    categories: ["defense","business"]
+
+  - name: "Quantum Systems"
+    name_uk: "Квантум Системс"
+    kind: company
+    country: "DE"
+    aliases: ["Quantum Systems","Quantum-Systems","Quantum Systems GmbH"]
+    ambiguous_aliases: []
+    categories: ["defense","business"]
+
+  - name: "M142 HIMARS"
+    name_uk: "М142 Хаймарс"
+    kind: weapon
+    aliases: ["M142 HIMARS","HIMARS","Хаймарс","Хаймарс М142"]
+    ambiguous_aliases: []
+    categories: ["defense"]
+
+  - name: "MGM-140 ATACMS"
+    name_uk: "МГМ-140 Атакмс"
+    kind: weapon
+    aliases: ["MGM-140 ATACMS","ATACMS","АТАКМС"]
+    ambiguous_aliases: []
+    categories: ["defense"]
+
+  - name: "Storm Shadow / SCALP-EG"
+    name_uk: "Сторм Шедоу / Скальп-ЕГ"
+    kind: weapon
+    aliases: ["Storm Shadow / SCALP-EG","Storm Shadow","SCALP-EG","SCALP","Сторм Шедоу","Скальп"]
+    ambiguous_aliases: []
+    categories: ["defense"]
+
+  - name: "Taurus KEPD 350"
+    name_uk: "Таурус KEPD 350"
+    kind: weapon
+    aliases: ["Taurus KEPD 350","KEPD 350","Taurus missile"]
+    ambiguous_aliases: ["Taurus","Таурус"]
+    categories: ["defense"]
+
+  - name: "MIM-104 Patriot"
+    name_uk: "ЗРК Петріот"
+    kind: weapon
+    aliases: ["MIM-104 Patriot","MIM-104","Patriot air defense system","ЗРК Patriot","ЗРК Пэтриот"]
+    ambiguous_aliases: ["Patriot","Петріот","Пэтриот"]
+    categories: ["defense"]
+
+  - name: "IRIS-T"
+    name_uk: "Іріс-Т"
+    kind: weapon
+    aliases: ["IRIS-T","IRIS-T SLM","IRIS-T SLS","ІРІС-Т"]
+    ambiguous_aliases: []
+    categories: ["defense"]
+
+  - name: "NASAMS"
+    name_uk: "НАСАМС"
+    kind: weapon
+    aliases: ["NASAMS","NASAMS air defense system","НАСАМС"]
+    ambiguous_aliases: []
+    categories: ["defense"]
+
+  - name: "General Dynamics F-16 Fighting Falcon"
+    name_uk: "Винищувач F-16"
+    kind: weapon
+    aliases: ["General Dynamics F-16 Fighting Falcon","F-16","F16","Fighting Falcon","Ф-16"]
+    ambiguous_aliases: []
+    categories: ["defense"]
+
+  - name: "Dassault Mirage 2000"
+    name_uk: "Дассо Міраж 2000"
+    kind: weapon
+    aliases: ["Dassault Mirage 2000","Mirage 2000","Міраж 2000","Мираж 2000"]
+    ambiguous_aliases: []
+    categories: ["defense"]
+
+  - name: "Saab JAS 39 Gripen"
+    name_uk: "Сааб JAS 39 Гріпен"
+    kind: weapon
+    aliases: ["Saab JAS 39 Gripen","JAS 39","Gripen","Гріпен","Грипен"]
+    ambiguous_aliases: []
+    categories: ["defense"]
+
+  - name: "Leopard 2"
+    name_uk: "Леопард 2"
+    kind: weapon
+    aliases: ["Leopard 2","Leopard-2","Леопард-2"]
+    ambiguous_aliases: []
+    categories: ["defense"]
+
+  - name: "M1 Abrams"
+    name_uk: "М1 Абрамс"
+    kind: weapon
+    aliases: ["M1 Abrams","M1A1 Abrams","M1A2 Abrams","Abrams","Абрамс"]
+    ambiguous_aliases: []
+    categories: ["defense"]
+
+  - name: "M2 Bradley"
+    name_uk: "М2 Бредлі"
+    kind: weapon
+    aliases: ["M2 Bradley","Bradley IFV","M2A2 Bradley","Бредлі","Брэдли"]
+    ambiguous_aliases: ["Bradley"]
+    categories: ["defense"]
+
+  - name: "Shahed-136"
+    name_uk: "Шахед-136"
+    kind: weapon
+    aliases: ["Shahed-136","Shahed 136","Shahed","Герань-2","Geran-2","Шахед","Шахід"]
+    ambiguous_aliases: ["Герань"]
+    categories: ["defense"]
+
+  - name: "9K720 Iskander"
+    name_uk: "9К720 Іскандер"
+    kind: weapon
+    aliases: ["9K720 Iskander","Iskander","Iskander-M","Іскандер","Іскандер-М","Искандер","Iskander-K"]
+    ambiguous_aliases: []
+    categories: ["defense"]
+
+  - name: "Kh-47M2 Kinzhal"
+    name_uk: "Х-47М2 Кинджал"
+    kind: weapon
+    aliases: ["Kh-47M2 Kinzhal","Kh-47M2"]
+    ambiguous_aliases: ["Kinzhal","Кинджал","Кинжал"]
+    categories: ["defense"]
+
+  - name: "3M14 Kalibr"
+    name_uk: "3М14 Калібр"
+    kind: weapon
+    aliases: ["3M14 Kalibr","Kalibr cruise missile"]
+    ambiguous_aliases: ["Kalibr","Калібр","Калибр"]
+    categories: ["defense"]
+
+  - name: "Oreshnik missile"
+    name_uk: "Ракета Орєшнік"
+    kind: weapon
+    aliases: ["Oreshnik missile","Орєшнік","Орешник"]
+    ambiguous_aliases: ["Oreshnik"]
+    categories: ["defense"]
+
+  - name: "FP-5 Flamingo"
+    name_uk: "ФП-5 Фламінго"
+    kind: weapon
+    aliases: ["FP-5 Flamingo","FP-5","FP5","Flamingo cruise missile"]
+    ambiguous_aliases: ["Flamingo","Фламінго","Фламинго"]
+    categories: ["defense"]
+
+  - name: "R-360 Neptune"
+    name_uk: "Р-360 Нептун"
+    kind: weapon
+    aliases: ["R-360 Neptune","R-360","Р-360","Neptune missile","РК-360МЦ","РК-360МЦ Нептун"]
+    ambiguous_aliases: ["Neptune","Нептун"]
+    categories: ["defense"]
+
+  - name: "Bayraktar TB2"
+    name_uk: "Байрактар ТБ2"
+    kind: weapon
+    aliases: ["Bayraktar TB2","Bayraktar TB-2","Байрактар","Байрактар TB2"]
+    ambiguous_aliases: []
+    categories: ["defense"]
+
+  - name: "MIM-23 HAWK"
+    name_uk: "ЗРК Хок"
+    kind: weapon
+    aliases: ["MIM-23 HAWK","MIM-23","HAWK air defense system"]
+    ambiguous_aliases: ["HAWK","Хок"]
+    categories: ["defense"]
+
+  - name: "SAMP/T"
+    name_uk: "Самп-Т"
+    kind: weapon
+    aliases: ["SAMP/T","SAMP-T","SAMP/T NG","Eurosam SAMP/T"]
+    ambiguous_aliases: []
+    categories: ["defense"]
+
+  - name: "F-35 Lightning II"
+    name_uk: "Ф-35 Лайтнінг II"
+    kind: weapon
+    aliases: ["F-35 Lightning II","F-35","F35","F-35A","F-35B","F-35C"]
+    ambiguous_aliases: []
+    categories: ["defense"]
+
+  - name: "Sukhoi Su-34"
+    name_uk: "Сухой Су-34"
+    kind: weapon
+    aliases: ["Sukhoi Su-34","Su-34","Су-34"]
+    ambiguous_aliases: []
+    categories: ["defense"]
+
+  - name: "Sukhoi Su-35"
+    name_uk: "Сухой Су-35"
+    kind: weapon
+    aliases: ["Sukhoi Su-35","Su-35","Су-35"]
+    ambiguous_aliases: []
+    categories: ["defense"]
+
+  - name: "Kh-101 missile"
+    name_uk: "Ракета Х-101"
+    kind: weapon
+    aliases: ["Kh-101 missile","Kh-101","Х-101"]
+    ambiguous_aliases: []
+    categories: ["defense"]
+
+  - name: "S-400 Triumf"
+    name_uk: "С-400 Тріумф"
+    kind: weapon
+    aliases: ["S-400 Triumf","S-400","С-400","С-400 Триумф"]
+    ambiguous_aliases: []
+    categories: ["defense"]
+
+  - name: "Bohdana self-propelled howitzer"
+    name_uk: "САУ Богдана"
+    kind: weapon
+    aliases: ["Bohdana self-propelled howitzer","2S22 Bohdana","2С22 Богдана","САУ Богдана"]
+    ambiguous_aliases: ["Богдана","Bohdana"]
+    categories: ["defense"]
+
+  - name: "CAESAR howitzer"
+    name_uk: "САУ Цезар"
+    kind: weapon
+    aliases: ["CAESAR howitzer","CAESAR 155mm","САУ CAESAR"]
+    ambiguous_aliases: ["CAESAR","Цезар","Цезарь"]
+    categories: ["defense"]
+
+  - name: "PzH 2000"
+    name_uk: "Панцергаубіце 2000"
+    kind: weapon
+    aliases: ["PzH 2000","Panzerhaubitze 2000","PzH2000"]
+    ambiguous_aliases: []
+    categories: ["defense"]
+
+  - name: "OpenAI GPT-5"
+    name_uk: "ОпенЕйАй GPT-5"
+    kind: model
+    aliases: ["OpenAI GPT-5","GPT-5","GPT 5"]
+    ambiguous_aliases: []
+    categories: ["model","global_tech"]
+
+  - name: "OpenAI GPT-4o"
+    name_uk: "ОпенЕйАй GPT-4o"
+    kind: model
+    aliases: ["OpenAI GPT-4o","GPT-4o","GPT 4o"]
+    ambiguous_aliases: []
+    categories: ["model","global_tech"]
+
+  - name: "OpenAI GPT-4"
+    name_uk: "ОпенЕйАй GPT-4"
+    kind: model
+    aliases: ["OpenAI GPT-4","GPT-4","GPT 4"]
+    ambiguous_aliases: []
+    categories: ["model","global_tech"]
+
+  - name: "OpenAI o3"
+    name_uk: "ОпенЕйАй o3"
+    kind: model
+    aliases: ["OpenAI o3","OpenAI o3 model"]
+    ambiguous_aliases: ["o3"]
+    categories: ["model","global_tech"]
+
+  - name: "OpenAI o4-mini"
+    name_uk: "ОпенЕйАй o4-mini"
+    kind: model
+    aliases: ["OpenAI o4-mini"]
+    ambiguous_aliases: ["o4-mini"]
+    categories: ["model","global_tech"]
+
+  - name: "Anthropic Claude"
+    name_uk: "Антропік Клод"
+    kind: model
+    aliases: ["Anthropic Claude","Claude AI","Claude model"]
+    ambiguous_aliases: ["Claude","Клод"]
+    categories: ["model","global_tech"]
+
+  - name: "Google Gemini"
+    name_uk: "Гугл Джеміні"
+    kind: model
+    aliases: ["Google Gemini","Gemini AI","Gemini model"]
+    ambiguous_aliases: ["Gemini","Джеміні","Геміні"]
+    categories: ["model","global_tech"]
+
+  - name: "Meta Llama"
+    name_uk: "Мета Ллама"
+    kind: model
+    aliases: ["Meta Llama","Llama model"]
+    ambiguous_aliases: ["Llama","Ллама","LLaMA"]
+    categories: ["model","global_tech"]
+
+  - name: "xAI Grok"
+    name_uk: "ІксАІ Грок"
+    kind: model
+    aliases: ["xAI Grok","Grok AI","Grok model"]
+    ambiguous_aliases: ["Grok","Грок"]
+    categories: ["model","global_tech"]
+
+  - name: "Mistral Large"
+    name_uk: "Містраль Лардж"
+    kind: model
+    aliases: ["Mistral Large","Mistral Large model"]
+    ambiguous_aliases: []
+    categories: ["model","global_tech"]
+
+  - name: "DeepSeek-V3"
+    name_uk: "Діпсік-V3"
+    kind: model
+    aliases: ["DeepSeek-V3","DeepSeek V3","DeepSeek V3 model"]
+    ambiguous_aliases: []
+    categories: ["model","global_tech"]
+
+  - name: "DeepSeek-R1"
+    name_uk: "Діпсік-R1"
+    kind: model
+    aliases: ["DeepSeek-R1","DeepSeek R1","DeepSeek R1 model"]
+    ambiguous_aliases: []
+    categories: ["model","global_tech"]
+
+  - name: "Alibaba Qwen"
+    name_uk: "Алібаба Квен"
+    kind: model
+    aliases: ["Alibaba Qwen","Qwen","Qwen model","Квен"]
+    ambiguous_aliases: []
+    categories: ["model","global_tech"]
+
+  - name: "Moonshot Kimi"
+    name_uk: "Муншот Кімі"
+    kind: model
+    aliases: ["Moonshot Kimi","Kimi AI","Kimi model"]
+    ambiguous_aliases: ["Kimi","Кімі"]
+    categories: ["model","global_tech"]
+
+  - name: "Zhipu GLM"
+    name_uk: "Чжипу GLM"
+    kind: model
+    aliases: ["Zhipu GLM","ChatGLM","GLM-4"]
+    ambiguous_aliases: ["GLM"]
+    categories: ["model","global_tech"]
+
+  - name: "Stable Diffusion"
+    name_uk: "Стейбл Диф'южн"
+    kind: model
+    aliases: ["Stable Diffusion","Stable Diffusion model","Стейбл Диф’южн"]
+    ambiguous_aliases: []
+    categories: ["model","global_tech"]
+
+  - name: "ChatGPT"
+    name_uk: "ЧатДжіПіТі"
+    kind: product
+    aliases: ["ChatGPT","Chat GPT","ЧатГПТ","Чат GPT"]
+    ambiguous_aliases: []
+    categories: ["global_tech","model"]
+
+  - name: "Microsoft Copilot"
+    name_uk: "Майкрософт Копайлот"
+    kind: product
+    aliases: ["Microsoft Copilot","Microsoft 365 Copilot","Bing Chat"]
+    ambiguous_aliases: ["Copilot","Копайлот"]
+    categories: ["global_tech","model"]
+
+  - name: "GitHub Copilot"
+    name_uk: "Гітхаб Копайлот"
+    kind: product
+    aliases: ["GitHub Copilot","GitHub Copilot coding assistant"]
+    ambiguous_aliases: ["Copilot"]
+    categories: ["global_tech","model"]
+
+  - name: "Midjourney image generator"
+    name_uk: "Генератор зображень Міджорні"
+    kind: product
+    aliases: ["Midjourney image generator","Midjourney AI"]
+    ambiguous_aliases: ["Midjourney","Міджорні"]
+    categories: ["global_tech","model"]
+
+  - name: "OpenAI Sora"
+    name_uk: "ОпенЕйАй Сора"
+    kind: product
+    aliases: ["OpenAI Sora","Sora video model"]
+    ambiguous_aliases: ["Sora","Сора"]
+    categories: ["global_tech","model"]
+
+  - name: "Google Veo"
+    name_uk: "Гугл Вео"
+    kind: product
+    aliases: ["Google Veo","Veo video model"]
+    ambiguous_aliases: ["Veo","Вео"]
+    categories: ["global_tech","model"]
+
+  - name: "Zaporizhzhia Nuclear Power Plant"
+    name_uk: "Запорізька атомна електростанція"
+    kind: facility
+    country: "UA"
+    aliases: ["Zaporizhzhia Nuclear Power Plant","Запорізька АЕС","ЗАЕС","ZNPP","Zaporizhzhia NPP","Запорожская АЭС","AKW Saporischschja"]
+    ambiguous_aliases: []
+    categories: ["climate_energy","defense"]
+
+  - name: "Chornobyl Nuclear Power Plant"
+    name_uk: "Чорнобильська атомна електростанція"
+    kind: facility
+    country: "UA"
+    aliases: ["Chornobyl Nuclear Power Plant","Чорнобильська АЕС","ЧАЕС","Chornobyl NPP","Chernobyl NPP","Чернобыльская АЭС","AKW Tschernobyl"]
+    ambiguous_aliases: ["Chornobyl","Chernobyl","Чорнобиль","Чернобыль","Tschernobyl"]
+    categories: ["climate_energy","defense"]
+
+  - name: "Kakhovka Hydroelectric Power Plant"
+    name_uk: "Каховська гідроелектростанція"
+    kind: facility
+    country: "UA"
+    aliases: ["Kakhovka Hydroelectric Power Plant","Каховська ГЕС","Kakhovka HPP","Каховская ГЭС"]
+    ambiguous_aliases: []
+    categories: ["climate_energy","defense"]
+
+  - name: "Crimean Bridge"
+    name_uk: "Кримський міст"
+    kind: facility
+    country: "UA"
+    aliases: ["Crimean Bridge","Керченський міст","Kerch Bridge","Крымский мост","Krim-Brücke"]
+    ambiguous_aliases: []
+    categories: ["climate_energy","defense"]
+
+  - name: "Nord Stream pipeline"
+    name_uk: "Газопровід Північний потік"
+    kind: facility
+    aliases: ["Nord Stream pipeline","Nord Stream","Nord Stream 1","Nord Stream 2","Північний потік","Північний потік-2","Северный поток","Северный поток-2"]
+    ambiguous_aliases: []
+    categories: ["climate_energy","economy"]
+
+  - name: "TurkStream pipeline"
+    name_uk: "Газопровід Турецький потік"
+    kind: facility
+    aliases: ["TurkStream pipeline","TurkStream","Турецький потік","Турецкий поток","Turkish Stream"]
+    ambiguous_aliases: []
+    categories: ["climate_energy","economy"]
+
+  - name: "Druzhba pipeline"
+    name_uk: "Нафтопровід Дружба"
+    kind: facility
+    aliases: ["Druzhba pipeline","Druzhba oil pipeline","Нафтопровід Дружба","Нефтепровод Дружба","Druschba-Pipeline"]
+    ambiguous_aliases: ["Дружба","Druzhba"]
+    categories: ["climate_energy","economy"]
+
+  - name: "European Union AI Act"
+    name_uk: "Акт ЄС про штучний інтелект"
+    kind: law
+    aliases: ["European Union AI Act","AI Act","EU AI Act","Regulation (EU) 2024/1689","Закон ЄС про штучний інтелект","KI-Verordnung"]
+    ambiguous_aliases: []
+    categories: ["law","politics"]
+
+  - name: "Digital Markets Act"
+    name_uk: "Акт про цифрові ринки"
+    kind: law
+    aliases: ["Digital Markets Act","Regulation (EU) 2022/1925","Закон про цифрові ринки","Gesetz über digitale Märkte"]
+    ambiguous_aliases: ["DMA"]
+    categories: ["law","politics"]
+
+  - name: "Digital Services Act"
+    name_uk: "Акт про цифрові послуги"
+    kind: law
+    aliases: ["Digital Services Act","Regulation (EU) 2022/2065","Закон про цифрові послуги","Gesetz über digitale Dienste"]
+    ambiguous_aliases: ["DSA"]
+    categories: ["law","politics"]
+
+  - name: "CHIPS and Science Act"
+    name_uk: "Закон США про чипи та науку"
+    kind: law
+    aliases: ["CHIPS and Science Act","CHIPS Act","Закон про чипи"]
+    ambiguous_aliases: []
+    categories: ["law","politics"]
+
+  - name: "Minsk agreements"
+    name_uk: "Мінські домовленості"
+    kind: law
+    aliases: ["Minsk agreements","Minsk accords","Мінські угоди","Минские соглашения","Minsker Abkommen"]
+    ambiguous_aliases: []
+    categories: ["law","politics"]
+
+  - name: "Black Sea Grain Initiative"
+    name_uk: "Чорноморська зернова ініціатива"
+    kind: law
+    aliases: ["Black Sea Grain Initiative","Black Sea initiative","grain deal","зернова угода","Чорноморська ініціатива","зерновая сделка","Getreideabkommen"]
+    ambiguous_aliases: []
+    categories: ["law","politics"]
+
+  - name: "Ukraine Facility"
+    name_uk: "Механізм підтримки України Ukraine Facility"
+    kind: law
+    aliases: ["Ukraine Facility","Ukraine Facility programme","Regulation (EU) 2024/792","Фонд підтримки України"]
+    ambiguous_aliases: []
+    categories: ["law","politics"]
+
+  - name: "Ukraine reparations loan proposal"
+    name_uk: "Репараційна позика для України"
+    kind: law
+    aliases: ["Ukraine reparations loan proposal","Reparations loan","reparations-backed loan","репараційна позика","репараційний кредит","репарационный кредит"]
+    ambiguous_aliases: []
+    categories: ["law","politics"]
+
+  - name: "European Union sanctions"
+    name_uk: "Санкції Європейського Союзу"
+    kind: law
+    aliases: ["European Union sanctions","EU sanctions","санкції ЄС","санкційні пакети ЄС","санкции ЕС","EU-Sanktionen"]
+    ambiguous_aliases: []
+    categories: ["law","politics"]
+
+  - name: "Budapest Memorandum"
+    name_uk: "Будапештський меморандум"
+    kind: law
+    aliases: ["Budapest Memorandum","Budapest Memorandum on Security Assurances","Будапештский меморандум","Budapester Memorandum"]
+    ambiguous_aliases: []
+    categories: ["law","politics"]
+
+  - name: "Bitcoin"
+    name_uk: "Біткоїн"
+    kind: technology
+    aliases: ["Bitcoin","Bitcoin cryptocurrency","Біткойн","Биткоин"]
+    ambiguous_aliases: ["BTC"]
+    categories: ["crypto_web3","finance"]
+
+  - name: "Ethereum"
+    name_uk: "Етеріум"
+    kind: technology
+    aliases: ["Ethereum","Ethereum blockchain","Ефіріум","Эфириум"]
+    ambiguous_aliases: ["ETH"]
+    categories: ["crypto_web3","finance"]
+
+  - name: "Tether USD"
+    name_uk: "Тезер USD"
+    kind: product
+    aliases: ["Tether USD","USDT","Tether USD stablecoin"]
+    ambiguous_aliases: ["Tether","Тезер"]
+    categories: ["crypto_web3","finance"]
+

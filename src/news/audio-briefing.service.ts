@@ -307,10 +307,32 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
 
   // ---------------------------------------------------------------- public API
 
-  /** Never blocks on generation: returns a ready URL or the script + queue position. */
-  async getAudio(newsId: string, lang: string, options: { depth?: string; style?: string }, apiBase: string): Promise<ReadyAudio | QueuedAudio | null> {
+  /**
+   * Returns a ready URL or the script + queue position. With `waitMs` (long-poll) it holds the request while the
+   * audio is being rendered, so the app can play the natural voice instead of falling back to the device voice.
+   */
+  async getAudio(
+    newsId: string,
+    lang: string,
+    options: { depth?: string; style?: string; waitMs?: number },
+    apiBase: string,
+  ): Promise<ReadyAudio | QueuedAudio | null> {
     const { depth, style } = resolveNewsBriefMode(options);
-    const ready = await this.findReady(newsId, lang, depth, style);
+    let ready = await this.findReady(newsId, lang, depth, style);
+    if (!ready && options.waitMs && options.waitMs > 0 && this.enabled) {
+      const row = await this.loadArticle(newsId);
+      if (row) {
+        const script = buildScript(row, lang, depth, style);
+        if (canRenderScript(script, lang)) {
+          this.enqueue({ newsId: row.id, lang, depth, style, priority: 1000, requestedAt: Date.now() });
+          const deadline = Date.now() + Math.min(options.waitMs, 45_000);
+          while (!ready && Date.now() < deadline && !this.destroyed) {
+            await new Promise((r) => setTimeout(r, 1000));
+            ready = await this.findReady(newsId, lang, depth, style);
+          }
+        }
+      }
+    }
     if (ready) {
       void this.db?.query(`UPDATE audio_briefings SET last_access_at = now(), plays = plays + 1 WHERE cache_key = $1`, [ready.cacheKey]).catch(() => undefined);
       return {
@@ -444,6 +466,8 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
                 : await this.renderGoogleTts(script, job.lang);
         if (!out) continue;
         const elapsed = Date.now() - started;
+        // Gemini TTS is already counted per HTTP request inside the Gemini client.
+        if (provider !== 'gemini') recordLlmEvent({ provider, model: out.model, task: 'tts', outcome: 'ok', tokens: script.length, latencyMs: elapsed });
         this.avgRenderMs.set(provider, Math.round(((this.avgRenderMs.get(provider) ?? elapsed) * 2 + elapsed) / 3));
         try {
           await this.store(job, row, script, provider, this.compressForStorage(out));
@@ -459,6 +483,7 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
         return;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        if (provider !== 'gemini') recordLlmFailure(provider, '-', 'tts', err, started);
         // Rate limit / outage / slowness: skip this provider for a while so the next one is used immediately.
         if (/\b(429|5\d\d)\b|timeout|aborted|exhausted|unavailable/i.test(msg)) {
           this.providerCooldown.set(provider, Date.now() + PROVIDER_COOLDOWN_MS);
@@ -466,24 +491,19 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
         this.logger.debug(`TTS provider ${provider} failed for ${job.newsId}/${job.lang}: ${msg}`);
       }
     }
-        // Gemini TTS is already counted per HTTP request inside the Gemini client.
-        if (provider !== 'gemini') recordLlmEvent({ provider, model: out.model, task: 'tts', outcome: 'ok', tokens: script.length, latencyMs: elapsed });
   }
 
   private async renderGemini(script: string, lang: string): Promise<{ audio: Buffer; mimeType: string; model: string } | null> {
     const key = process.env.GEMINI_API_KEY?.trim();
     if (!key) return null;
-    const instruction =
-      lang === 'uk'
-        ? 'Прочитай як ведучий новин: спокійно, чітко, природною українською.'
-        : 'Read as a calm, clear news anchor in natural English.';
+    // Gemini TTS speaks EVERYTHING in the text part, so never prepend style instructions ("Прочитай як ведучий…"):
+    // they get read aloud. The voice is selected via speechConfig; the script itself is the only text sent.
     // Try every Gemini TTS model: each has its own (hourly/daily) free quota. A model that failed is
     // re-probed with a real request after its cooldown: 429 -> ~1 h (or Retry-After), 404 -> 6 h, other -> 10 min.
     let res: { data: unknown; modelUsed: string } | null = null;
     let lastErr: unknown = null;
     for (const model of PREFERRED_TTS_MODELS) {
       const health = this.geminiTtsHealth.get(model);
-        if (provider !== 'gemini') recordLlmFailure(provider, '-', 'tts', err, started);
       if (health && health.retryAt > Date.now()) continue;
       try {
         res = await postGeminiGenerateContent({
@@ -493,9 +513,7 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
           priority: 'high',
           timeoutMs: GEMINI_FOREGROUND_TIMEOUT_MS,
           body: {
-            contents: [{ role: 'user', parts: [{ text: `${instruction}
-
-${script}` }] }],
+            contents: [{ role: 'user', parts: [{ text: script }] }],
             generationConfig: {
               responseModalities: ['AUDIO'],
               speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: this.voice } } },

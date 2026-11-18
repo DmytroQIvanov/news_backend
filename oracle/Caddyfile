@@ -1,0 +1,27 @@
+{$HELPER_DOMAIN} {
+	encode zstd gzip
+
+	# RSSHub: routes need ?key=<RSSHUB_ACCESS_KEY>, so only our collector can use it
+	handle_path /rsshub/* {
+		reverse_proxy rsshub:1200
+	}
+
+	# changedetection UI behind a password; the per-watch RSS feeds carry their own token
+	handle /watch* {
+		basic_auth {
+			{$CHANGEDETECTION_USER} {$CHANGEDETECTION_HASH}
+		}
+		uri strip_prefix /watch
+		reverse_proxy changedetection:5000
+	}
+
+	handle_path /ntfy/* {
+		reverse_proxy ntfy:80
+	}
+
+	handle_path /status/* {
+		reverse_proxy gatus:8080
+	}
+
+	respond "ok" 200
+}

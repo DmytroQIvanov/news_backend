@@ -231,3 +231,35 @@ Read [`docs/CODEX_TASK.md`](docs/CODEX_TASK.md) and execute its acceptance tests
 - NestJS https://docs.nestjs.com/
 
 For alternative Koyeb Free and Supabase Free deployment instructions, see [`docs/OTHER_FREE_HOSTS.md`](docs/OTHER_FREE_HOSTS.md).
+
+## Pixabay, Openverse and photo storage
+
+Set `pixabay_api_key` (or `PIXABAY_API_KEY`) and the R2 credentials in the server environment:
+`cloudflare_s3_api_endpoint`, `cloudflare_access_key_id`, `cloudflare_secret_access_key`, and optionally
+`cloudflare_r2_bucket` / `cloudflare_r2_public_base_url`. No Pixabay key is included in the repository.
+Openverse works anonymously; `openverse_access_token` is optional and `OPENVERSE_ENABLED=false` disables it.
+The same settings are passed into local Compose; the server Compose stack reads `.env.server`.
+
+Hero photos, ambient backgrounds and section illustrations try **Pixabay → Openverse → Pexels**.
+Specific people/places/objects use Commons first and Openverse with exact subject checks as a fallback.
+Stock covers are labelled as illustrations. Author, source page, licence and licence URL are kept with each photo.
+Openverse results are restricted to CC BY, CC0 and Public Domain. Search results are cached for 24 hours in
+Postgres and memory, following [Pixabay's API requirements](https://pixabay.com/api/docs/).
+
+Migration `031_photo_storage.sql` adds the persistent search cache and R2 photo registry. Run `npm run migrate`
+before starting the API (the normal Docker/Render entrypoint already does this). Only selected, licensed photos
+are downloaded, with public-host/redirect checks, file-signature validation and an 8 MiB limit. Photo storage
+uses R2 without a database-blob fallback. When R2 is unavailable, stock candidates are skipped; Pixabay URLs
+are never published as permanent hotlinks. Publisher photos retain their original URLs.
+
+Objects use the isolated `photos/` prefix. Each photo expires **3 calendar months after its first upload**;
+reuse does not extend that date. The API hides expired photos immediately and a separate hourly cleanup worker
+deletes their R2 objects, retrying failed deletions. Cleanup starts on API startup even if news media enrichment
+is disabled. Physical deletion occurs on the next successful cleanup while the API is running.
+With a private bucket the API serves `/api/v1/media/photos/:file`; response URLs are made absolute for mobile
+clients. A public R2 domain is optional. Other R2 objects (audio/caricatures) are unaffected.
+
+For deletion even while the API is offline, optionally add an R2 bucket lifecycle rule limited to `photos/`
+with a 93-day expiry as a safety net (three calendar months can span up to 92 days). Keep existing bucket rules.
+Cloudflare lifecycle expiry uses days rather than calendar months; the application's registry remains the
+exact retention clock. See [R2 object lifecycles](https://developers.cloudflare.com/r2/buckets/object-lifecycles/).

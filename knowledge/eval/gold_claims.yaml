@@ -1,0 +1,727 @@
+# All texts are invented evaluation fixtures, not reports of actual events.
+# Cited outlets attribute the embedded action (claim); hedging makes it speculation.
+# Subjects and objects use the entity's first surface form, including inflection.
+version: 1
+cases:
+  - id: en-acq-01
+    lang: en
+    published_at: 2026-11-17
+    text: "According to Reuters, Nimbus acquired Pico for $45 million on November 16, 2026."
+    entities: [Reuters, Nimbus, Pico]
+    claims:
+      - {subject: Nimbus, predicate: acquire, object: Pico, value: 45000000, unit: USD, modality: claim, negated: false, time: 2026-11-16}
+    tags: [amount, date, cited-outlet, claim]
+
+  - id: en-acq-02
+    lang: en
+    published_at: 2026-11-17
+    text: "Pico was acquired by Nimbus for EUR 18 million."
+    entities: [Pico, Nimbus]
+    claims:
+      - {subject: Nimbus, predicate: acquire, object: Pico, value: 18000000, unit: EUR, modality: fact, negated: false}
+    tags: [passive, amount]
+
+  - id: en-invest-01
+    lang: en
+    published_at: 2026-11-17
+    text: "Aster invested $10 million in Volt, while Birch plans to invest $50 million in Solis."
+    entities: [Aster, Volt, Birch, Solis]
+    claims:
+      - {subject: Aster, predicate: invest_in, object: Volt, value: 10000000, unit: USD, modality: fact, negated: false}
+      - {subject: Birch, predicate: invest_in, object: Solis, value: 50000000, unit: USD, modality: plan, negated: false}
+    tags: [two-actions-amounts, amount, plan]
+
+  - id: en-funding-01
+    lang: en
+    published_at: 2026-11-16
+    text: "Luma said it raised GBP 12 million in a funding round."
+    entities: [Luma]
+    claims:
+      - {subject: Luma, predicate: raise_funds, object: null, value: 12000000, unit: GBP, modality: fact, negated: false}
+    tags: [anaphora, amount, self-report]
+
+  - id: en-partner-01
+    lang: en
+    published_at: 2026-11-16
+    text: "Helio is a battery manufacturer. It partnered with GridCo on storage research."
+    entities: [Helio, GridCo]
+    claims:
+      - {subject: Helio, predicate: partner_with, object: GridCo, modality: fact, negated: false}
+    tags: [anaphora]
+
+  - id: en-agreement-01
+    lang: en
+    published_at: 2026-11-15
+    text: "Porta signed a maintenance agreement with RailCo."
+    entities: [Porta, RailCo]
+    claims:
+      - {subject: Porta, predicate: sign_agreement, object: RailCo, modality: fact, negated: false}
+    tags: [agreement]
+
+  - id: en-launch-01
+    lang: en
+    published_at: 2026-11-17
+    text: "Orbita is a satellite operator. It will launch four satellites on November 20, 2026."
+    entities: [Orbita]
+    claims:
+      - {subject: Orbita, predicate: launch, object: null, value: 4, unit: units, modality: plan, negated: false, time: 2026-11-20}
+    tags: [anaphora, plan, amount, date]
+
+  - id: en-announce-01
+    lang: en
+    published_at: 2026-11-16
+    text: "Cedar announced a new corporate strategy."
+    entities: [Cedar]
+    claims:
+      - {subject: Cedar, predicate: announce, object: null, modality: fact, negated: false}
+    tags: [announcement]
+
+  - id: en-appoint-01
+    lang: en
+    published_at: 2026-11-16
+    text: "Northbank appointed Anna Reed as chief financial officer."
+    entities: [Northbank, Anna Reed]
+    claims:
+      - {subject: Northbank, predicate: appoint, object: Anna Reed, modality: fact, negated: false}
+    tags: [personnel]
+
+  - id: en-dismiss-01
+    lang: en
+    published_at: 2026-11-15
+    text: "Westport dismissed chief executive Martin Cole."
+    entities: [Westport, Martin Cole]
+    claims:
+      - {subject: Westport, predicate: dismiss, object: Martin Cole, modality: fact, negated: false}
+    tags: [personnel]
+
+  - id: en-resign-01
+    lang: en
+    published_at: 2026-11-15
+    text: "Finance minister Julia Hart resigned on November 14, 2026."
+    entities: [Julia Hart]
+    claims:
+      - {subject: Julia Hart, predicate: resign, object: null, modality: fact, negated: false, time: 2026-11-14}
+    tags: [personnel, date]
+
+  - id: en-sue-01
+    lang: en
+    published_at: 2026-11-16
+    text: "Meridian sued Atlas over a disputed patent."
+    entities: [Meridian, Atlas]
+    claims:
+      - {subject: Meridian, predicate: sue, object: Atlas, modality: fact, negated: false}
+    tags: [legal]
+
+  - id: en-fine-01
+    lang: en
+    published_at: 2026-11-16
+    text: "ClearPay was fined $2 million by the Financial Conduct Authority for reporting failures."
+    entities: [ClearPay, Financial Conduct Authority]
+    claims:
+      - {subject: Financial Conduct Authority, predicate: fine, object: ClearPay, value: 2000000, unit: USD, modality: fact, negated: false}
+    tags: [passive, amount, legal]
+
+  - id: en-sanction-01
+    lang: en
+    published_at: 2026-11-17
+    text: "Canada imposed sanctions on Vektor."
+    entities: [Canada, Vektor]
+    claims:
+      - {subject: Canada, predicate: sanction, object: Vektor, modality: fact, negated: false}
+    tags: [sanctions]
+
+  - id: en-ban-01
+    lang: en
+    published_at: 2026-11-17
+    text: "Norway banned imports from TerraChem."
+    entities: [Norway, TerraChem]
+    claims:
+      - {subject: Norway, predicate: ban, object: TerraChem, modality: fact, negated: false}
+    tags: [trade]
+
+  - id: en-approve-01
+    lang: en
+    published_at: 2026-11-16
+    text: "The European Commission approved Helio's subsidy application."
+    entities: [European Commission, Helio]
+    claims:
+      - {subject: European Commission, predicate: approve, object: Helio, modality: fact, negated: false}
+    tags: [regulatory]
+
+  - id: en-reject-01
+    lang: en
+    published_at: 2026-11-16
+    text: "The Competition Authority rejected Nimbus's merger application."
+    entities: [Competition Authority, Nimbus]
+    claims:
+      - {subject: Competition Authority, predicate: reject, object: Nimbus, modality: fact, negated: false}
+    tags: [regulatory]
+
+  - id: en-attack-01
+    lang: en
+    published_at: 2026-11-17
+    text: "Kharkiv was attacked by unidentified drones on November 16, 2026."
+    entities: [Kharkiv]
+    claims:
+      - {subject: null, predicate: attack, object: Kharkiv, modality: fact, negated: false, time: 2026-11-16}
+    tags: [passive, date, unknown-actor]
+
+  - id: en-destroy-01
+    lang: en
+    published_at: 2026-11-17
+    text: "Ukraine destroyed an ammunition depot."
+    entities: [Ukraine]
+    claims:
+      - {subject: Ukraine, predicate: destroy, object: null, modality: fact, negated: false}
+    tags: [conflict]
+
+  - id: en-capture-01
+    lang: en
+    published_at: 2026-11-16
+    text: "Russia captured the village of Berehove."
+    entities: [Russia, Berehove]
+    claims:
+      - {subject: Russia, predicate: capture, object: Berehove, modality: fact, negated: false}
+    tags: [conflict]
+
+  - id: en-liberate-01
+    lang: en
+    published_at: 2026-11-16
+    text: "Ukraine liberated the village of Lisove."
+    entities: [Ukraine, Lisove]
+    claims:
+      - {subject: Ukraine, predicate: liberate, object: Lisove, modality: fact, negated: false}
+    tags: [conflict]
+
+  - id: en-meet-01
+    lang: en
+    published_at: 2026-11-17
+    text: "Macron met Zelenskyy in Paris."
+    entities: [Macron, Zelenskyy, Paris]
+    claims:
+      - {subject: Macron, predicate: meet, object: Zelenskyy, modality: fact, negated: false}
+    tags: [diplomacy]
+
+  - id: en-visit-01
+    lang: en
+    published_at: 2026-11-17
+    text: "Zelenskyy visited Warsaw on November 12, 2026."
+    entities: [Zelenskyy, Warsaw]
+    claims:
+      - {subject: Zelenskyy, predicate: visit, object: Warsaw, modality: fact, negated: false, time: 2026-11-12}
+    tags: [date, diplomacy]
+
+  - id: en-pledge-01
+    lang: en
+    published_at: 2026-11-17
+    text: "Sweden pledged EUR 30 million in aid to Ukraine."
+    entities: [Sweden, Ukraine]
+    claims:
+      - {subject: Sweden, predicate: pledge, object: Ukraine, value: 30000000, unit: EUR, modality: fact, negated: false}
+    tags: [aid-stages, amount]
+
+  - id: en-provide-01
+    lang: en
+    published_at: 2026-11-17
+    text: "Macron said France delivered EUR 40 million in aid to Ukraine. He said France will provide another EUR 10 million to Ukraine."
+    entities: [Macron, France, Ukraine]
+    claims:
+      - {subject: France, predicate: provide, object: Ukraine, value: 40000000, unit: EUR, modality: claim, negated: false}
+      - {subject: France, predicate: provide, object: Ukraine, value: 10000000, unit: EUR, modality: plan, negated: false}
+    tags: [claim, aid-stages, amount, two-actions-amounts, plan, anaphora]
+
+  - id: en-condemn-01
+    lang: en
+    published_at: 2026-11-16
+    text: "The United Nations condemned the attack on a hospital."
+    entities: [United Nations]
+    claims:
+      - {subject: United Nations, predicate: condemn, object: null, modality: fact, negated: false}
+    tags: [conflict]
+
+  - id: en-accuse-01
+    lang: en
+    published_at: 2026-11-16
+    text: "The Customs Agency accused Orion of customs fraud."
+    entities: [Customs Agency, Orion]
+    claims:
+      - {subject: Customs Agency, predicate: accuse, object: Orion, modality: fact, negated: false}
+    tags: [legal]
+
+  - id: en-detain-01
+    lang: en
+    published_at: 2026-11-17
+    text: "The Metropolitan Police detained David Lane."
+    entities: [Metropolitan Police, David Lane]
+    claims:
+      - {subject: Metropolitan Police, predicate: detain, object: David Lane, modality: fact, negated: false}
+    tags: [legal-stages]
+
+  - id: en-charge-01
+    lang: en
+    published_at: 2026-11-17
+    text: "The Crown Prosecution Service charged David Lane with fraud."
+    entities: [Crown Prosecution Service, David Lane]
+    claims:
+      - {subject: Crown Prosecution Service, predicate: charge, object: David Lane, modality: fact, negated: false}
+    tags: [legal-stages]
+
+  - id: en-convict-01
+    lang: en
+    published_at: 2026-11-17
+    text: "Southwark Crown Court convicted David Lane of fraud."
+    entities: [Southwark Crown Court, David Lane]
+    claims:
+      - {subject: Southwark Crown Court, predicate: convict, object: David Lane, modality: fact, negated: false}
+    tags: [legal-stages]
+
+  - id: en-win-01
+    lang: en
+    published_at: 2026-11-16
+    text: "Maya Brooks won the mayoral election with 54 percent of the vote."
+    entities: [Maya Brooks]
+    claims:
+      - {subject: Maya Brooks, predicate: win, object: null, value: 54, unit: percent, modality: fact, negated: false}
+    tags: [election, amount]
+
+  - id: en-layoffs-01
+    lang: en
+    published_at: 2026-11-16
+    text: "Cobalt will lay off 600 employees."
+    entities: [Cobalt]
+    claims:
+      - {subject: Cobalt, predicate: layoffs, object: null, value: 600, unit: people, modality: plan, negated: false}
+    tags: [plan, amount]
+
+  - id: en-denial-01
+    lang: en
+    published_at: 2026-11-17
+    text: "Nightfall denied breaching Northbank's network."
+    entities: [Nightfall, Northbank]
+    claims:
+      - {subject: Nightfall, predicate: breach, object: Northbank, modality: denial, negated: false}
+    tags: [denial]
+
+  - id: en-negation-01
+    lang: en
+    published_at: 2026-11-17
+    text: "Canada did not supply wheat to Egypt."
+    entities: [Canada, Egypt]
+    claims:
+      - {subject: Canada, predicate: supply_trade, object: Egypt, modality: fact, negated: true}
+    tags: [negation, trade]
+
+  - id: en-speculation-01
+    lang: en
+    published_at: 2026-11-17
+    text: "According to Reuters, Nimbus may acquire Luma for $90 million."
+    entities: [Reuters, Nimbus, Luma]
+    claims:
+      - {subject: Nimbus, predicate: acquire, object: Luma, value: 90000000, unit: USD, modality: speculation, negated: false}
+    tags: [cited-outlet, speculation, amount]
+
+  - id: en-no-claim-01
+    lang: en
+    published_at: 2026-11-17
+    text: "The acquisition market remained quiet in November. Nimbus is a software company based in London."
+    entities: [Nimbus, London]
+    claims: []
+    tags: [no-claim, keyword-distractor]
+
+  - id: uk-acq-01
+    lang: uk
+    published_at: 2026-11-17
+    text: "Атлас заявив, що придбає Орбіту за 25 млн євро."
+    entities: [Атлас, Орбіту]
+    claims:
+      - {subject: Атлас, predicate: acquire, object: Орбіту, value: 25000000, unit: EUR, modality: plan, negated: false}
+    tags: [plan, amount, self-report, ukrainian-cases]
+
+  - id: uk-acq-02
+    lang: uk
+    published_at: 2026-11-17
+    text: "Компанію Вектор придбала група Меридіан за 8 млн доларів."
+    entities: [Вектор, Меридіан]
+    claims:
+      - {subject: Меридіан, predicate: acquire, object: Вектор, value: 8000000, unit: USD, modality: fact, negated: false}
+    tags: [passive, amount]
+
+  - id: uk-invest-01
+    lang: uk
+    published_at: 2026-11-17
+    text: "Астер інвестував 10 млн доларів у Вольт, а Береза планує інвестувати 50 млн доларів у Соліс."
+    entities: [Астер, Вольт, Береза, Соліс]
+    claims:
+      - {subject: Астер, predicate: invest_in, object: Вольт, value: 10000000, unit: USD, modality: fact, negated: false}
+      - {subject: Береза, predicate: invest_in, object: Соліс, value: 50000000, unit: USD, modality: plan, negated: false}
+    tags: [two-actions-amounts, amount, plan]
+
+  - id: uk-funding-01
+    lang: uk
+    published_at: 2026-11-16
+    text: "Стартап Лума залучив 70 млн гривень у новому раунді фінансування."
+    entities: [Лума]
+    claims:
+      - {subject: Лума, predicate: raise_funds, object: null, value: 70000000, unit: UAH, modality: fact, negated: false}
+    tags: [amount]
+
+  - id: uk-partner-01
+    lang: uk
+    published_at: 2026-11-16
+    text: "Геліос — виробник акумуляторів. Компанія заявила, що уклала партнерство з ЕнергоЛінком."
+    entities: [Геліос, ЕнергоЛінком]
+    claims:
+      - {subject: Геліос, predicate: partner_with, object: ЕнергоЛінком, modality: fact, negated: false}
+    tags: [anaphora, self-report, ukrainian-cases]
+
+  - id: uk-agreement-01
+    lang: uk
+    published_at: 2026-11-17
+    text: "Укррейл має намір підписати угоду з Порталінком."
+    entities: [Укррейл, Порталінком]
+    claims:
+      - {subject: Укррейл, predicate: sign_agreement, object: Порталінком, modality: plan, negated: false}
+    tags: [plan, ukrainian-cases]
+
+  - id: uk-launch-01
+    lang: uk
+    published_at: 2026-11-17
+    text: "Орбіта — оператор супутникового зв'язку. Компанія планує запустити чотири супутники 20 листопада 2026 року."
+    entities: [Орбіта]
+    claims:
+      - {subject: Орбіта, predicate: launch, object: null, value: 4, unit: units, modality: plan, negated: false, time: 2026-11-20}
+    tags: [anaphora, plan, amount, date]
+
+  - id: uk-announce-01
+    lang: uk
+    published_at: 2026-11-16
+    text: "Кедр оголосив нову корпоративну стратегію."
+    entities: [Кедр]
+    claims:
+      - {subject: Кедр, predicate: announce, object: null, modality: fact, negated: false}
+    tags: [announcement]
+
+  - id: uk-appoint-01
+    lang: uk
+    published_at: 2026-11-16
+    text: "Зеленський призначив Олену Бондар міністеркою економіки."
+    entities: [Зеленський, Олену Бондар]
+    claims:
+      - {subject: Зеленський, predicate: appoint, object: Олену Бондар, modality: fact, negated: false}
+    tags: [personnel, ukrainian-cases]
+
+  - id: uk-dismiss-01
+    lang: uk
+    published_at: 2026-11-16
+    text: "Кабмін звільнив Івана Мельника з посади голови агентства."
+    entities: [Кабмін, Івана Мельника]
+    claims:
+      - {subject: Кабмін, predicate: dismiss, object: Івана Мельника, modality: fact, negated: false}
+    tags: [homonym, personnel, ukrainian-cases]
+
+  - id: uk-liberate-01
+    lang: uk
+    published_at: 2026-11-16
+    text: "ЗСУ звільнили село Лісове."
+    entities: [ЗСУ, Лісове]
+    claims:
+      - {subject: ЗСУ, predicate: liberate, object: Лісове, modality: fact, negated: false}
+    tags: [homonym, conflict]
+
+  - id: uk-resign-01
+    lang: uk
+    published_at: 2026-11-15
+    text: "Міністерка Олена Бондар пішла у відставку 14 листопада 2026 року."
+    entities: [Олена Бондар]
+    claims:
+      - {subject: Олена Бондар, predicate: resign, object: null, modality: fact, negated: false, time: 2026-11-14}
+    tags: [personnel, date]
+
+  - id: uk-sue-01
+    lang: uk
+    published_at: 2026-11-16
+    text: "Меридіан подав позов проти Атласу через патентну суперечку."
+    entities: [Меридіан, Атласу]
+    claims:
+      - {subject: Меридіан, predicate: sue, object: Атласу, modality: fact, negated: false}
+    tags: [legal, ukrainian-cases]
+
+  - id: uk-fine-01
+    lang: uk
+    published_at: 2026-11-16
+    text: "НБУ оштрафував Північний банк на 12 млн гривень за порушення звітності."
+    entities: [НБУ, Північний банк]
+    claims:
+      - {subject: НБУ, predicate: fine, object: Північний банк, value: 12000000, unit: UAH, modality: fact, negated: false}
+    tags: [amount, legal]
+
+  - id: uk-sanction-01
+    lang: uk
+    published_at: 2026-11-17
+    text: "Україна запровадила санкції проти Вектора."
+    entities: [Україна, Вектора]
+    claims:
+      - {subject: Україна, predicate: sanction, object: Вектора, modality: fact, negated: false}
+    tags: [sanctions, ukrainian-cases]
+
+  - id: uk-ban-01
+    lang: uk
+    published_at: 2026-11-17
+    text: "Норвегія заборонила імпорт продукції компанії ТерраХім."
+    entities: [Норвегія, ТерраХім]
+    claims:
+      - {subject: Норвегія, predicate: ban, object: ТерраХім, modality: fact, negated: false}
+    tags: [trade]
+
+  - id: uk-approve-01
+    lang: uk
+    published_at: 2026-11-16
+    text: "Єврокомісія схвалила заявку Геліоса на субсидію."
+    entities: [Єврокомісія, Геліоса]
+    claims:
+      - {subject: Єврокомісія, predicate: approve, object: Геліоса, modality: fact, negated: false}
+    tags: [regulatory, ukrainian-cases]
+
+  - id: uk-reject-01
+    lang: uk
+    published_at: 2026-11-16
+    text: "Антимонопольний комітет відхилив заявку Атласу на злиття."
+    entities: [Антимонопольний комітет, Атласу]
+    claims:
+      - {subject: Антимонопольний комітет, predicate: reject, object: Атласу, modality: fact, negated: false}
+    tags: [regulatory, ukrainian-cases]
+
+  - id: uk-attack-01
+    lang: uk
+    published_at: 2026-11-17
+    text: "Харків атакували російські дрони 16 листопада 2026 року."
+    entities: [Харків]
+    claims:
+      - {subject: null, predicate: attack, object: Харків, modality: fact, negated: false, time: 2026-11-16}
+    tags: [passive, date, unknown-actor]
+
+  - id: uk-attack-02
+    lang: uk
+    published_at: 2026-11-17
+    text: "Росія атакувала Харків дронами."
+    entities: [Росія, Харків]
+    claims:
+      - {subject: Росія, predicate: attack, object: Харків, modality: fact, negated: false}
+    tags: [conflict, named-actor]
+
+  - id: uk-destroy-01
+    lang: uk
+    published_at: 2026-11-17
+    text: "ЗСУ знищили склад боєприпасів."
+    entities: [ЗСУ]
+    claims:
+      - {subject: ЗСУ, predicate: destroy, object: null, modality: fact, negated: false}
+    tags: [conflict]
+
+  - id: uk-capture-01
+    lang: uk
+    published_at: 2026-11-16
+    text: "Росія захопила село Берегове."
+    entities: [Росія, Берегове]
+    claims:
+      - {subject: Росія, predicate: capture, object: Берегове, modality: fact, negated: false}
+    tags: [conflict]
+
+  - id: uk-meet-01
+    lang: uk
+    published_at: 2026-11-17
+    text: "Макрон зустрів Зеленського в Парижі."
+    entities: [Макрон, Зеленського, Парижі]
+    claims:
+      - {subject: Макрон, predicate: meet, object: Зеленського, modality: fact, negated: false}
+    tags: [ukrainian-cases, diplomacy]
+
+  - id: uk-visit-01
+    lang: uk
+    published_at: 2026-11-17
+    text: "Зеленський прибув до Києва з офіційним візитом 12 листопада 2026 року. Він повідомив Макрону, що планує відвідати Францію."
+    entities: [Зеленський, Києва, Макрону, Францію]
+    claims:
+      - {subject: Зеленський, predicate: visit, object: Києва, modality: fact, negated: false, time: 2026-11-12}
+      - {subject: Зеленський, predicate: visit, object: Францію, modality: plan, negated: false}
+    tags: [ukrainian-cases, date, diplomacy, plan, anaphora]
+
+  - id: uk-pledge-01
+    lang: uk
+    published_at: 2026-11-17
+    text: "Швеція пообіцяла Україні 30 млн євро допомоги."
+    entities: [Швеція, Україні]
+    claims:
+      - {subject: Швеція, predicate: pledge, object: Україні, value: 30000000, unit: EUR, modality: fact, negated: false}
+    tags: [aid-stages, amount, ukrainian-cases]
+
+  - id: uk-provide-01
+    lang: uk
+    published_at: 2026-11-17
+    text: "Франція передала Україні 40 млн євро допомоги."
+    entities: [Франція, Україні]
+    claims:
+      - {subject: Франція, predicate: provide, object: Україні, value: 40000000, unit: EUR, modality: fact, negated: false}
+    tags: [aid-stages, amount, ukrainian-cases]
+
+  - id: uk-condemn-01
+    lang: uk
+    published_at: 2026-11-16
+    text: "ООН засудила напад на лікарню."
+    entities: [ООН]
+    claims:
+      - {subject: ООН, predicate: condemn, object: null, modality: fact, negated: false}
+    tags: [homonym, conflict]
+
+  - id: uk-convict-01
+    lang: uk
+    published_at: 2026-11-17
+    text: "Шевченківський суд засудив Івана Мельника до 8 років ув'язнення за шахрайство."
+    entities: [Шевченківський суд, Івана Мельника]
+    claims:
+      - {subject: Шевченківський суд, predicate: convict, object: Івана Мельника, modality: fact, negated: false}
+    tags: [homonym, legal-stages, ukrainian-cases]
+
+  - id: uk-detain-01
+    lang: uk
+    published_at: 2026-11-17
+    text: "СБУ затримала Івана Мельника."
+    entities: [СБУ, Івана Мельника]
+    claims:
+      - {subject: СБУ, predicate: detain, object: Івана Мельника, modality: fact, negated: false}
+    tags: [legal-stages, ukrainian-cases]
+
+  - id: uk-charge-01
+    lang: uk
+    published_at: 2026-11-17
+    text: "СБУ повідомила Івану Мельнику про підозру в шахрайстві."
+    entities: [СБУ, Івану Мельнику]
+    claims:
+      - {subject: СБУ, predicate: charge, object: Івану Мельнику, modality: fact, negated: false}
+    tags: [legal-stages, ukrainian-cases]
+
+  - id: uk-claim-01
+    lang: uk
+    published_at: 2026-11-17
+    text: "За словами Макрона, Франція передала Україні 15 млн євро допомоги. Він додав, що Франція передасть Україні ще 5 млн євро."
+    entities: [Макрона, Франція, Україні]
+    claims:
+      - {subject: Франція, predicate: provide, object: Україні, value: 15000000, unit: EUR, modality: claim, negated: false}
+      - {subject: Франція, predicate: provide, object: Україні, value: 5000000, unit: EUR, modality: plan, negated: false}
+    tags: [claim, aid-stages, amount, ukrainian-cases, two-actions-amounts, plan, anaphora]
+
+  - id: uk-denial-01
+    lang: uk
+    published_at: 2026-11-17
+    text: "Атлас заперечив придбання Орбіти."
+    entities: [Атлас, Орбіти]
+    claims:
+      - {subject: Атлас, predicate: acquire, object: Орбіти, modality: denial, negated: false}
+    tags: [denial, ukrainian-cases]
+
+  - id: uk-negation-01
+    lang: uk
+    published_at: 2026-11-17
+    text: "Німеччина не надала Україні фінансової допомоги."
+    entities: [Німеччина, Україні]
+    claims:
+      - {subject: Німеччина, predicate: provide, object: Україні, modality: fact, negated: true}
+    tags: [negation, aid-stages, ukrainian-cases]
+
+  - id: uk-speculation-01
+    lang: uk
+    published_at: 2026-11-17
+    text: "Оріон нібито інвестував 6 млн євро в Геліос."
+    entities: [Оріон, Геліос]
+    claims:
+      - {subject: Оріон, predicate: invest_in, object: Геліос, value: 6000000, unit: EUR, modality: speculation, negated: false}
+    tags: [speculation, amount]
+
+  - id: uk-cited-outlet-01
+    lang: uk
+    published_at: 2026-11-17
+    text: "За даними Reuters, АгроСвіт поставив Єгипту 12000 тонн пшениці."
+    entities: [Reuters, АгроСвіт, Єгипту]
+    claims:
+      - {subject: АгроСвіт, predicate: supply_trade, object: Єгипту, value: 12000, unit: tonnes, modality: claim, negated: false}
+    tags: [cited-outlet, claim, amount, ukrainian-cases]
+
+  - id: uk-no-claim-01
+    lang: uk
+    published_at: 2026-11-17
+    text: "Звільнення та інвестиції — теми листопадового огляду. Атлас — технологічна компанія з Києва."
+    entities: [Атлас, Києва]
+    claims: []
+    tags: [no-claim, keyword-distractor, ukrainian-cases]
+
+  - id: de-invest-01
+    lang: de
+    published_at: 2026-11-17
+    text: "Aster investierte 10 Millionen Euro in Volt, während Birke 50 Millionen Euro in Solis investieren will."
+    entities: [Aster, Volt, Birke, Solis]
+    claims:
+      - {subject: Aster, predicate: invest_in, object: Volt, value: 10000000, unit: EUR, modality: fact, negated: false}
+      - {subject: Birke, predicate: invest_in, object: Solis, value: 50000000, unit: EUR, modality: plan, negated: false}
+    tags: [two-actions-amounts, amount, plan]
+
+  - id: de-speculation-01
+    lang: de
+    published_at: 2026-11-17
+    text: "Laut Reuters könnte Nimbus Luma für 90 Millionen Euro übernehmen."
+    entities: [Reuters, Nimbus, Luma]
+    claims:
+      - {subject: Nimbus, predicate: acquire, object: Luma, value: 90000000, unit: EUR, modality: speculation, negated: false}
+    tags: [speculation, cited-outlet, amount]
+
+  - id: de-denial-01
+    lang: de
+    published_at: 2026-11-17
+    text: "Atlas dementierte die Übernahme von Orbita."
+    entities: [Atlas, Orbita]
+    claims:
+      - {subject: Atlas, predicate: acquire, object: Orbita, modality: denial, negated: false}
+    tags: [denial]
+
+  - id: de-negation-01
+    lang: de
+    published_at: 2026-11-17
+    text: "Deutschland lieferte der Ukraine keine Generatoren."
+    entities: [Deutschland, Ukraine]
+    claims:
+      - {subject: Deutschland, predicate: provide, object: Ukraine, modality: fact, negated: true}
+    tags: [negation, aid-stages]
+
+  - id: de-detain-01
+    lang: de
+    published_at: 2026-11-17
+    text: "Martin Keller wurde am 12. November 2026 von der Bundespolizei festgenommen."
+    entities: [Martin Keller, Bundespolizei]
+    claims:
+      - {subject: Bundespolizei, predicate: detain, object: Martin Keller, modality: fact, negated: false, time: 2026-11-12}
+    tags: [passive, legal-stages, date]
+
+  - id: de-breach-01
+    lang: de
+    published_at: 2026-11-17
+    text: "Die Hackergruppe Nachtfalter drang in das Netzwerk der Nordbank ein."
+    entities: [Nachtfalter, Nordbank]
+    claims:
+      - {subject: Nachtfalter, predicate: breach, object: Nordbank, modality: fact, negated: false}
+    tags: [cybersecurity]
+
+  - id: de-trade-01
+    lang: de
+    published_at: 2026-11-17
+    text: "Agrona lieferte 20000 Tonnen Weizen an Ägypten."
+    entities: [Agrona, Ägypten]
+    claims:
+      - {subject: Agrona, predicate: supply_trade, object: Ägypten, value: 20000, unit: tonnes, modality: fact, negated: false}
+    tags: [trade, amount]
+
+  - id: de-no-claim-01
+    lang: de
+    published_at: 2026-11-17
+    text: "Übernahmen sind das Thema des Novemberberichts. Atlas ist ein Softwareunternehmen mit Sitz in Berlin."
+    entities: [Atlas, Berlin]
+    claims: []
+    tags: [no-claim, keyword-distractor]

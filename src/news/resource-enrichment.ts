@@ -4,8 +4,9 @@
  * and finds freely licensed Wikimedia Commons photos for stories that have no picture at all.
  * Every request goes to a validated public host with an honest User-Agent and a short timeout.
  */
-import { getHonestUserAgent, resolveAndValidatePublicUrl } from '../common/source-compliance';
+import { fetchPublicUrl, getHonestUserAgent } from '../common/source-compliance';
 import { ArticleFigure, ArticleResource, hostOf, isFreeLicense, parsePagePreview, youtubeVideoId } from './article-resources';
+import { hasWholeTerm } from './event-media';
 import { normalizeImageUrl, stripTags } from './image-extraction';
 
 export type HtmlFetcher = (url: string) => Promise<string | null>;
@@ -13,16 +14,13 @@ export type HtmlFetcher = (url: string) => Promise<string | null>;
 const MAX_JSON_BYTES = 400_000;
 
 export async function fetchJson<T>(url: string, headers: Record<string, string> = {}): Promise<T | null> {
-  const safe = await resolveAndValidatePublicUrl(url).catch(() => ({ safe: false }));
-  if (!safe.safe) return null;
   try {
-    const resp = await fetch(url, {
+    const resp = await fetchPublicUrl(url, {
       headers: { 'User-Agent': getHonestUserAgent(), Accept: 'application/json', ...headers },
-      signal: AbortSignal.timeout(7_000),
-      redirect: 'follow',
+      timeoutMs: 7_000,
     });
-    if (!resp.ok) {
-      await resp.body?.cancel().catch(() => undefined);
+    if (!resp || !resp.ok) {
+      await resp?.body?.cancel().catch(() => undefined);
       return null;
     }
     const text = await resp.text();
@@ -34,12 +32,13 @@ export async function fetchJson<T>(url: string, headers: Record<string, string> 
 }
 
 async function fetchText(url: string, accept: string): Promise<string | null> {
-  const safe = await resolveAndValidatePublicUrl(url).catch(() => ({ safe: false }));
-  if (!safe.safe) return null;
   try {
-    const resp = await fetch(url, { headers: { 'User-Agent': getHonestUserAgent(), Accept: accept }, signal: AbortSignal.timeout(7_000) });
-    if (!resp.ok) {
-      await resp.body?.cancel().catch(() => undefined);
+    const resp = await fetchPublicUrl(url, {
+      headers: { 'User-Agent': getHonestUserAgent(), Accept: accept },
+      timeoutMs: 7_000,
+    });
+    if (!resp || !resp.ok) {
+      await resp?.body?.cancel().catch(() => undefined);
       return null;
     }
     return (await resp.text()).slice(0, MAX_JSON_BYTES);
@@ -50,22 +49,21 @@ async function fetchText(url: string, accept: string): Promise<string | null> {
 
 /** HEAD (then a 1-byte GET) to check that a link still resolves. Linking needs no page content. */
 export async function isReachable(url: string): Promise<boolean | null> {
-  const safe = await resolveAndValidatePublicUrl(url).catch(() => ({ safe: false }));
-  if (!safe.safe) return false;
   const attempt = async (method: 'HEAD' | 'GET') => {
-    const resp = await fetch(url, {
+    const resp = await fetchPublicUrl(url, {
       method,
       headers: { 'User-Agent': getHonestUserAgent(), ...(method === 'GET' ? { Range: 'bytes=0-0' } : {}) },
-      signal: AbortSignal.timeout(6_000),
-      redirect: 'follow',
+      timeoutMs: 6_000,
     });
+    if (!resp) return -1;
     await resp.body?.cancel().catch(() => undefined);
     return resp.status;
   };
   try {
     let status = await attempt('HEAD');
+    if (status === -1) return false;
     if (status === 405 || status === 403 || status === 501) status = await attempt('GET');
-    if (status === 404 || status === 410) return false;
+    if (status === -1 || status === 404 || status === 410) return false;
     if (status >= 200 && status < 400) return true;
     return null; // 401/403/429/5xx: the link exists but the site refuses bots, so keep it unverified
   } catch {
@@ -244,6 +242,7 @@ export async function findCommonsImage(name: string, lang: 'uk' | 'en'): Promise
     caption: description && description.length >= 12 ? description : page.title || title,
     credit: `${author} / Wikimedia Commons, ${license}`,
     license,
+    licenseUrl: normalizeImageUrl(meta.LicenseUrl?.value) || undefined,
     link: info.descriptionurl,
     ...(info.thumbwidth ? { width: info.thumbwidth } : {}),
     ...(info.thumbheight ? { height: info.thumbheight } : {}),
@@ -251,4 +250,90 @@ export async function findCommonsImage(name: string, lang: 'uk' | 'en'): Promise
     position: 0,
     origin: 'commons',
   };
+}
+
+/**
+ * Searches Wikimedia Commons directly for freely licensed photos matching a topic/event query.
+ * When mustMatchTerms is provided, requires at least one core entity/event term to appear in the
+ * Commons file title or description so unrelated stock results are rejected.
+ */
+export async function searchCommonsImages(
+  rawQuery: string,
+  options?: { limit?: number; minWidth?: number; mustMatchTerms?: string[]; usedUrls?: Set<string> },
+): Promise<ArticleFigure[]> {
+  const query = rawQuery.replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (query.length < 3) return [];
+  const limit = Math.min(6, Math.max(1, options?.limit ?? 3));
+  const minWidth = options?.minWidth ?? 800;
+  const mustMatch = (options?.mustMatchTerms ?? [])
+    .map((t) => t.toLowerCase().trim())
+    .filter((t) => t.length >= 3);
+
+  const searchUrl =
+    `https://commons.wikimedia.org/w/api.php?action=query&format=json&generator=search&gsrnamespace=6` +
+    `&gsrsearch=${encodeURIComponent(query)}&gsrlimit=8&prop=imageinfo&iiprop=url%7Cextmetadata%7Csize%7Cmime&iiurlwidth=1280`;
+
+  const res = await fetchJson<{
+    query?: {
+      pages?: Record<string, {
+        title?: string;
+        index?: number;
+        imageinfo?: Array<{
+          thumburl?: string;
+          thumbwidth?: number;
+          thumbheight?: number;
+          width?: number;
+          height?: number;
+          descriptionurl?: string;
+          mime?: string;
+          extmetadata?: Record<string, { value?: string }>;
+        }>;
+      }>;
+    };
+  }>(searchUrl);
+
+  const pages = Object.values(res?.query?.pages ?? {}).sort((a, b) => (a.index ?? 99) - (b.index ?? 99));
+  const out: ArticleFigure[] = [];
+  for (const p of pages) {
+    const info = p.imageinfo?.[0];
+    if (!info?.thumburl || !/^image\/(jpeg|png|webp)$/.test(info.mime || '')) continue;
+    const w = info.thumbwidth ?? info.width ?? 0;
+    const h = info.thumbheight ?? info.height ?? 0;
+    if (w < minWidth || (h > 0 && w / h < 1.0)) continue;
+
+    const meta = info.extmetadata ?? {};
+    const license = stripTags(meta.LicenseShortName?.value || '');
+    if (!isFreeLicense(license)) continue;
+    const url = normalizeImageUrl(info.thumburl);
+    if (!url || options?.usedUrls?.has(url)) continue;
+
+    const fileTitle = (p.title || '').replace(/^File:/i, '').replace(/\.[^.]+$/, '');
+    const description = stripTags(meta.ImageDescription?.value || '').slice(0, 220);
+    const haystack = `${fileTitle} ${description}`;
+    if (mustMatch.length > 0) {
+      const hits = mustMatch.filter((term) => hasWholeTerm(haystack, term)).length;
+      const requiredHits = mustMatch.length >= 2 ? 2 : 1;
+      if (hits < requiredHits) continue;
+    }
+
+    const author = stripTags(meta.Artist?.value || '').slice(0, 80) || 'Wikimedia Commons';
+    out.push({
+      id: `c${out.length + 1}`,
+      kind: 'photo',
+      url,
+      caption: description && description.length >= 12 ? description : fileTitle.slice(0, 140),
+      credit: `${author} / Wikimedia Commons, ${license}`,
+      license,
+      licenseUrl: normalizeImageUrl(meta.LicenseUrl?.value) || undefined,
+      link: info.descriptionurl,
+      ...(w ? { width: w } : {}),
+      ...(h ? { height: h } : {}),
+      match: mustMatch.slice(0, 4),
+      position: 0,
+      origin: 'commons',
+      verified: mustMatch.length > 0,
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
 }

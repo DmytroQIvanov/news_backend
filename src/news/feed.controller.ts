@@ -34,6 +34,7 @@ import { SourceDiscoveryService } from './source-discovery.service';
 import { StoryBriefingService } from './story-briefing.service';
 import { AudioBriefingService } from './audio-briefing.service';
 import { llmRouterStatus } from '../common/llm-router';
+import { PhotoStorageService } from '../common/photo-storage.service';
 
 type Lang = 'uk' | 'en';
 
@@ -72,6 +73,7 @@ export class FeedController {
     private readonly audio: AudioBriefingService,
     @Optional() clustering?: NewsClusteringService,
     @Optional() discovery?: SourceDiscoveryService,
+    @Optional() private readonly photos?: PhotoStorageService,
   ) {
     this.news = new NewsController(db, companyFeeds, undefined, undefined, undefined, clustering, discovery);
   }
@@ -279,10 +281,13 @@ export class FeedController {
     @Query('lang') langRaw?: string,
     @Query('depth') depth?: string,
     @Query('style') style?: string,
+    @Query('wait') waitRaw?: string,
   ) {
     if (!/^[A-Za-z0-9_-]{1,120}$/.test(id)) throw new BadRequestException('Invalid id');
     const lang = langRaw && /^[a-z]{2}$/.test(langRaw) ? langRaw : 'en';
-    const res = await this.audio.getAudio(id, lang, { depth, style }, apiBase(req));
+    const waitSec = Number(waitRaw);
+    const waitMs = Number.isFinite(waitSec) && waitSec > 0 ? Math.min(45, waitSec) * 1000 : 0;
+    const res = await this.audio.getAudio(id, lang, { depth, style, waitMs }, apiBase(req));
     if (!res) throw new NotFoundException('Article not found');
     return res;
   }
@@ -304,6 +309,18 @@ export class FeedController {
   @Get('ai/status')
   aiStatus() {
     return { providers: llmRouterStatus() };
+  }
+
+  @Get('media/photos/:file')
+  async photoMedia(@Param('file') file: string, @Res() res: Response) {
+    const key = `photos/${file}`;
+    if (!/^[a-f0-9]{24}-[a-f0-9-]{36}\.(jpg|png|webp|avif)$/.test(file) || !isSafeObjectKey(key)) throw new BadRequestException('Invalid file');
+    const obj = await this.photos?.readMedia(key).catch(() => null);
+    if (!obj) throw new NotFoundException('Not found');
+    res.setHeader('Content-Type', obj.contentType);
+    res.setHeader('Cache-Control', `public, max-age=${obj.maxAge}`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.end(obj.body);
   }
 
   @Get('media/tts/:lang/:file')

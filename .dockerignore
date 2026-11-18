@@ -8,3 +8,7 @@ dist
 *.log
 *.zip
 __pycache__
+knowledge
+backups
+compose.server.yaml
+.env.server*

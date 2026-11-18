@@ -20,7 +20,7 @@ export interface R2Config {
 }
 
 export function readEnv(name: string): string {
-  return (process.env[name] ?? process.env[name.toUpperCase()] ?? '').trim();
+  return process.env[name]?.trim() || process.env[name.toUpperCase()]?.trim() || '';
 }
 
 export function getR2Config(): R2Config | null {
@@ -166,5 +166,6 @@ export class R2Storage {
     const signed = signR2Request({ config: this.config, method: 'DELETE', key, payloadHash: sha256Hex('') });
     const resp = await fetch(signed.url, { method: 'DELETE', headers: signed.headers, signal: AbortSignal.timeout(15_000) });
     await resp.body?.cancel().catch(() => undefined);
+    if (!resp.ok && resp.status !== 404) throw new Error(`R2 DELETE ${resp.status}`);
   }
 }

@@ -6,6 +6,7 @@ import { BatchAngleHint, GeminiEditorService, PolishBatchResult } from '../inges
 import { CATEGORIES } from '../ingest/ingest.dto';
 import { IngestService } from '../ingest/ingest.service';
 import { isAudioAutoGenerateEnabled } from './audio-briefing.service';
+import { isKbEditorialActive } from '../kb/kb-editorial.service';
 import { CompanyFeedsService, isPublishedWithinHours } from './company-feeds.service';
 import { ClusterableArticle, NewsClusteringService } from './news-clustering.service';
 import { NewsTtsService } from './news-tts.service';
@@ -68,6 +69,11 @@ export class FeedEditorialService implements OnModuleInit, OnModuleDestroy {
     let errors = 0;
 
     if (!this.editor.enabled) {
+      return { checked, processed, skipped, errors };
+    }
+    // Task 1: while the knowledge-base pipeline runs, articles are written per event by KbEditorialService.
+    // Writing per RSS item here as well would bring back one-source "garbage" news and spend the same LLM budget.
+    if (await isKbEditorialActive(this.db)) {
       return { checked, processed, skipped, errors };
     }
 

@@ -6,6 +6,8 @@
  * Nothing is ever invented: every URL comes from the page, the feed, or an exact identifier found in the text.
  */
 import { attr, bestFromSrcset, decodeBasicEntities, normalizeImageUrl, stripTags, usableCaption } from './image-extraction';
+import { extractUrlTimecodeSec, type VideoTimecode } from '../common/video-timecodes';
+import type { StoredPhotoMetadata } from '../common/photo-storage.service';
 
 export type ResourceType =
   | 'primary_source'
@@ -45,7 +47,7 @@ export interface ArticleResource {
   verified_at?: string;
 }
 
-export interface ArticleFigure {
+export interface ArticleFigure extends StoredPhotoMetadata {
   id: string;
   kind: 'photo' | 'video' | 'post';
   url: string;
@@ -60,7 +62,11 @@ export interface ArticleFigure {
   match: string[];
   /** 0..1, where the figure sits in the source article; fallback placement when no words match. */
   position: number;
-  origin: 'article' | 'embed' | 'commons';
+  origin: 'article' | 'embed' | 'commons' | 'youtube_search' | 'stock';
+  /** Verified video jump points (from YouTube chapters, transcripts, or ?t= parameters). */
+  timecodes?: VideoTimecode[];
+  /** True when the video/photo passed strict event-entity verification. */
+  verified?: boolean;
 }
 
 export interface LinkCandidate {
@@ -630,6 +636,7 @@ export interface ArticleEmbed {
   kind: 'video' | 'post';
   url: string;
   videoId?: string;
+  startSec?: number;
   context: string;
   position: number;
 }
@@ -653,7 +660,17 @@ export function extractEmbeds(html: string, max = 4): ArticleEmbed[] {
     const src = attr(m[0], 'src') || attr(m[0], 'data-src') || '';
     const abs = src.startsWith('//') ? `https:${src}` : src;
     const id = youtubeVideoId(abs);
-    if (id) push({ kind: 'video', url: `https://www.youtube.com/watch?v=${id}`, videoId: id, context: contextAt(m.index!), position: m.index! / total });
+    const startSec = id ? extractUrlTimecodeSec(abs) ?? undefined : undefined;
+    if (id) {
+      push({
+        kind: 'video',
+        url: `https://www.youtube.com/watch?v=${id}`,
+        videoId: id,
+        ...(startSec ? { startSec } : {}),
+        context: contextAt(m.index!),
+        position: m.index! / total,
+      });
+    }
     const vimeo = /player\.vimeo\.com\/video\/(\d+)/.exec(abs)?.[1];
     if (vimeo) push({ kind: 'video', url: `https://vimeo.com/${vimeo}`, context: contextAt(m.index!), position: m.index! / total });
   }

@@ -31,6 +31,15 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
       GEMINI_RESEARCH: ${GEMINI_RESEARCH:-important}
+      pixabay_api_key: ${pixabay_api_key:-${PIXABAY_API_KEY:-}}
+      pexels_api_key: ${pexels_api_key:-${PEXELS_API_KEY:-}}
+      OPENVERSE_ENABLED: ${OPENVERSE_ENABLED:-true}
+      openverse_access_token: ${openverse_access_token:-}
+      cloudflare_s3_api_endpoint: ${cloudflare_s3_api_endpoint:-}
+      cloudflare_access_key_id: ${cloudflare_access_key_id:-}
+      cloudflare_secret_access_key: ${cloudflare_secret_access_key:-}
+      cloudflare_r2_bucket: ${cloudflare_r2_bucket:-}
+      cloudflare_r2_public_base_url: ${cloudflare_r2_public_base_url:-}
       CORS_ORIGINS: ${CORS_ORIGINS-http://localhost:3001}
       DB_POOL_MAX: 3
     ports:

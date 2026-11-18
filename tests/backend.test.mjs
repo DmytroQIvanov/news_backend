@@ -635,13 +635,13 @@ test('computeModelTokenPracticality scores INITIAL_CATALOG models deterministica
 
 test('Gemini client prioritizes Gemini 3.8/3.6/3 Flash + Hydrogen router and strips tools for Hydrogen', () => {
   assert.deepEqual(FALLBACK_GEMINI_MODELS.slice(0, 5), [
-    'gemini-3.8-flash',
-    'gemini-3.6-flash',
-    'gemini-3-flash',
+    'gemini-3.1-flash-lite',
+    'gemini-2.5-flash-lite',
+    'gemini-3-flash-preview',
     'gemini-4-hydrogen',
-    'gemini-2.5-flash',
+    'gemma-4-31b-it',
   ]);
-  assert.equal(normalizeGeminiModel(undefined), 'gemini-3.8-flash');
+  assert.equal(normalizeGeminiModel(undefined), 'gemini-3.1-flash-lite');
   assert.equal(normalizeGeminiModel('models/gemini-3.8-flash'), 'gemini-3.8-flash');
   assert.equal(DEFAULT_HYDROGEN_MODEL, 'gemini-4-hydrogen');
   assert.equal(isHydrogenModel('gemini-4-hydrogen'), true);
@@ -1059,7 +1059,7 @@ test('GeminiEditorService.edit runs Chain-of-Verification editorial and Hydrogen
       },
     });
     assert.equal(edited.importance, 'high');
-    assert.equal(edited.aiMetadata?.model, 'gemini-3.8-flash');
+    assert.equal(edited.aiMetadata?.model, 'gemini-3.1-flash-lite');
     assert.equal(edited.aiMetadata?.hydrogen_deep_analysis, true);
     assert.equal(
       edited.aiMetadata?.hydrogen_insight,
@@ -2520,6 +2520,7 @@ test('source-compliance enforces SSRF/DNS, robots.txt, TDM/noai headers, and Gem
   assert.equal(dnsPublic.safe, true);
 
   const robotsRes = await checkRobotsTxtPermission('https://strict-publisher.example.com/private/article', {
+    lookupFn: async () => [{ address: '93.184.216.34' }],
     fetchFn: async () =>
       new Response('User-agent: *\nDisallow: /private/\nAllow: /private/open/\n', { status: 200 }),
   });
@@ -4349,4 +4350,262 @@ test('LLM stats: router records ok/429/skips, report flags limits to tune', asyn
   assert.ok(report.hints.some((h) => /429/.test(h)) && report.hints.some((h) => /майже вичерпується/.test(h)));
   assert.match(formatLlmReportText(report), /groq\/m: запитів 100/);
   resetLlmStatsForTests();
+});
+
+
+// ---- Extended media: flux-2-klein-9b, 4/day caricature limit, Pexels scoring, event video timecodes, 20-type visual catalog ----
+test('Workers AI defaults to flux-2-klein-9b with multipart FormData and CaricatureService caps dailyMax at 4', async () => {
+  const { DEFAULT_WORKERS_IMAGE_MODEL, generateImageWithWorkersAi, isMultipartWorkersImageModel } = await import('../dist/common/workers-ai.js');
+  const { CaricatureService } = await import('../dist/news/caricature.service.js');
+
+  assert.equal(DEFAULT_WORKERS_IMAGE_MODEL, '@cf/black-forest-labs/flux-2-klein-9b');
+  assert.equal(isMultipartWorkersImageModel('@cf/black-forest-labs/flux-2-klein-9b'), true);
+  assert.equal(isMultipartWorkersImageModel('@cf/leonardo/lucid-origin'), false);
+
+  const saved = {
+    acc: process.env.cloudflare_account_id,
+    tok: process.env.cloudflare_api_token,
+    model: process.env.cloudflare_image_model,
+    max: process.env.CARICATURE_DAILY_MAX,
+  };
+  process.env.cloudflare_account_id = '0123456789abcdef0123456789abcdef';
+  process.env.cloudflare_api_token = 'cf-test-token';
+  delete process.env.cloudflare_image_model;
+  delete process.env.CARICATURE_DAILY_MAX;
+
+  try {
+    let seenBody = null;
+    let seenContentType = '';
+    const out = await generateImageWithWorkersAi('Exaggerated robot rocket test', {
+      fetchFn: async (_url, init) => {
+        seenBody = init?.body;
+        seenContentType = (init?.headers)?.['Content-Type'] || '';
+        return new Response(JSON.stringify({ result: { image: Buffer.from('fake-img-bytes').toString('base64') } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      },
+    });
+    assert.ok(seenBody instanceof FormData, 'flux-2-klein-9b must send multipart FormData');
+    assert.equal(seenContentType, '', 'must not hardcode JSON Content-Type for FormData');
+    assert.equal(seenBody.get('width'), '768');
+    assert.equal(out.model, '@cf/black-forest-labs/flux-2-klein-9b');
+
+    const svc = new CaricatureService();
+    assert.equal(svc.diagnostics().dailyMax, 4);
+  } finally {
+    if (saved.acc === undefined) delete process.env.cloudflare_account_id; else process.env.cloudflare_account_id = saved.acc;
+    if (saved.tok === undefined) delete process.env.cloudflare_api_token; else process.env.cloudflare_api_token = saved.tok;
+    if (saved.model !== undefined) process.env.cloudflare_image_model = saved.model;
+    if (saved.max !== undefined) process.env.CARICATURE_DAILY_MAX = saved.max;
+  }
+});
+
+test('Pexels scorer filters cluttered/duplicate images, prefers dark backgrounds, and formats credits', async () => {
+  const { hexLuminance, pickBestPexelsPhoto } = await import('../dist/common/pexels.js');
+  assert.ok((hexLuminance('#0B0F19') ?? 255) < 30);
+  const candidates = [
+    {
+      id: 1, url: 'https://images.pexels.com/photos/1/a.jpg', thumbUrl: 'https://images.pexels.com/photos/1/t.jpg',
+      photoPageUrl: 'https://www.pexels.com/photo/1', photographer: 'Alice', photographerUrl: 'https://www.pexels.com/@alice',
+      alt: 'Empty whiteboard mockup template with quote text', width: 1600, height: 900, avgColor: '#ffffff',
+    },
+    {
+      id: 2, url: 'https://images.pexels.com/photos/2/b.jpg', thumbUrl: 'https://images.pexels.com/photos/2/t.jpg',
+      photoPageUrl: 'https://www.pexels.com/photo/2', photographer: 'Bob', photographerUrl: 'https://www.pexels.com/@bob',
+      alt: 'Rocket launch smoke pad at night', width: 1920, height: 1080, avgColor: '#121826',
+    },
+    {
+      id: 3, url: 'https://images.pexels.com/photos/3/c.jpg', thumbUrl: 'https://images.pexels.com/photos/3/t.jpg',
+      photoPageUrl: 'https://www.pexels.com/photo/3', photographer: 'Carol', photographerUrl: 'https://www.pexels.com/@carol',
+      alt: 'Bright rocket toy on white desk', width: 1400, height: 1000, avgColor: '#f5f5f5',
+    },
+  ];
+  const used = new Set(['https://images.pexels.com/photos/3/c.jpg']);
+  const picked = pickBestPexelsPhoto(candidates, { query: 'rocket launch night', usedUrls: used, preferDark: true });
+  assert.equal(picked?.id, 2);
+  assert.equal(picked?.credit, 'Bob / Pexels');
+});
+
+test('Event video verification and timecodes extract ?t= links and prioritize key-moment chapters', async () => {
+  const { extractUrlTimecodeSec } = await import('../dist/common/video-timecodes.js');
+  const { attachUrlTimecodeToVideoFigure, selectKeyVideoTimecodes, verifyYoutubeVideoMatchesEvent } = await import('../dist/news/event-media.js');
+
+  assert.equal(extractUrlTimecodeSec('https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=2m5s'), 125);
+  assert.equal(extractUrlTimecodeSec('https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=90'), 90);
+
+  assert.equal(
+    verifyYoutubeVideoMatchesEvent(
+      { title: 'ULA Vulcan Centaur launch anomaly during Kuiper mission', description: 'Live stream coverage' },
+      ['vulcan', 'ula', 'kuiper'],
+    ),
+    true,
+  );
+  assert.equal(
+    verifyYoutubeVideoMatchesEvent(
+      { title: 'Popular SpaceX rocket simulation', description: 'Unrelated clip' },
+      ['ula', 'rocket'],
+    ),
+    false,
+    'must not match substring ula inside simulation',
+  );
+  assert.equal(
+    verifyYoutubeVideoMatchesEvent(
+      { title: 'Top 10 SpaceX rockets compilation', description: 'Unrelated clip' },
+      ['vulcan', 'ula', 'kuiper'],
+    ),
+    false,
+  );
+
+  const tcs = selectKeyVideoTimecodes('abc123def45', [
+    { timestampSec: 0, timestampLabel: '00:00', title: 'Intro' },
+    { timestampSec: 610, timestampLabel: '10:10', title: 'Booster anomaly and loss of payload' },
+  ]);
+  assert.equal(tcs[0].url, 'https://www.youtube.com/watch?v=abc123def45&t=0s'.replace('&t=0s', ''));
+  assert.equal(tcs[1].url, 'https://www.youtube.com/watch?v=abc123def45&t=610s');
+
+  const fig = attachUrlTimecodeToVideoFigure(
+    { id: 'f1', kind: 'video', url: 'https://i.ytimg.com/vi/abc123def45/hqdefault.jpg', credit: 'YT', link: 'https://www.youtube.com/watch?v=abc123def45', match: [], position: 0.2, origin: 'embed' },
+    'https://www.youtube.com/watch?v=abc123def45&t=45s',
+    '00:00 Start\n00:45 Liftoff\n02:10 Booster anomaly',
+  );
+  assert.equal(fig.verified, true);
+  assert.ok(fig.timecodes?.some((x) => x.sec === 45 && x.url.includes('t=45s')));
+  assert.ok(fig.timecodes?.some((x) => x.sec === 130 && x.title === 'Booster anomaly'));
+});
+
+test('Extended visual catalog validates all 9 new animated visual types and drops invalid payloads', async () => {
+  const { sanitizeVisuals } = await import('../dist/news/news-visuals.js');
+  const valid = sanitizeVisuals(
+    [
+      { type: 'step_flow', title: 'Перебіг події', source: { name: 'ULA' }, steps: [{ label: 'Старт', sub: 'T+0:00' }, { label: 'Аномалія', sub: 'T+10 хв', tone: 'alert' }, { label: 'Втрата', tone: 'alert' }] },
+      { type: 'impact_bars', title: 'Оцінка впливу', unit: '%', source: { name: 'Ринок' }, items: [{ label: 'Amazon', value: -2.1 }, { label: 'Starlink', value: 1.3 }] },
+      { type: 'scenarios', title: 'Ризики та сценарії', source: { name: 'Аналіз' }, scenarios: [{ name: 'Базовий', probability: 60, detail: 'Затримка 3-6 міс', tone: 'neutral' }, { name: 'Негативний', probability: 25, detail: 'Повторні збої', tone: 'negative' }] },
+      { type: 'network_graph', title: 'Звʼязки та учасники', source: { name: 'Огляд' }, center: { label: 'Аварія Vulcan' }, nodes: [{ label: 'Amazon', role: 'Kuiper', tone: 'warning' }, { label: 'ULA', role: 'носій' }, { label: 'Starlink', role: 'конкурент', tone: 'success' }] },
+      { type: 'market_chart', title: 'Ринкова реакція', unit: '%', source: { name: 'Yahoo Finance' }, labels: ['Пн', 'Вт', 'Ср'], series: [{ name: 'Amazon', values: [0, -1.4, -2.1] }, { name: 'Starlink', values: [0, 0.8, 1.3] }] },
+      { type: 'pros_cons', title: 'Аргументи сторін', source: { name: 'Експерти' }, pros: ['Швидший вихід на орбіту'], cons: ['Вищі ризики перших запусків'] },
+    ],
+    'extracted',
+  );
+  assert.equal(valid.length, 6);
+  assert.deepEqual(valid.map((v) => v.type), ['step_flow', 'impact_bars', 'scenarios', 'network_graph', 'market_chart', 'pros_cons']);
+
+  const extra = sanitizeVisuals(
+    [
+      { type: 'heatmap', title: 'Матриця ризиків', source: { name: 'S' }, columns: ['Q1', 'Q2'], rowLabels: ['Шанс', 'Вплив'], matrix: [[10, 40], [80, 90]] },
+      { type: 'funnel', title: 'Воронка запусків', source: { name: 'S' }, items: [{ label: 'План', value: 100 }, { label: 'Підготовка', value: 60 }, { label: 'Успіх', value: 40 }] },
+      { type: 'split_ratio', title: 'Частка орбіти', source: { name: 'S' }, items: [{ label: 'Starlink', value: 75 }, { label: 'Інші', value: 25 }] },
+      { type: 'step_flow', title: 'Замало кроків', source: { name: 'S' }, steps: [{ label: '1' }, { label: '2' }] },
+      { type: 'scenarios', title: 'Погана ймовірність', source: { name: 'S' }, scenarios: [{ name: 'A', probability: 150, detail: 'x' }, { name: 'B', probability: 20, detail: 'y' }] },
+      { type: 'heatmap', title: 'Крива матриця', source: { name: 'S' }, columns: ['A', 'B'], rowLabels: ['R1', 'R2'], matrix: [[1], [2, 3]] },
+    ],
+    'extracted',
+  );
+  assert.deepEqual(extra.map((v) => v.type), ['heatmap', 'funnel', 'split_ratio']);
+
+  const emptyTruncatedLine = sanitizeVisuals(
+    [{ type: 'line', title: 'Null slice', source: { name: 'S' }, labels: ['a', 'b'], series: [{ name: 'X', values: [null, null, 100] }] }],
+    'extracted',
+  );
+  assert.equal(emptyTruncatedLine.length, 0);
+});
+
+test('SSRF redirect guard blocks private redirect targets, robots private DNS, and extractEmbeds keeps startSec', async () => {
+  const { checkRobotsTxtPermission, clearRobotsCacheForTests, fetchPublicUrl } = await import('../dist/common/source-compliance.js');
+  const { extractEmbeds } = await import('../dist/news/article-resources.js');
+
+  clearRobotsCacheForTests();
+  let robotsFetched = false;
+  const robotsBlocked = await checkRobotsTxtPermission('https://internal-alias.example.com/article', {
+    lookupFn: async () => [{ address: '127.0.0.1' }],
+    fetchFn: async () => {
+      robotsFetched = true;
+      return new Response('User-agent: *\nAllow: /', { status: 200 });
+    },
+  });
+  assert.equal(robotsBlocked.allowed, false);
+  assert.equal(robotsFetched, false, 'must not send robots.txt request to host resolving to 127.0.0.1');
+
+  clearRobotsCacheForTests();
+  let robotsRedirectedToPrivate = false;
+  const robotsRedirectBlocked = await checkRobotsTxtPermission('https://public-redirect.example.com/article', {
+    lookupFn: async (h) => (h === 'public-redirect.example.com' ? [{ address: '93.184.216.34' }] : [{ address: '127.0.0.1' }]),
+    fetchFn: async (u) => {
+      if (String(u).includes('127.0.0.1') || String(u).includes('internal.example.com')) {
+        robotsRedirectedToPrivate = true;
+        return new Response('User-agent: *\nAllow: /', { status: 200 });
+      }
+      return new Response(null, { status: 302, headers: { location: 'https://internal.example.com/robots.txt' } });
+    },
+  });
+  assert.equal(robotsRedirectBlocked.allowed, false);
+  assert.equal(robotsRedirectedToPrivate, false, 'must block robots.txt redirect to private IP');
+
+  const blocked = await fetchPublicUrl('https://public.example.com/article', {
+    lookupFn: async () => [{ address: '93.184.216.34' }],
+    fetchFn: async () => new Response(null, { status: 302, headers: { location: 'http://127.0.0.1:8080/admin' } }),
+  });
+  assert.equal(blocked, null);
+
+  const embeds = extractEmbeds('<article><iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ?start=125"></iframe></article>');
+  assert.equal(embeds[0]?.videoId, 'dQw4w9WgXcQ');
+  assert.equal(embeds[0]?.startSec, 125);
+});
+
+test('CaricatureService holds one PoolClient for advisory lock, fails closed on lock error, and discards client on unlock failure', async () => {
+  const { CaricatureService } = await import('../dist/news/caricature.service.js');
+  const saved = { pol: process.env.POLLINATIONS_ENABLED, gem: process.env.GEMINI_API_KEY, max: process.env.CARICATURE_DAILY_MAX };
+  process.env.POLLINATIONS_ENABLED = 'true';
+  process.env.GEMINI_API_KEY = 'test-key';
+  process.env.CARICATURE_DAILY_MAX = '99';
+
+  try {
+    const clientQueries = [];
+    let releasedArg;
+    const mockClient = {
+      query: async (sql) => {
+        clientQueries.push(sql);
+        if (sql.includes('pg_try_advisory_lock')) return { rows: [{ ok: true }] };
+        if (sql.includes('pg_advisory_unlock')) throw new Error('unlock failed');
+        return { rows: [] };
+      },
+      release: (arg) => {
+        releasedArg = arg;
+      },
+    };
+    const mockDb = {
+      connect: async () => mockClient,
+      query: async (sql) => {
+        if (sql.includes('COUNT(*)')) return { rows: [{ n: 4 }] };
+        return { rows: [] };
+      },
+    };
+    const svc = new CaricatureService(mockDb);
+    assert.equal(svc.diagnostics().dailyMax, 4, 'CARICATURE_DAILY_MAX=99 must still clamp to 4');
+    const out = await svc.generateBatch(2);
+    assert.deepEqual(out, { generated: 0, skipped: 0 });
+    assert.ok(clientQueries.some((q) => q.includes('pg_try_advisory_lock')));
+    assert.ok(clientQueries.some((q) => q.includes('pg_advisory_unlock')));
+    assert.ok(releasedArg instanceof Error, 'failed unlock must pass Error to client.release(err) to destroy connection');
+
+    // Lock error must fail closed (not proceed)
+    let queriedUsageAfterLockFail = false;
+    const failLockSvc = new CaricatureService({
+      connect: async () => ({
+        query: async () => { throw new Error('lock unavailable'); },
+        release: () => undefined,
+      }),
+      query: async () => {
+        queriedUsageAfterLockFail = true;
+        return { rows: [{ n: 0 }] };
+      },
+    });
+    const failRes = await failLockSvc.generateBatch(2);
+    assert.deepEqual(failRes, { generated: 0, skipped: 0 });
+    assert.equal(queriedUsageAfterLockFail, false);
+  } finally {
+    if (saved.pol === undefined) delete process.env.POLLINATIONS_ENABLED; else process.env.POLLINATIONS_ENABLED = saved.pol;
+    if (saved.gem === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = saved.gem;
+    if (saved.max === undefined) delete process.env.CARICATURE_DAILY_MAX; else process.env.CARICATURE_DAILY_MAX = saved.max;
+  }
 });
