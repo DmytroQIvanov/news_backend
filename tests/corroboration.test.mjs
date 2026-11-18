@@ -218,6 +218,9 @@ test('event videos: result parsing, filtering, verdict and analysis validation',
   assert.equal(v.validateVideoVerdict({ ...ok, kind: 'weird' }), null);
   const a = v.validateAnalysis({ about_event: true, language: 'en', summary_en: 'A'.repeat(80), summary_uk: 'Б'.repeat(80), key_points: [{ t: 5, point: 'The company reported record revenue.' }, { t: 99999, point: 'Guidance for next quarter was raised.' }], quotes: [{ t: 10, speaker: 'CEO', text: 'We are seeing very strong demand.' }], claims: [] }, 600);
   assert.equal(a.key_points[1].t, 600);
+  const b = v.validateAnalysis({ about_event: true, language: 'en', summary_en: 'A'.repeat(80), summary_uk: 'x', key_points: [{ t: 507, point: 'Ends at five minutes seven seconds.' }, { t: 2207, point: 'Twenty-two oh seven written as mmss.' }], quotes: [], claims: [] }, 1800);
+  assert.equal(b.key_points[0].t, 507);
+  assert.equal(b.key_points[1].t, 1327);
   assert.equal(v.validateAnalysis({ about_event: true, language: 'en', summary_en: 'short', summary_uk: 'x', key_points: [], quotes: [], claims: [] }, 600), null);
   assert.ok(v.renderVideoDocument('T', 'CNBC', a).includes('[0:10] CEO: "We are seeing'));
 });

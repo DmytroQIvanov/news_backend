@@ -92,8 +92,9 @@ export function parseYoutubeResults(html: string): VideoHit[] {
   return out;
 }
 
-export async function youtubeSearch(query: string): Promise<VideoHit[]> {
-  const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}&sp=EgIQAQ%253D%253D`;
+/** byDate: newest uploads first (sp=CAISAhAB = sort by upload date + videos only); default is relevance + videos only. */
+export async function youtubeSearch(query: string, byDate = false): Promise<VideoHit[]> {
+  const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}&sp=${byDate ? 'CAISAhAB' : 'EgIQAQ%253D%253D'}`;
   const resp = await fetch(url, {
     headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36', 'Accept-Language': 'en-US,en;q=0.9', Cookie: 'CONSENT=YES+1' },
     signal: AbortSignal.timeout(20_000),
@@ -190,7 +191,14 @@ export function validateAnalysis(raw: unknown, maxSeconds: number): VideoAnalysi
   if (!raw || typeof raw !== 'object') return null;
   const o = raw as Record<string, any>;
   if (typeof o.about_event !== 'boolean' || typeof o.summary_en !== 'string' || typeof o.summary_uk !== 'string') return null;
-  const t = (n: unknown) => Math.max(0, Math.min(maxSeconds, Math.floor(Number(n) || 0)));
+  // Models sometimes answer mm:ss as an integer (15:07 -> 1507) instead of seconds: convert when that fits the video.
+  const t = (n: unknown) => {
+    const v = Math.max(0, Math.floor(Number(n) || 0));
+    if (v <= maxSeconds) return v;
+    const m = Math.floor(v / 100);
+    const sec = v % 100;
+    return sec < 60 && m * 60 + sec <= maxSeconds ? m * 60 + sec : maxSeconds;
+  };
   const points = (Array.isArray(o.key_points) ? o.key_points : []).filter((p: any) => typeof p?.point === 'string' && p.point.length > 10).slice(0, 14).map((p: any) => ({ t: t(p.t), point: p.point.slice(0, 400) }));
   const quotes = (Array.isArray(o.quotes) ? o.quotes : []).filter((q: any) => typeof q?.text === 'string' && q.text.length > 12).slice(0, 8).map((q: any) => ({ t: t(q.t), speaker: String(q.speaker ?? '').slice(0, 80), text: q.text.slice(0, 500) }));
   const claims = (Array.isArray(o.claims) ? o.claims : []).filter((c: any) => typeof c?.claim === 'string' && c.claim.length > 10).slice(0, 10).map((c: any) => ({ t: t(c.t), claim: c.claim.slice(0, 400) }));
@@ -216,7 +224,7 @@ export class EventVideosService implements OnModuleInit, OnModuleDestroy {
   private stopped = false;
   private running?: Promise<unknown>;
   /** Swappable in tests. */
-  search: (query: string) => Promise<VideoHit[]> = youtubeSearch;
+  search: (query: string, byDate?: boolean) => Promise<VideoHit[]> = youtubeSearch;
 
   constructor(private readonly db: DatabaseService) {}
 
@@ -289,7 +297,7 @@ export class EventVideosService implements OnModuleInit, OnModuleDestroy {
     const hits: VideoHit[] = [];
     for (const q of buildQueries(d.event.title, entities).slice(0, 2)) {
       try {
-        hits.push(...(await this.search(q)));
+        hits.push(...(await this.search(q)), ...(await this.search(q, true)));
       } catch (err) {
         this.logger.debug(`youtube search "${q}": ${err instanceof Error ? err.message : err}`);
       }
@@ -356,7 +364,7 @@ export class EventVideosService implements OnModuleInit, OnModuleDestroy {
               role: 'user',
               parts: [
                 { fileData: { fileUri: r.url }, videoMetadata: { startOffset: '0s', endOffset: `${maxSec}s` } },
-                { text: `You are analysing a video for a news knowledge base.\nEVENT: ${r.event_title}\nSUMMARY: ${r.event_summary ?? ''}\n\nFirst decide whether the video is really about this event (about_event). Then give: a faithful summary (summary_en, and summary_uk in Ukrainian), 4-10 key points with the second they occur (t), up to 6 VERBATIM quotes of notable statements with speaker name and second, and up to 8 factual claims made in the video with the second. Use only what is said or shown in the video; never add outside knowledge. language = spoken language (ISO 639-1).` },
+                { text: `You are analysing a video for a news knowledge base.\nEVENT: ${r.event_title}\nSUMMARY: ${r.event_summary ?? ''}\n\nFirst decide whether the video is really about this event (about_event). Then give: a faithful summary (summary_en, and summary_uk in Ukrainian), 4-10 key points with the second they occur (t = integer number of SECONDS from the start of the video, e.g. 15 minutes 7 seconds = 907, never 1507), up to 6 VERBATIM quotes of notable statements with speaker name and second, and up to 8 factual claims made in the video with the second. Use only what is said or shown in the video; never add outside knowledge. language = spoken language (ISO 639-1).` },
               ],
             }],
             generationConfig: { temperature: 0.1, maxOutputTokens: 5000, responseMimeType: 'application/json', responseJsonSchema: ANALYSIS_SCHEMA, mediaResolution: 'MEDIA_RESOLUTION_LOW' },

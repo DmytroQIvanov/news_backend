@@ -133,7 +133,7 @@ export async function gdeltSearch(query: string): Promise<SearchHit[]> {
 
 /** Queries for an event: its title, and a keyword query from the strongest entities (different wording finds other outlets). */
 export function buildQueries(title: string, entities: string[]): string[] {
-  const clean = title.replace(/["“”«»]/g, '').replace(/\s+/g, ' ').trim().slice(0, 140);
+  const clean = title.replace(/["“”«»]/g, '').replace(/(^|\s)'|'(\s|$)/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
   const ent = entities.map((e) => e.trim()).filter((e) => e.length >= 3).slice(0, 3);
   const keyTokens = tokens(clean).filter((t) => t.length >= 5).slice(0, 3);
   const queries = [clean];
