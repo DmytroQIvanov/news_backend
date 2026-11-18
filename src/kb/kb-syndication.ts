@@ -120,7 +120,7 @@ export function wireAttributions(text: string): string[] {
     for (const [re, name] of AGENCIES) if (re.test(m[2])) found.add(name);
   }
   for (const [re, name] of AGENCIES) {
-    if (new RegExp(`(^|\\s)[(\\[—–-]\\s*${re.source}\\s*[)\\]]`, 'i').test(head) || new RegExp(`${re.source}\\s*[—–-]\\s`, 'i').test(head.slice(0, 160))) found.add(name);
+    if (new RegExp(`[(\\[—–-]\\s*${re.source}\\s*[)\\]]`, 'iu').test(head) || new RegExp(`${re.source}\\s*[—–-]\\s`, 'iu').test(head.slice(0, 160))) found.add(name);
   }
   return [...found];
 }

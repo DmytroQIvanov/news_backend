@@ -284,6 +284,14 @@ export async function buildDossier(db: DatabaseService, eventId: number, opts: {
   const hash = createHash('sha256')
     .update(JSON.stringify([outDocs.map((d) => [d.documentId,d.data?.key,d.data?.value,d.data?.points?.map((p) => [p.versionId,p.value])]), facts.map((f) => [f.factId, f.status, f.roots, f.value]), linked.map((l) => l.eventId)]))
     .digest('hex');
+  // Corroborating pages that disagree with the known facts are shown to the editor as contradictions, never dropped.
+  for (const c of corroborated) {
+    const verdict = (c.verdict ?? {}) as Record<string, any>;
+    const ref = docRef.get(Number(c.id));
+    if (ref && verdict.conflicts_with_event && verdict.conflict_detail) {
+      contradictions.push({ factRef: ref, kind: 'source_disagreement', detail: { source: verdict.root ?? c.url, difference: verdict.conflict_detail } });
+    }
+  }
   return { event, docs: outDocs, facts, quotes, contradictions, entities, linked, storyline, background, hash };
 }
 
