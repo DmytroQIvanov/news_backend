@@ -25,7 +25,7 @@ import { remainingLlmCalls } from '../common/llm-budget';
 import { DatabaseService } from '../database/database.service';
 import { validateArticle } from '../ingest/gemini-editor.service';
 import { CATEGORIES } from '../ingest/ingest.dto';
-import { buildDossier, EventDossier, renderDossier } from './kb-dossier';
+import { applyMinify, buildDossier, EventDossier, renderDossier } from './kb-dossier';
 import { geminiJson, JsonLlm, models } from './kb-llm';
 
 const CHARS_PER_TOKEN = 3.6;
@@ -335,13 +335,19 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
   private async pack(cands: Candidate[], tier: 'medium' | 'big'): Promise<BatchItem[][]> {
     const maxPromptChars = envInt('KB_EDITORIAL_MAX_PROMPT_CHARS', 600_000, 20_000);
     const perBatch = tier === 'big' ? envInt('KB_BIG_BATCH', 3, 1, 6) : envInt('KB_MEDIUM_BATCH', 5, 1, 10);
-    const opts = tier === 'big' ? { excerptChars: 7_000, maxDocs: 12 } : { excerptChars: 3_000, maxDocs: 8 };
+    const minify = process.env.KB_MINIFY !== 'false';
+    // With minification the model can see twice as many sources in the same budget: pull more, then compress without paraphrasing.
+    const opts = minify
+      ? (tier === 'big' ? { excerptChars: 9_000, maxDocs: 24 } : { excerptChars: 4_500, maxDocs: 14 })
+      : (tier === 'big' ? { excerptChars: 7_000, maxDocs: 12 } : { excerptChars: 3_000, maxDocs: 8 });
+    const minifyChars = tier === 'big' ? envInt('KB_MINIFY_BIG_CHARS', 70_000, 8_000) : envInt('KB_MINIFY_MEDIUM_CHARS', 28_000, 4_000);
     const batches: BatchItem[][] = [];
     let current: BatchItem[] = [];
     let chars = 0;
     for (const cand of cands) {
       const dossier = await buildDossier(this.db, cand.eventId, opts);
       if (!dossier || !dossier.docs.length) continue;
+      if (minify) applyMinify(dossier, minifyChars);
       const text = `### DOSSIER${cand.isUpdate ? ' (UPDATE of an existing article: rewrite it with the new evidence)' : ''}\n${renderDossier(dossier)}`;
       if (current.length >= perBatch || chars + text.length > maxPromptChars) {
         if (current.length) batches.push(current);

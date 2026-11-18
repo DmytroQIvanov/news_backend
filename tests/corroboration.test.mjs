@@ -134,3 +134,39 @@ test('people discovery: only plausible human bylines pass', () => {
   assert.equal(looksLikePersonName('admin'), false);
   assert.equal(looksLikePersonName('John'), false);
 });
+
+test('repair: deterministic JSON repair handles fences, truncation and trailing commas', async () => {
+  const { repairJsonDeterministic, parseJsonRobust } = require('../dist/kb/kb-repair.js');
+  assert.deepEqual(JSON.parse(repairJsonDeterministic('```json\n{"a":1,"b":[1,2,],}\n```')), { a: 1, b: [1, 2] });
+  assert.deepEqual(JSON.parse(repairJsonDeterministic('{"title":"Hi","body":"line one\nline two')), { title: 'Hi', body: 'line one\nline two' });
+  assert.deepEqual(JSON.parse(repairJsonDeterministic('{"items":[{"x":1},{"x":2')), { items: [{ x: 1 }, { x: 2 }] });
+  assert.deepEqual(JSON.parse(repairJsonDeterministic('{"a": 1, // note\n "b": "x"} trailing words')), { a: 1, b: 'x' });
+  assert.deepEqual(await parseJsonRobust('Sure! {"ok": true}'), { ok: true });
+  // a missing comma needs the model patch: only a small window is sent, the rest is untouched
+  let sent = '';
+  const fixer = async (fragment) => { sent = fragment; return fragment.replace('"a": 1 "b"', '"a": 1, "b"'); };
+  const long = '{"pad":"' + 'x'.repeat(5000) + '", "a": 1 "b": 2}';
+  const parsed = await parseJsonRobust(long, fixer);
+  assert.equal(parsed.b, 2);
+  assert.ok(sent.length <= 440, 'only a small window goes to the model');
+});
+
+test('minify: keeps lead and salient sentences, drops boilerplate and cross-source repeats', () => {
+  const m = require('../dist/kb/kb-minify.js');
+  const ctx = { focus: m.focusTokens('Nvidia record revenue Huang') };
+  const a = 'Nvidia reported record quarterly revenue of 57 billion dollars on Tuesday. Jensen Huang said demand for data center chips remains strong. Subscribe to our newsletter for more. The weather in Santa Clara was sunny. Analysts at three banks raised their price targets after the results were published.';
+  const b = 'Nvidia reported record quarterly revenue of 57 billion dollars on Tuesday. Independent analysts warned that supply constraints could limit growth in the next quarter and that export rules add uncertainty.';
+  const docs = [
+    { ref: 'D1', text: a, weight: 0.9, primary: false, order: 0 },
+    { ref: 'D2', text: b, weight: 0.6, primary: false, order: 1 },
+  ];
+  const r = m.minifyDossierDocs(docs, 600, ctx);
+  const d1 = r.docs.find((x) => x.ref === 'D1');
+  const d2 = r.docs.find((x) => x.ref === 'D2');
+  assert.ok(d1.text.startsWith('Nvidia reported record'));
+  assert.ok(!/newsletter/i.test(d1.text));
+  assert.ok(!d2.text.includes('Nvidia reported record quarterly revenue of 57 billion'), 'repeat charged to the weaker source');
+  assert.ok(Object.keys(d2.alsoIn).includes('D1'));
+  assert.ok(/57 billion/.test(d1.text), 'numbers stay verbatim');
+  assert.ok(r.keptChars < r.originalChars);
+});

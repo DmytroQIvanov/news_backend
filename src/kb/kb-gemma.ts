@@ -52,3 +52,35 @@ export async function gemmaJson<T>(req: GemmaJsonRequest<T>): Promise<{ value: T
     return null;
   }
 }
+
+/**
+ * Plain-text answer from the cheapest available model (Gemma first). Used for tiny edits such as fixing the JSON syntax of a
+ * small fragment, so the expensive model's long answer is never regenerated.
+ */
+export async function gemmaText(prompt: string, purpose: string, maxOutputTokens = 1200): Promise<string | null> {
+  const key = process.env.GEMINI_API_KEY?.trim();
+  if (!key) return null;
+  for (const model of [...models('KB_GEMMA_MODELS', 'gemma-4-31b-it,gemma-4-26b-a4b-it'), ...models('KB_GEMMA_FALLBACK_MODELS', 'gemini-3.1-flash-lite')]) {
+    try {
+      const { data } = await postGeminiGenerateContent({
+        apiKey: key, candidateModels: [model], priority: 'normal', statsTask: purpose, budgetPurpose: purpose, timeoutMs: 60_000,
+        body: { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0, maxOutputTokens } },
+      });
+      const text = candidateText(data).replace(/^```[a-z]*\s*$/gim, '');
+      if (text.trim()) return text;
+    } catch {
+      /* next model */
+    }
+  }
+  return null;
+}
+
+/** SnippetFixer for kb-repair: asks the cheapest model to correct only the JSON syntax of a fragment. */
+export async function fixJsonFragment(fragment: string, error: string): Promise<string | null> {
+  return gemmaText(
+    `The following is a fragment cut from a longer JSON document. The parser reported: "${error}".\n` +
+      'Fix ONLY the JSON syntax problem (missing/extra comma, quote, bracket, unescaped quote inside a string). Do not change, add or remove any words or numbers. ' +
+      `Return the corrected fragment and nothing else — same start, same end, no markdown.\n\nFRAGMENT:\n${fragment}`,
+    'json_repair', 800,
+  );
+}

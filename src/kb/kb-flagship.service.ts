@@ -19,7 +19,8 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import { DEFAULT_HYDROGEN_MODEL } from '../common/gemini-client';
 import { remainingLlmCalls } from '../common/llm-budget';
 import { DatabaseService } from '../database/database.service';
-import { buildDossier, DossierDoc, EventDossier, renderDossier } from './kb-dossier';
+import { applyMinify, buildDossier, DossierDoc, EventDossier, renderDossier } from './kb-dossier';
+import { expertsForEvent } from './kb-experts';
 import { ARTICLE_SCHEMA, Candidate, GeneratedArticle, isKbEditorialActive, KbEditorialService, RULES } from './kb-editorial.service';
 import { buildHistory, EventHistory, renderHistory } from './kb-history';
 import { geminiJson, geminiSearch, JsonLlm, models, resolveRedirect, SearchLlm } from './kb-llm';
@@ -362,13 +363,16 @@ listed under ALREADY HAVE. Answer with short factual notes, each with the source
   }
 
   async writeFlagship(cand: FlagshipCandidate) {
-    const dossier = await buildDossier(this.db, cand.eventId, { excerptChars: 9_000, maxDocs: 16 });
+    const dossier = await buildDossier(this.db, cand.eventId, { excerptChars: 14_000, maxDocs: 40 });
     if (!dossier) throw new Error('event not found');
     dossier.docs.push(...(await this.researchDocs(cand.eventId)));
+    // Hydrogen reads far more sources than a standard model: compress each one (extractive, verbatim) instead of dropping sources.
+    if (process.env.KB_MINIFY !== 'false') applyMinify(dossier, envInt('KB_MINIFY_FLAGSHIP_CHARS', 230_000, 20_000));
     const history = await buildHistory(this.db, cand.eventId);
     const plan0 = (await this.db.query(`SELECT flagship_plan FROM kb.events WHERE id = $1`, [cand.eventId])).rows[0]?.flagship_plan ?? {};
     const notes = plan0?.research?.notes ? `\n\n=== RESEARCH NOTES (leads only, not citable) ===\n${plan0.research.notes}` : '';
-    const material = `${renderDossier(dossier)}\n\n=== DEEP HISTORY ===\n${renderHistory(history) || '(no earlier events in the knowledge base)'}${notes}`;
+    const experts = await expertsForEvent(this.db, dossier).catch(() => '');
+    const material = `${renderDossier(dossier)}\n\n=== DEEP HISTORY ===\n${renderHistory(history) || '(no earlier events in the knowledge base)'}${experts ? `\n\n=== EXPERTS AND THEIR EARLIER STATEMENTS (attribute, never present as fact) ===\n${experts}` : ''}${notes}`;
     const timeoutMs = envInt('KB_FLAGSHIP_TIMEOUT_MS', 420_000, 30_000);
 
     // ONE Hydrogen call: plan, link verdicts and the English long-read

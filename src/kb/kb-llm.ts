@@ -5,6 +5,8 @@
  */
 import { postGeminiGenerateContent } from '../common/gemini-client';
 import { generateJsonWithRouter, LlmTask } from '../common/llm-router';
+import { fixJsonFragment } from './kb-gemma';
+import { parseJsonRobust } from './kb-repair';
 
 export interface JsonRequest {
   models: string[];
@@ -65,7 +67,7 @@ export const geminiJson: JsonLlm = async (req) => {
       },
     },
   });
-  return { json: parseJsonText(candidateText(data)), model: modelUsed };
+  return { json: await parseJsonRobust(candidateText(data), fixJsonFragment), model: modelUsed };
 };
 
 /** Cheap tasks (translation, image queries): the router tries Groq / Gemini / OpenRouter by their free budgets. */

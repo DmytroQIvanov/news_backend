@@ -12,6 +12,8 @@ import { buildDataDocs } from './kb-data';
 import type { DataAttachment } from './kb-data-selection';
 import { FACT_STATUS_LABELS, label, Lang, LINK_LABELS, PREDICATE_LABELS, TIER_LABELS } from './kb-labels';
 
+import { DocForMinify, focusTokens, minifyDossierDocs } from './kb-minify';
+
 export interface DossierDoc {
   ref: string;
   documentId: number;
@@ -375,4 +377,39 @@ export function renderDossier(d: EventDossier): string {
     for (const b of d.background) lines.push(`[${b.ref}] ${factSentence(b, 'en')} | ${label(FACT_STATUS_LABELS, b.status, 'en')}${b.validFrom ? `, ${day(b.validFrom)}` : ''}`);
   }
   return lines.join('\n');
+}
+
+
+const TIER_WEIGHT: Record<string, number> = { primary: 1, official: 1, agency: 0.85, wire: 0.85, media: 0.65, research: 0.5 };
+
+/**
+ * Shrinks the excerpts of a dossier to `totalChars` without paraphrasing: extractive sentence selection, cross-source
+ * deduplication ("also in D1"), reliability-weighted budgets (kb-minify.ts). Teasers and data documents are left alone.
+ * Documents that do not fit keep a one-line stub, so a heavy model still sees that the source exists.
+ */
+export function applyMinify(d: EventDossier, totalChars: number): { originalChars: number; keptChars: number; docs: number } {
+  const ctx = {
+    focus: focusTokens(
+      d.event.title, d.event.summary ?? '', d.entities.slice(0, 12).map((e) => e.name).join(' '),
+      d.facts.slice(0, 20).map((f) => `${f.subject?.name ?? ''} ${f.predicate} ${f.object?.name ?? f.objectText ?? ''}`).join(' '),
+    ),
+  };
+  const targets = d.docs.filter((x) => x.excerpt && x.excerpt.length > 600 && !x.data && (x.extraction === 'full' || x.extraction === 'partial'));
+  const inputs: DocForMinify[] = targets.map((x, i) => ({
+    ref: x.ref, text: x.excerpt, order: i, primary: x.tier === 'primary' || x.role === 'primary',
+    weight: TIER_WEIGHT[x.tier ?? ''] ?? (x.role === 'corroboration' ? 0.65 : 0.6),
+  }));
+  if (inputs.length < 2 && !inputs.some((x) => x.text.length > totalChars)) return { originalChars: 0, keptChars: 0, docs: 0 };
+  const res = minifyDossierDocs(inputs, totalChars, ctx);
+  const byRef = new Map(res.docs.map((m) => [m.ref, m]));
+  for (const doc of targets) {
+    const m = byRef.get(doc.ref);
+    if (m) {
+      const also = Object.keys(m.alsoIn);
+      doc.excerpt = m.text + (also.length ? ` (further wording identical to ${also.join(', ')} omitted)` : '');
+    } else {
+      doc.excerpt = doc.excerpt.slice(0, 220); // overflow stub
+    }
+  }
+  return { originalChars: res.originalChars, keptChars: res.keptChars, docs: res.docs.length };
 }
