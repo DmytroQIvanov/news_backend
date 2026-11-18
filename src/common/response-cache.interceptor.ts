@@ -42,7 +42,8 @@ export class ResponseCacheInterceptor implements NestInterceptor {
     if (context.getType() !== 'http' || process.env.RESPONSE_CACHE === 'false') return next.handle();
     const req = context.switchToHttp().getRequest<{ method: string; originalUrl?: string; url: string; headers: Record<string, string | undefined> }>();
     const url = req.originalUrl ?? req.url;
-    const ttl = cacheTtlFor(req.method, url, Boolean(req.headers['x-ingest-key']));
+    const hasAuth = Boolean(req.headers['x-ingest-key'] || req.headers['authorization'] || req.headers['cookie']);
+    const ttl = url.length > 400 ? 0 : cacheTtlFor(req.method, url, hasAuth);
     if (!ttl) return next.handle();
     const key = `${url}|${req.headers['accept-language'] ?? ''}`;
     const hit = this.cache.get(key);
@@ -57,7 +58,9 @@ export class ResponseCacheInterceptor implements NestInterceptor {
           resolve(body);
         },
         error: (err) => {
-          if (hit && now - hit.at < STALE_MS) resolve(hit.body); // serve the last good answer instead of an error
+          const status = typeof err?.getStatus === 'function' ? err.getStatus() : 500;
+          // only transient failures fall back to the last good answer; a 404/403/400 must never resurrect removed data
+          if (hit && status >= 500 && Date.now() - hit.at < STALE_MS) resolve(hit.body);
           else reject(err);
         },
       });
@@ -67,6 +70,13 @@ export class ResponseCacheInterceptor implements NestInterceptor {
   }
 
   private store(key: string, body: unknown) {
+    let size = 0;
+    try {
+      size = JSON.stringify(body)?.length ?? 0;
+    } catch {
+      return;
+    }
+    if (size > 600_000) return; // bounded memory on the small server
     if (this.cache.size >= MAX_ENTRIES) {
       const oldest = [...this.cache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
       if (oldest) this.cache.delete(oldest[0]);

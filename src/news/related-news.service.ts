@@ -59,6 +59,22 @@ export function selectRelated(cands: Candidate[], limit = 6, perSource = 2, now 
   return out;
 }
 
+/**
+ * Pipeline links point from the newer event to the older one (follow_up, reaction_to) and from cause to effect (causes).
+ * `incoming` = the link ends at the article being read, so the other event is the later one (or the effect's source).
+ */
+export function directedKind(linkType: string, incoming: boolean): RelationKind {
+  switch (linkType) {
+    case 'follow_up': return incoming ? 'follow_up' : 'precedent';
+    case 'reaction_to': return incoming ? 'reaction' : 'precedent';
+    case 'causes': return incoming ? 'cause' : 'follow_up';
+    case 'precedent': return 'precedent';
+    case 'contradicts': return 'contradicts';
+    case 'same_storyline': return 'storyline';
+    default: return 'precedent';
+  }
+}
+
 const LINK_KIND: Record<string, RelationKind> = {
   same_storyline: 'storyline', follow_up: 'follow_up', precedent: 'precedent', reaction_to: 'reaction', causes: 'cause', contradicts: 'contradicts', context: 'precedent',
 };
@@ -78,8 +94,12 @@ export class RelatedNewsService {
     if (!target) return { items: [] };
     const cands: Candidate[] = [];
     if (target.kb_event_id) cands.push(...(await this.fromEvent(Number(target.kb_event_id), String(target.id))));
-    if (cands.length < limit) cands.push(...(await this.fromTitle(String(target.id), String(target.original_title || target.title_uk || ''), target.category)));
-    const chosen = selectRelated(cands, limit);
+    let chosen = selectRelated(cands, limit);
+    // shortage is judged AFTER diversity selection (twenty candidates of one storyline still yield one result)
+    if (chosen.length < limit) {
+      cands.push(...(await this.fromTitle(String(target.id), String(target.original_title || target.title_uk || ''), target.category)));
+      chosen = selectRelated(cands, limit);
+    }
     if (!chosen.length) return { items: [] };
     const rows = (await this.db.query(
       `SELECT n.id, n.url, n.title_uk, n.summary_uk, n.original_title, n.category, n.importance, n.published_at,
@@ -103,16 +123,18 @@ export class RelatedNewsService {
     const base = `
       SELECT n.id::text AS news_id, e.id AS event_id, e.storyline_id, s.slug, COALESCE(n.published_at, n.created_at) AS at`;
     const join = `
-      FROM kb.events e JOIN news_items n ON n.id = e.article_news_id JOIN sources s ON s.id = n.source_id`;
+      FROM kb.events e JOIN news_items n ON n.id = COALESCE(e.article_news_id, (SELECT min(x.id) FROM news_items x WHERE x.kb_event_id = e.id AND x.status = 'published')) JOIN sources s ON s.id = n.source_id`;
     const links = await this.db.query(
       `${base}, l.link_type, l.score, (l.to_event_id = $1) AS incoming, l.verified ${join}
        JOIN kb.event_links l ON (l.from_event_id = $1 AND l.to_event_id = e.id) OR (l.to_event_id = $1 AND l.from_event_id = e.id)
-       WHERE e.status <> 'merged' AND n.id::text <> $2 AND ${NEWS_ELIGIBILITY_SQL} LIMIT 40`, [eventId, selfId],
+       WHERE e.status <> 'merged' AND n.id::text <> $2 AND ${NEWS_ELIGIBILITY_SQL}
+         AND COALESCE(l.verdict->>'supported', 'true') <> 'false'
+       ORDER BY l.verified DESC, l.score DESC LIMIT 40`, [eventId, selfId],
     ).catch(() => ({ rows: [] as Array<Record<string, any>> }));
     for (const r of links.rows) {
       out.push({
         newsId: r.news_id, eventId: Number(r.event_id), storylineId: r.storyline_id ? Number(r.storyline_id) : null, sourceSlug: r.slug, publishedAt: new Date(r.at).getTime(),
-        kind: LINK_KIND[r.link_type] ?? 'precedent', base: 1.5 + Number(r.score) * 2 + (r.verified ? 0.5 : 0), detail: r.incoming ? 'later' : 'earlier',
+        kind: directedKind(r.link_type, Boolean(r.incoming)), base: 1.2 + Number(r.score) * 2 + (r.verified ? 0.6 : 0), detail: r.incoming ? 'later' : 'earlier',
       });
     }
     const story = await this.db.query(

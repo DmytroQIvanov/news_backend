@@ -308,3 +308,12 @@ test('response cache: only public heavy GET routes are cached', () => {
   assert.equal(cacheTtlFor('GET', '/api/v1/audio/news/1', false), 0);
   assert.equal(cacheTtlFor('GET', '/api/v1/health', false), 0);
 });
+
+test('related news: link direction decides the label', () => {
+  const { directedKind } = require('../dist/news/related-news.service.js');
+  assert.equal(directedKind('follow_up', true), 'follow_up');
+  assert.equal(directedKind('follow_up', false), 'precedent');
+  assert.equal(directedKind('causes', true), 'cause');
+  assert.equal(directedKind('reaction_to', false), 'precedent');
+  assert.equal(directedKind('contradicts', false), 'contradicts');
+});
