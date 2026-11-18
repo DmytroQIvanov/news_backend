@@ -11,7 +11,7 @@ export interface SearchHit {
   url: string;
   source: string;
   publishedAt: string | null;
-  provider: 'bing' | 'gdelt';
+  provider: 'bing' | 'bing-web' | 'gdelt';
   snippet?: string;
 }
 
@@ -33,6 +33,14 @@ export function titleOverlap(a: string, b: string): number {
   let hit = 0;
   for (const t of ta) if (tb.has(t)) hit += 1;
   return hit / Math.min(ta.size, tb.size);
+}
+
+/** Number of distinct tokens two titles share (a 1-word match is never enough). */
+export function sharedTokens(a: string, b: string): number {
+  const tb = new Set(tokens(b));
+  let n = 0;
+  for (const t of new Set(tokens(a))) if (tb.has(t)) n += 1;
+  return n;
 }
 
 /** Fraction of the entity names that appear (case-insensitive) in the text. */
@@ -91,6 +99,19 @@ export async function bingNewsSearch(query: string, lang = 'en'): Promise<Search
   return parseBingRss(await resp.text());
 }
 
+/**
+ * Ordinary web search (Bing RSS). It finds primary material (press releases, official statements, documents) that news
+ * search misses, but it is noisy, so filterHits applies a stricter overlap and drops home/section pages for it.
+ */
+export async function bingWebSearch(query: string, lang = 'en'): Promise<SearchHit[]> {
+  const url = `https://www.bing.com/search?q=${encodeURIComponent(query)}&format=rss&setlang=${encodeURIComponent(lang)}`;
+  const resp = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewsRadarBot/1.0)' }, signal: AbortSignal.timeout(20_000) });
+  if (!resp.ok) throw new Error(`Bing web HTTP ${resp.status}`);
+  return parseBingRss(await resp.text()).map((h) => ({ ...h, provider: 'bing-web' as const }));
+}
+
+const WEB_BLOCKED = /(^|\.)(wikipedia|wikimedia|britannica|wikihow|quora|stackexchange|stackoverflow|investopedia)\./i;
+
 let lastGdeltAt = 0;
 export async function gdeltSearch(query: string): Promise<SearchHit[]> {
   const wait = lastGdeltAt + 6_000 - Date.now();
@@ -143,6 +164,12 @@ export function filterHits(hits: SearchHit[], ctx: FilterContext): Array<SearchH
     if (!/^https:\/\//i.test(h.url) || LISTING.test(h.url)) continue;
     const root = ctx.rootOf(h.url);
     if (!root || ctx.blockedRoots.has(root) || seenRoots.has(root)) continue;
+    const web = h.provider === 'bing-web';
+    if (web) {
+      let depth = 0;
+      try { depth = new URL(h.url).pathname.split('/').filter(Boolean).length; } catch { continue; }
+      if (depth < 2 || WEB_BLOCKED.test(new URL(h.url).hostname)) continue; // home/section pages are not reports
+    }
     const key = h.url.split('#')[0].replace(/\/+$/, '');
     if (seenUrls.has(key)) continue;
     if (h.publishedAt && Number.isFinite(start)) {
@@ -152,7 +179,7 @@ export function filterHits(hits: SearchHit[], ctx: FilterContext): Array<SearchH
     const overlap = titleOverlap(ctx.eventTitle, h.title);
     const entHit = entityHitRatio(ctx.entities.slice(0, 4), `${h.title} ${h.snippet ?? ''}`);
     const score = overlap * 0.7 + entHit * 0.3;
-    if (overlap < minOverlap) continue;
+    if (overlap < (web ? Math.max(minOverlap, 0.5) : minOverlap) || sharedTokens(ctx.eventTitle, h.title) < 2) continue;
     seenUrls.add(key);
     seenRoots.add(root); // one page per outlet
     out.push({ ...h, score });

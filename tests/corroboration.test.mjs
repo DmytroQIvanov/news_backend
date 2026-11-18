@@ -62,3 +62,17 @@ test('corroboration: Gemma verdicts are coerced strictly', () => {
   assert.equal(coerceVerdict({ ...ok, match_confidence: 'high' }), null);
   assert.equal(coerceVerdict(null), null);
 });
+
+test('news search: ordinary web hits need a deeper URL and a stricter title match', () => {
+  const s = require('../dist/kb/kb-news-search.js');
+  const { rootOf } = require('../dist/kb/kb-corroboration.service.js');
+  const ctx = { eventTitle: 'Nvidia posts record revenue', entities: ['Nvidia'], startedAt: null, knownRoots: new Set(), blockedRoots: new Set(), rootOf };
+  const web = (url, title) => ({ url, title, source: '', publishedAt: null, provider: 'bing-web' });
+  const out = s.filterHits([
+    web('https://nvidianews.nvidia.com/news/nvidia-announces-record-revenue', 'NVIDIA Announces Record Revenue'),
+    web('https://www.nvidia.com/', 'NVIDIA Record Revenue Home'),
+    web('https://en.wikipedia.org/wiki/Nvidia/revenue', 'Nvidia record revenue'),
+    web('https://finance.example.com/quote/NVDA', 'Nvidia stock'),
+  ], ctx);
+  assert.deepEqual(out.map((h) => h.url), ['https://nvidianews.nvidia.com/news/nvidia-announces-record-revenue']);
+});

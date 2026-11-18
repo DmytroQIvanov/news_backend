@@ -19,7 +19,7 @@ import { buildDossier } from './kb-dossier';
 import { isKbEditorialActive } from './kb-editorial.service';
 import { postGeminiGenerateContent } from '../common/gemini-client';
 import { candidateText, geminiJson, geminiSearch, JsonLlm, models, parseJsonText, resolveRedirect, SearchLlm } from './kb-llm';
-import { bingNewsSearch, buildQueries, entityHitRatio, filterHits, gdeltSearch, SearchHit } from './kb-news-search';
+import { bingNewsSearch, bingWebSearch, buildQueries, entityHitRatio, filterHits, gdeltSearch, SearchHit } from './kb-news-search';
 
 function envInt(name: string, fallback: number, min = 0, max = Number.MAX_SAFE_INTEGER): number {
   const n = Number(process.env[name]);
@@ -147,11 +147,16 @@ export class KbCorroborationService implements OnModuleInit, OnModuleDestroy {
   search: SearchLlm = geminiSearch;
   /** Scripted news search (Bing News RSS + GDELT); swappable for tests. */
   scriptedSearch: (query: string) => Promise<SearchHit[]> = async (q) => {
-    const [bing, gdelt] = await Promise.allSettled([
+    const [bing, web, gdelt] = await Promise.allSettled([
       bingNewsSearch(q),
+      process.env.KB_CORROBORATE_WEB === 'false' ? Promise.resolve([] as SearchHit[]) : bingWebSearch(`${q} official statement OR press release OR report`),
       process.env.KB_CORROBORATE_GDELT === 'false' ? Promise.resolve([] as SearchHit[]) : gdeltSearch(q),
     ]);
-    return [...(bing.status === 'fulfilled' ? bing.value : []), ...(gdelt.status === 'fulfilled' ? gdelt.value : [])];
+    return [
+      ...(bing.status === 'fulfilled' ? bing.value : []),
+      ...(web.status === 'fulfilled' ? web.value : []),
+      ...(gdelt.status === 'fulfilled' ? gdelt.value : []),
+    ];
   };
   resolve: (url: string) => Promise<string | null> = resolveRedirect;
 
