@@ -22,7 +22,7 @@ class QuotaTest(unittest.TestCase):
         with patch.dict(os.environ, {'LLM_DAILY_LIMITS': ''}):
             self.assertEqual(gemini._pairs(gemini.DEFAULT_LIMITS), {
                 'gemini-3.1-flash-lite': '500', 'gemini-3-flash': '20',
-                'gemini-2.5-flash-lite': '20', 'gemini-4-hydrogen': '20'})
+                'gemini-2.5-flash-lite': '20', 'gemini-4-hydrogen': '20', 'gemini-3.1-flash-tts': '10'})
             self.assertEqual(gemini.budget_key('models/gemini-3-flash-preview'), 'gemini-3-flash')
             self.assertEqual(gemini.budget_key('gemini-4-hydrogen-high'), 'gemini-4-hydrogen')
             self.assertIsNone(gemini.budget_key('gemma-4-31b-it'))

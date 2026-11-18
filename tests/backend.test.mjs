@@ -1081,8 +1081,8 @@ test('GeminiEditorService.edit runs Chain-of-Verification editorial and Hydrogen
 test('NewsTtsService enforces importance gate, builds clean scripts, wraps PCM16 to RIFF WAVE, and caches results', async () => {
   resetGeminiClientStateForTests();
   assert.deepEqual(PREFERRED_TTS_MODELS, [
-    'gemini-3.8-flash-tts',
     'gemini-3.1-flash-tts',
+    'gemini-3.8-flash-tts',
     'gemini-2.5-flash-tts',
     'gemini-3.8-flash-lite-tts',
     'gemini-2.5-flash-preview-tts',
@@ -1168,7 +1168,7 @@ test('NewsTtsService enforces importance gate, builds clean scripts, wraps PCM16
   const origFetch = globalThis.fetch;
   globalThis.fetch = async (url) => {
     ttsFetchCalls += 1;
-    assert.ok(String(url).includes('gemini-3.8-flash-tts:generateContent'));
+    assert.ok(String(url).includes('gemini-3.1-flash-tts:generateContent'));
     return new Response(
       JSON.stringify({
         candidates: [
@@ -1194,7 +1194,7 @@ test('NewsTtsService enforces importance gate, builds clean scripts, wraps PCM16
   try {
     const firstAudio = await ttsWithKey.generateImportantNewsBriefing('major-1');
     assert.equal(firstAudio.status, 'gemini_audio');
-    assert.equal(firstAudio.modelUsed, 'gemini-3.8-flash-tts');
+    assert.equal(firstAudio.modelUsed, 'gemini-3.1-flash-tts');
     assert.equal(firstAudio.mimeType, 'audio/wav');
     assert.equal(firstAudio.cached, false);
     const decoded = Buffer.from(firstAudio.audioBase64, 'base64');

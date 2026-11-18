@@ -12,9 +12,11 @@ import { postGeminiGenerateContent } from '../common/gemini-client';
 import { DatabaseService } from '../database/database.service';
 import { CompanyFeedsService } from './company-feeds.service';
 
+// Gemini 3.1 Flash TTS has 10 requests/day on the free tier (enforced by the shared ledger, knowledge/kb/quotas.v1.json), so it
+// comes first; the others are fallbacks that count against their own limits.
 export const PREFERRED_TTS_MODELS = [
-  'gemini-3.8-flash-tts',
   'gemini-3.1-flash-tts',
+  'gemini-3.8-flash-tts',
   'gemini-2.5-flash-tts',
   'gemini-3.8-flash-lite-tts',
   'gemini-2.5-flash-preview-tts',
