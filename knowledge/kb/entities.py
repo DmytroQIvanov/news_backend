@@ -7,6 +7,7 @@ from pathlib import Path
 import yaml
 
 from . import db
+from .encyclopedia_metadata import enrichment_attributes
 from .text.stem import term_key
 
 log = logging.getLogger(__name__)
@@ -52,6 +53,10 @@ def upsert_from_wikidata(conn, info: dict, fallback_kind: str = "other", origin:
              db.jsonb({"description_uk": info.get("description_uk"), "sitelinks": info.get("sitelinks"),
                        **({"coord": info["coord"]} if info.get("coord") else {})})),
         ).fetchone()["id"]
+    conn.execute(
+        "UPDATE kb.entities SET attributes = attributes || %s::jsonb WHERE id = %s",
+        (db.jsonb(enrichment_attributes(info)), entity_id),
+    )
     for lang, label in labels.items():
         add_alias(conn, entity_id, label, lang, "wikidata")
     for lang, values in info.get("aliases", {}).items():

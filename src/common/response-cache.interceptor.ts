@@ -20,7 +20,7 @@ const RULES: Array<{ re: RegExp; ttlMs: number }> = [
   { re: /^\/api\/v1\/brief\//, ttlMs: 120_000 },
   { re: /^\/api\/v1\/topics/, ttlMs: 120_000 },
   { re: /^\/api\/v1\/catalog/, ttlMs: 180_000 },
-  { re: /^\/api\/v1\/(discovery|encyclopedia)\//, ttlMs: 180_000 },
+  { re: /^\/api\/v1\/(discovery|encyclopedia)(\/|\?|$)/, ttlMs: 180_000 },
   { re: /^\/api\/v1\/youtube\/(insights|news)/, ttlMs: 120_000 },
   { re: /^\/api\/v1\/kb\/(events|news)/, ttlMs: 90_000 },
 ];

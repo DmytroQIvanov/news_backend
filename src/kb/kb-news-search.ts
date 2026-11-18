@@ -150,6 +150,8 @@ export function buildQueries(title: string, entities: string[]): string[] {
 
 export interface FilterContext {
   eventTitle: string;
+  /** Titles of the event's own documents: natural headlines match other outlets better than the synthetic event title. */
+  altTitles?: string[];
   entities: string[];
   startedAt: string | null;
   knownRoots: Set<string>;
@@ -179,9 +181,11 @@ export function filterHits(hits: SearchHit[], ctx: FilterContext): Array<SearchH
       const t = Date.parse(h.publishedAt);
       if (t < start - 36 * 3_600_000 || t > Date.now() + 3_600_000) continue;
     }
-    const overlap = titleOverlap(ctx.eventTitle, h.title);
+    const titles = [ctx.eventTitle, ...(ctx.altTitles ?? [])];
+    const overlap = Math.max(...titles.map((t) => titleOverlap(t, h.title)));
+    const shared = Math.max(...titles.map((t) => sharedTokens(t, h.title)));
     const entHit = entityHitRatio(ctx.entities.slice(0, 4), `${h.title} ${h.snippet ?? ''}`);
-    if (overlap < (web ? Math.max(minOverlap, 0.5) : minOverlap) || sharedTokens(ctx.eventTitle, h.title) < 2) continue;
+    if (overlap < (web ? Math.max(minOverlap, 0.5) : minOverlap) || shared < 2) continue;
     // dated hits are preferred over undated ones
     scored.push({ ...h, root, score: overlap * 0.7 + entHit * 0.3 + (h.publishedAt ? 0.05 : 0) });
   }

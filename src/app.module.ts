@@ -57,6 +57,8 @@ import { DiscoveryController } from './news/discovery.controller';
 import { KbTranslationService } from './kb/kb-translation.service';
 import { KbReadService } from './kb/kb-read.service';
 import { KbDataService } from './kb/kb-data.service';
+import { EncyclopediaController } from './encyclopedia/encyclopedia.controller';
+import { EncyclopediaService } from './encyclopedia/encyclopedia.service';
 
 @Module({
   controllers: [
@@ -76,6 +78,7 @@ import { KbDataService } from './kb/kb-data.service';
     InsightsController,
     LlmStatsController,
     KbController,
+    EncyclopediaController,
   ],
   providers: [
     DatabaseService,
@@ -111,6 +114,7 @@ import { KbDataService } from './kb/kb-data.service';
     LlmStatsService,
     KbReadService,
     KbDataService,
+    EncyclopediaService,
     KbEditorialService,
     KbFlagshipService,
     KbCorroborationService,

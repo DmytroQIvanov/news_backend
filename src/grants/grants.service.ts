@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { postGeminiGenerateContent } from '../common/gemini-client';
 import { DatabaseService } from '../database/database.service';
+import { isSafePublicHttpUrl } from '../common/source-compliance';
 import {
   type GrantAudienceCode,
   type GrantOpportunityItem,
@@ -56,6 +57,7 @@ type GrantDbRow = Omit<
 > & {
   deadlineAt: Date | string | null;
   lastVerifiedAt: Date | string;
+  lastAiVerifiedAt?: string | null;
   requirementsUk: unknown;
   audiences?: unknown;
   targetAudienceUk?: string | null;
@@ -63,18 +65,6 @@ type GrantDbRow = Omit<
 };
 
 const SEED_BY_EXTERNAL_ID = new Map(INITIAL_GRANTS_SEED.map((g) => [g.externalId, g]));
-
-const PORTAL_VERIFICATION_TARGETS = [
-  { externalId: 'brave1-defense-tech', url: 'https://brave1.gov.ua/' },
-  { externalId: 'usf-preseed-seed', url: 'https://usf.com.ua/' },
-  { externalId: 'seeds-of-bravery-deeptech', url: 'https://seedsofbravery.eu/' },
-  {
-    externalId: 'eic-accelerator-horizon',
-    url: 'https://eic.ec.europa.eu/eic-funding-opportunities/eic-accelerator_en',
-  },
-  { externalId: 'devpost-mlh-ai-hackathons', url: 'https://devpost.com/hackathons' },
-  { externalId: 'ethglobal-ai-hackathons', url: 'https://ethglobal.com/events' },
-];
 
 const grantsVerificationSchema = {
   type: 'object',
@@ -100,8 +90,7 @@ const grantsVerificationSchema = {
 
 @Injectable()
 export class GrantsService implements OnModuleInit, OnModuleDestroy {
-  static lastAiVerificationAt: string =
-    INITIAL_GRANTS_SEED[0]?.lastVerifiedAt ?? '2026-11-14T18:00:00Z';
+  static lastAiVerificationAt = ''; // No AI verification has happened in this process yet.
   static readonly dailyCheckIntervalHours = 24;
 
   private readonly logger = new Logger(GrantsService.name);
@@ -260,7 +249,7 @@ export class GrantsService implements OnModuleInit, OnModuleDestroy {
                   official_url AS "officialUrl",
                   worth_score AS "worthScore",
                   status,
-                  last_verified_at AS "lastVerifiedAt",
+                  last_verified_at AS "lastVerifiedAt", to_jsonb(grants_opportunities)->>'last_ai_verified_at' AS "lastAiVerifiedAt",
                   COUNT(*) OVER()::int AS "totalCount"
            FROM grants_opportunities
            WHERE status = 'active'
@@ -323,7 +312,7 @@ export class GrantsService implements OnModuleInit, OnModuleDestroy {
                   official_url AS "officialUrl",
                   worth_score AS "worthScore",
                   status,
-                  last_verified_at AS "lastVerifiedAt",
+                  last_verified_at AS "lastVerifiedAt", to_jsonb(grants_opportunities)->>'last_ai_verified_at' AS "lastAiVerifiedAt",
                   COUNT(*) OVER()::int AS "totalCount"
            FROM grants_opportunities
            WHERE status = 'active'
@@ -505,7 +494,7 @@ export class GrantsService implements OnModuleInit, OnModuleDestroy {
                   official_url AS "officialUrl",
                   worth_score AS "worthScore",
                   status,
-                  last_verified_at AS "lastVerifiedAt"
+                  last_verified_at AS "lastVerifiedAt", to_jsonb(grants_opportunities)->>'last_ai_verified_at' AS "lastAiVerifiedAt"
            FROM grants_opportunities
            WHERE external_id = $1
            LIMIT 1`,
@@ -542,7 +531,7 @@ export class GrantsService implements OnModuleInit, OnModuleDestroy {
                   official_url AS "officialUrl",
                   worth_score AS "worthScore",
                   status,
-                  last_verified_at AS "lastVerifiedAt"
+                  last_verified_at AS "lastVerifiedAt", to_jsonb(grants_opportunities)->>'last_ai_verified_at' AS "lastAiVerifiedAt"
            FROM grants_opportunities
            WHERE external_id = $1
            LIMIT 1`,
@@ -607,7 +596,8 @@ export class GrantsService implements OnModuleInit, OnModuleDestroy {
     }
 
     const portalSnippets: Array<{ externalId: string; url: string; excerpt: string }> = [];
-    for (const target of PORTAL_VERIFICATION_TARGETS) {
+    const targets = await this.verificationTargets();
+    for (const target of targets) {
       try {
         const resp = await fetch(target.url, {
           signal: AbortSignal.timeout(7_000),
@@ -648,7 +638,7 @@ export class GrantsService implements OnModuleInit, OnModuleDestroy {
 
     try {
       const currentSnapshots = portalSnippets.map((s) => {
-        const existing = SEED_BY_EXTERNAL_ID.get(s.externalId);
+        const existing = targets.find(t => t.externalId === s.externalId);
         return {
           externalId: s.externalId,
           url: s.url,
@@ -702,7 +692,7 @@ ${JSON.stringify(currentSnapshots)}
       let updated = 0;
 
       for (const item of verifiedItems) {
-        if (!item?.externalId || (item.status !== 'active' && item.status !== 'expired')) {
+        if (!item?.externalId || !portalSnippets.some(s => s.externalId === item.externalId) || (item.status !== 'active' && item.status !== 'expired')) {
           continue;
         }
         const validDeadline =
@@ -759,10 +749,8 @@ ${JSON.stringify(currentSnapshots)}
       }
 
       const nowIso = new Date().toISOString();
-      GrantsService.lastAiVerificationAt = nowIso;
-      await this.db
-        .query(`UPDATE grants_opportunities SET last_ai_verified_at = now() WHERE status = 'active'`)
-        .catch(() => undefined);
+      if (updated > 0) GrantsService.lastAiVerificationAt = nowIso;
+      // Per-row verification above is the only place allowed to advance freshness.
 
       this.logger.log(
         `Daily Gemini grants verification complete: ${portalSnippets.length} checked, ${updated} updated, ${expired} expired.`,
@@ -772,7 +760,7 @@ ${JSON.stringify(currentSnapshots)}
         updated,
         expired,
         skipped: false,
-        lastAiVerificationAt: nowIso,
+        lastAiVerificationAt: GrantsService.lastAiVerificationAt,
       };
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -786,6 +774,17 @@ ${JSON.stringify(currentSnapshots)}
         lastAiVerificationAt: GrantsService.lastAiVerificationAt,
       };
     }
+  }
+
+  private async verificationTargets(): Promise<Array<{ externalId: string; url: string; status: string; deadlineAt: string | null; isRolling: boolean; fundingAmount: string }>> {
+    const raw = Number(process.env.GRANTS_VERIFY_BATCH_SIZE);
+    const limit = Number.isFinite(raw) && raw >= 1 ? Math.min(20,Math.floor(raw)) : 6;
+    const rows = (await this.db.query(
+      `SELECT external_id AS "externalId",official_url AS url,status,deadline_at::text AS "deadlineAt",
+        is_rolling AS "isRolling",funding_amount AS "fundingAmount" FROM grants_opportunities
+        WHERE status='active' ORDER BY last_verified_at ASC NULLS FIRST,id LIMIT $1`, [limit],
+    ).catch(() => ({ rows: INITIAL_GRANTS_SEED.map(g => ({ ...g,url: g.officialUrl })) }))).rows;
+    return rows.filter(r => typeof r.externalId==='string' && typeof r.url==='string' && isSafePublicHttpUrl(r.url)).slice(0,limit) as any;
   }
 
   private async markExpiredInDb(): Promise<number> {
@@ -834,36 +833,9 @@ ${JSON.stringify(currentSnapshots)}
         $13, $14, $15, $16,
         $17, $18, $19,
         $20, $21, $22::jsonb, $23,
-        $24, $25, $26, now(), now()
+        $24, $25, $26, $27::timestamptz, now()
       )
-      ON CONFLICT (external_id) DO UPDATE SET
-        title = EXCLUDED.title,
-        title_uk = EXCLUDED.title_uk,
-        organization = EXCLUDED.organization,
-        country_code = EXCLUDED.country_code,
-        country_label_uk = EXCLUDED.country_label_uk,
-        region_details_uk = EXCLUDED.region_details_uk,
-        sector = EXCLUDED.sector,
-        sector_label_uk = EXCLUDED.sector_label_uk,
-        opportunity_type = EXCLUDED.opportunity_type,
-        audiences = EXCLUDED.audiences,
-        target_audience_uk = EXCLUDED.target_audience_uk,
-        funding_amount = EXCLUDED.funding_amount,
-        funding_max_usd = EXCLUDED.funding_max_usd,
-        equity_free = EXCLUDED.equity_free,
-        co_financing_pct = EXCLUDED.co_financing_pct,
-        stage = EXCLUDED.stage,
-        deadline_at = EXCLUDED.deadline_at,
-        is_rolling = EXCLUDED.is_rolling,
-        summary_uk = EXCLUDED.summary_uk,
-        eligibility_uk = EXCLUDED.eligibility_uk,
-        requirements_uk = EXCLUDED.requirements_uk,
-        application_tips_uk = EXCLUDED.application_tips_uk,
-        official_url = EXCLUDED.official_url,
-        worth_score = EXCLUDED.worth_score,
-        status = EXCLUDED.status,
-        last_verified_at = now(),
-        updated_at = now()`,
+      ON CONFLICT (external_id) DO NOTHING`,
       [
         item.externalId,
         item.title,
@@ -891,6 +863,7 @@ ${JSON.stringify(currentSnapshots)}
         item.officialUrl,
         item.worthScore,
         item.status,
+        item.lastVerifiedAt || null,
       ],
     );
   }
@@ -917,34 +890,9 @@ ${JSON.stringify(currentSnapshots)}
         $11, $12, $13, $14,
         $15, $16, $17,
         $18, $19, $20::jsonb, $21,
-        $22, $23, $24, now(), now()
+        $22, $23, $24, $25::timestamptz, now()
       )
-      ON CONFLICT (external_id) DO UPDATE SET
-        title = EXCLUDED.title,
-        title_uk = EXCLUDED.title_uk,
-        organization = EXCLUDED.organization,
-        country_code = EXCLUDED.country_code,
-        country_label_uk = EXCLUDED.country_label_uk,
-        region_details_uk = EXCLUDED.region_details_uk,
-        sector = EXCLUDED.sector,
-        sector_label_uk = EXCLUDED.sector_label_uk,
-        opportunity_type = EXCLUDED.opportunity_type,
-        funding_amount = EXCLUDED.funding_amount,
-        funding_max_usd = EXCLUDED.funding_max_usd,
-        equity_free = EXCLUDED.equity_free,
-        co_financing_pct = EXCLUDED.co_financing_pct,
-        stage = EXCLUDED.stage,
-        deadline_at = EXCLUDED.deadline_at,
-        is_rolling = EXCLUDED.is_rolling,
-        summary_uk = EXCLUDED.summary_uk,
-        eligibility_uk = EXCLUDED.eligibility_uk,
-        requirements_uk = EXCLUDED.requirements_uk,
-        application_tips_uk = EXCLUDED.application_tips_uk,
-        official_url = EXCLUDED.official_url,
-        worth_score = EXCLUDED.worth_score,
-        status = EXCLUDED.status,
-        last_verified_at = now(),
-        updated_at = now()`,
+      ON CONFLICT (external_id) DO NOTHING`,
       [
         item.externalId,
         item.title,
@@ -970,6 +918,7 @@ ${JSON.stringify(currentSnapshots)}
         item.officialUrl,
         item.worthScore,
         item.status,
+        item.lastVerifiedAt || null,
       ],
     );
   }
@@ -1122,7 +1071,8 @@ function mapGrantRow(row: GrantDbRow): GrantOpportunityItem {
     officialUrl: row.officialUrl,
     worthScore: Number(row.worthScore ?? 0),
     status: row.status,
-    lastVerifiedAt: toIsoStringOrNull(row.lastVerifiedAt) ?? new Date().toISOString(),
+    lastVerifiedAt: toIsoStringOrNull(row.lastVerifiedAt) ?? '',
+    provenance: row.lastAiVerifiedAt ? 'verified' : 'bundled_reference',
   };
 }
 

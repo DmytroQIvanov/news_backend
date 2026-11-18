@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import { createHash } from 'node:crypto';
 import { postGeminiGenerateContent } from '../common/gemini-client';
 import { DatabaseService } from '../database/database.service';
+import { catalogRegistryTargets } from './catalog-registry';
 import {
   type AiCatalogItem,
   type CatalogChangeItem,
@@ -10,7 +11,6 @@ import {
   type ModelDetail,
   type Promotion,
   type ProviderConfig,
-  PROVIDERS_CONFIG,
 } from './catalog-seed';
 
 export { computeModelTokenPracticality } from './catalog-seed';
@@ -219,22 +219,9 @@ export class CatalogService implements OnModuleInit, OnModuleDestroy {
                subscription_price_usd::float AS "subscriptionPriceUsd",
                min_input_price_per_1m::float AS "minInputPricePer1M",
                official_url AS "officialUrl",
-               pricing_doc_url AS "pricingDocUrl", last_verified_at AS "lastVerifiedAt"
+               pricing_doc_url AS "pricingDocUrl", last_verified_at AS "lastVerifiedAt", evidence_hash AS "evidenceHash"
         FROM ai_catalogs
-        ORDER BY CASE
-          WHEN provider_id = 'gemini' THEN 1
-          WHEN provider_id = 'claude' THEN 2
-          WHEN provider_id = 'openai' THEN 3
-          WHEN provider_id = 'deepseek' THEN 4
-          WHEN provider_id = 'grok' THEN 5
-          WHEN provider_id = 'mistral' THEN 6
-          WHEN provider_id = 'groq' THEN 7
-          WHEN provider_id = 'perplexity' THEN 8
-          WHEN provider_id = 'huggingface' THEN 9
-          WHEN provider_id = 'openrouter' THEN 10
-          WHEN provider_id = 'together' THEN 11
-          WHEN provider_id = 'cohere' THEN 12
-          ELSE 13 END, id
+        ORDER BY provider_name, id
       `);
       if (rows && rows.length > 0) {
         items = rows;
@@ -250,7 +237,8 @@ export class CatalogService implements OnModuleInit, OnModuleDestroy {
     let normalized = items.map(item => {
       const seed = seedById.get(item.id);
       const verifiedMs = Date.parse(item.lastVerifiedAt);
-      const isOutdated = !Number.isFinite(verifiedMs) || (now.getTime() - verifiedMs > staleThresholdMs);
+      const hasEvidence = Boolean((item as AiCatalogItem & { evidenceHash?: string }).evidenceHash);
+      const isOutdated = !hasEvidence || !Number.isFinite(verifiedMs) || (now.getTime() - verifiedMs > staleThresholdMs);
       const activePromos = (item.currentPromotions || [])
         .map(p => ({ ...p, isExpired: isPromotionExpired(p, now) }))
         .filter(p => !p.isExpired);
@@ -261,6 +249,7 @@ export class CatalogService implements OnModuleInit, OnModuleDestroy {
 
       return {
         ...item,
+        lastVerifiedAt: hasEvidence ? item.lastVerifiedAt : '',
         models: enrichedModels,
         subscriptionPriceUsd: item.subscriptionPriceUsd ?? seed?.subscriptionPriceUsd ?? null,
         minInputPricePer1M: item.minInputPricePer1M ?? seed?.minInputPricePer1M ?? null,
@@ -400,9 +389,8 @@ export class CatalogService implements OnModuleInit, OnModuleDestroy {
     const run = async () => {
       const updated: string[] = [];
       const skipped: string[] = [];
-      const targets = providerId
-        ? PROVIDERS_CONFIG.filter(p => p.providerId.toLowerCase() === providerId.toLowerCase())
-        : PROVIDERS_CONFIG;
+      const registry = await this.providerTargets();
+      const targets = providerId ? registry.filter(p => p.providerId.toLowerCase() === providerId.toLowerCase()) : registry;
 
       for (const cfg of targets) {
         const result = await this.parseAndRefineProviderWithGemini(cfg, force);
@@ -424,7 +412,7 @@ export class CatalogService implements OnModuleInit, OnModuleDestroy {
    * Performs an incremental evidence check without regenerating unchanged providers.
    */
   async notifyArticlePublished(providerId: string, articleTitle: string, articleUrl: string): Promise<void> {
-    const cfg = PROVIDERS_CONFIG.find(p => p.providerId === providerId);
+    const cfg = (await this.providerTargets()).find(p => p.providerId === providerId);
     if (!cfg) return;
     this.logger.log(`News-triggered encyclopedia check for [${providerId}] due to: "${articleTitle.slice(0, 70)}"`);
     await this.parseAndRefineProviderWithGemini(cfg, false, `[RECENT NEWS ${articleUrl}]: ${articleTitle}`);
@@ -438,7 +426,7 @@ export class CatalogService implements OnModuleInit, OnModuleDestroy {
             id, provider_id, provider_name, category, title, tagline,
             models, free_tier, current_promotions, advantages, limitations,
             pricing_summary, official_url, pricing_doc_url, last_verified_at, updated_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13, $14, now(), now())
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13, $14, 'epoch'::timestamptz, now())
           ON CONFLICT (id) DO NOTHING
         `, [
           item.id,
@@ -480,7 +468,7 @@ export class CatalogService implements OnModuleInit, OnModuleDestroy {
         } catch { /* ignore if column not migrated yet */ }
       }
 
-      for (const cfg of PROVIDERS_CONFIG) {
+      for (const cfg of await this.providerTargets()) {
         if (this.isDestroyed) break;
         if (!force && freshSet.has(cfg.id)) {
           skipped.push(cfg.providerId);
@@ -509,6 +497,7 @@ export class CatalogService implements OnModuleInit, OnModuleDestroy {
     extraContext?: string,
   ): Promise<'updated' | 'unchanged' | 'skipped'> {
     const evidence = await this.collectProviderEvidence(cfg, extraContext);
+    if (!evidence.trim()) return 'skipped';
     const evidenceHash = createHash('sha256').update(evidence).digest('hex');
 
     // Check existing record and evidence_hash to avoid unnecessary Gemini calls
@@ -535,7 +524,6 @@ export class CatalogService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (!this.geminiKey) {
-      await this.db.query(`UPDATE ai_catalogs SET last_verified_at = now() WHERE id = $1`, [cfg.id]).catch(() => undefined);
       return 'skipped';
     }
 
@@ -627,7 +615,6 @@ ${JSON.stringify({
       return 'updated';
     } catch (error) {
       this.logger.warn(`Gemini catalog verification failed for [${cfg.providerId}]: ${error instanceof Error ? error.message : error}`);
-      await this.db.query(`UPDATE ai_catalogs SET last_verified_at = now() WHERE id = $1`, [cfg.id]).catch(() => undefined);
       return 'skipped';
     }
   }
@@ -667,7 +654,14 @@ ${JSON.stringify({
       }
     } catch { /* ignore */ }
 
-    return snippets.join('\n\n') || `Provider official portal: ${cfg.officialUrl}`;
+    return snippets.join('\n\n');
+  }
+
+  private async providerTargets(): Promise<ProviderConfig[]> {
+    const rows = (await this.db.query(`SELECT id,provider_id AS "providerId",provider_name AS "providerName",category,
+      official_url AS "officialUrl",pricing_doc_url AS "pricingDocUrl" FROM ai_catalogs ORDER BY provider_name,id`)
+      .catch(() => ({ rows: [] }))).rows;
+    return catalogRegistryTargets(rows);
   }
 
   private async saveToDatabase(item: AiCatalogItem, evidenceHash: string) {

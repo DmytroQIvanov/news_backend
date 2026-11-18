@@ -51,6 +51,7 @@ export interface GrantOpportunityItem {
   worthScore: number;
   status: 'active' | 'expired';
   lastVerifiedAt: string;
+  provenance?: 'bundled_reference' | 'verified';
 }
 
 export const GRANT_COUNTRY_LABELS_UK: Record<GrantCountryCode, string> = {

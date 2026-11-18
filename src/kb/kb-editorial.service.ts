@@ -138,6 +138,12 @@ const ARTICLE_ITEM = {
 
 export const ARTICLE_SCHEMA = { type: 'object', properties: { articles: { type: 'array', items: ARTICLE_ITEM } }, required: ['articles'] };
 
+/** Minimum article length per tier. Short but accurate beats empty; tune with KB_MIN_WORDS_FLAGSHIP / _BIG / _MEDIUM. */
+export function minWordsFor(tier: string): number {
+  const pick = (name: string, fallback: number) => (Number(process.env[name]) > 0 ? Number(process.env[name]) : fallback);
+  return tier === 'flagship' ? pick('KB_MIN_WORDS_FLAGSHIP', 800) : tier === 'big' ? pick('KB_MIN_WORDS_BIG', 450) : pick('KB_MIN_WORDS_MEDIUM', 180);
+}
+
 export const RULES = `Rules:
 - Use ONLY information from the material given. Do not add facts, numbers, names or dates from memory.
 - Cite after the sentences they support: sources [D1], research pages [R1], official data and registries [S1] (quote
@@ -471,7 +477,7 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
       const meta = r.ai_metadata ?? {};
       const article = meta.article ?? {};
       const tier: Tier = (r.editorial_tier as Tier) || 'medium';
-      const minWords = tier === 'flagship' ? 1100 : tier === 'big' ? 650 : 250;
+      const minWords = minWordsFor(tier);
       const attempts = Number(meta.kb?.rescue_attempts ?? 0) + 1;
       const dossier = await buildDossier(this.db, Number(r.kb_event_id), tier === 'big' ? { excerptChars: 9_000, maxDocs: 24 } : { excerptChars: 4_500, maxDocs: 14 });
       let body: string = String(article.body ?? '');
@@ -641,7 +647,7 @@ Fix only what the issue lists, using only the dossier; keep citations like [D1] 
   async publish(cand: Candidate, dossier: EventDossier, art: GeneratedArticle, model: string, opts: PublishOptions = {}) {
     const tier: Tier = opts.tier ?? cand.tier ?? 'medium';
     // Too short for its tier: add cited paragraphs from unused dossier material instead of rejecting or rewriting the article.
-    const tierMin = tier === 'flagship' ? 1100 : tier === 'big' ? 650 : 250;
+    const tierMin = minWordsFor(tier);
     if (this.llm === geminiJson && process.env.KB_EXPAND !== 'false' && countWords(art.body || '') < tierMin) {
       art.body = await this.expandShort(art, dossier, tierMin).catch(() => art.body);
     }
@@ -711,7 +717,7 @@ Fix only what the issue lists, using only the dossier; keep citations like [D1] 
     const unknownNumbers = [...new Set([...`${art.body}`.replace(/\[[A-Z]\d+\]/g, ' ').matchAll(NUM)].map((m) => normNum(m[0])))]
       .filter((n) => n && !known.has(n) && !(Number(n) >= 1900 && Number(n) <= 2100) && !(Number(n) <= 12));
     const words = body.split(/\s+/).filter(Boolean).length;
-    const minWords = tier === 'flagship' ? 1100 : tier === 'big' ? 650 : 250;
+    const minWords = minWordsFor(tier);
     const problems: string[] = [];
     if (words < minWords) problems.push(`too short (${words} words)`);
     if (unknownRefs.size) problems.push(`unknown references ${[...unknownRefs].join(',')}`);

@@ -485,7 +485,7 @@ test('GrantsService and GrantsController support audience filtering, meta fields
   assert.equal(meta.uaCount, 6);
   assert.equal(meta.byCountry.ua, 6);
   assert.equal(meta.dailyCheckIntervalHours, 24);
-  assert.ok(Number.isFinite(Date.parse(meta.lastAiVerificationAt)));
+  assert.equal(meta.lastAiVerificationAt, GrantsService.lastAiVerificationAt);
   for (const aud of Object.keys(GRANT_AUDIENCE_LABELS_UK)) {
     assert.ok((meta.byAudience[aud] ?? 0) > 0, `Missing meta.byAudience for ${aud}`);
   }
@@ -583,7 +583,7 @@ test('HealthController.summary exposes grants audience breakdown and 24h AI veri
   assert.equal(summary.grants.active, INITIAL_GRANTS_SEED.length);
   assert.equal(summary.grants.equityFree, INITIAL_GRANTS_SEED.filter((g) => g.equityFree).length);
   assert.equal(summary.grants.dailyCheckIntervalHours, 24);
-  assert.ok(Number.isFinite(Date.parse(summary.grants.lastAiVerificationAt)));
+  assert.equal(summary.grants.lastAiVerificationAt, GrantsService.lastAiVerificationAt);
   assert.ok((summary.grants.byAudience.students_youth ?? 0) > 0);
   assert.ok(summary.grants.totalFundingUsd > 5_000_000);
 });

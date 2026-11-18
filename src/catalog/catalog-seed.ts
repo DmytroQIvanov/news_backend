@@ -329,7 +329,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         bestFor: 'Глибокий аналіз коду, великі відео, книги та складний reasoning',
         strengths: ['Нативна мультимодальність (відео, аудіо, PDF)', '2M токенів контексту', 'Google Search Grounding'],
         sourceUrl: 'https://ai.google.dev/pricing',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
       {
         name: 'Gemini 2.5 Flash / Flash-Lite',
@@ -341,7 +341,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         bestFor: 'Швидкі агенти, чати, високонавантажені API з мінімальною затримкою',
         strengths: ['Супер-швидкість', 'Наднизька вартість токенів', 'Високий безкоштовний ліміт'],
         sourceUrl: 'https://ai.google.dev/pricing',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
     ],
     freeTier: {
@@ -350,7 +350,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
       description: 'Безкоштовний доступ через веб-інтерфейс та API Google AI Studio з доступом до Pro і Flash моделей.',
       renewPeriod: 'Щоденне та щохвилинне оновлення квот',
       sourceUrl: 'https://ai.google.dev/pricing',
-      verificationStatus: 'confirmed',
+      verificationStatus: 'unverified',
     },
     currentPromotions: [
       {
@@ -359,7 +359,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         description: 'Нові користувачі Google Cloud отримують $300 на 90 днів для сервісів включно з Vertex AI.',
         eligible: 'Нові акаунти Google Cloud',
         sourceUrl: 'https://cloud.google.com/free',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
       {
         title: 'Безкоштовний tier у Google AI Studio',
@@ -367,7 +367,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         description: 'Розробники можуть безкоштовно створювати API-ключ і використовувати Gemini у межах базових лімітів.',
         eligible: 'Усі зареєстровані розробники',
         sourceUrl: 'https://aistudio.google.com',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
     ],
     advantages: [
@@ -385,8 +385,8 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
     minInputPricePer1M: 0.075,
     officialUrl: 'https://aistudio.google.com',
     pricingDocUrl: 'https://ai.google.dev/pricing',
-    lastVerifiedAt: new Date().toISOString(),
-    verificationStatus: 'confirmed',
+    lastVerifiedAt: '', // Bundled reference; no live verification has occurred.
+    verificationStatus: 'unverified',
   },
   {
     id: 'anthropic-claude',
@@ -406,7 +406,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         bestFor: 'Архітектура ПЗ, рефакторинг, складний кодинг, агентні задачі',
         strengths: ['Гібридний режим мислення (Extended Thinking)', 'Computer Use API', 'Висока точність інструкцій'],
         sourceUrl: 'https://www.anthropic.com/pricing',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
       {
         name: 'Claude 3.5 Haiku',
@@ -418,7 +418,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         bestFor: 'Швидкі агенти, сумаризація, миттєві підказки',
         strengths: ['Висока швидкість відповіді', 'Доступна ціна API'],
         sourceUrl: 'https://www.anthropic.com/pricing',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
     ],
     freeTier: {
@@ -427,7 +427,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
       description: 'Безкоштовний доступ до веб-інтерфейсу Claude.ai з можливістю завантажувати файли та писати код.',
       renewPeriod: 'Динамічний ліміт кожні 5 годин',
       sourceUrl: 'https://claude.ai',
-      verificationStatus: 'confirmed',
+      verificationStatus: 'unverified',
     },
     currentPromotions: [
       {
@@ -436,7 +436,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         description: 'Кешування повторюваних системних промптів та кодових баз знижує ціну читання токенів до 90%.',
         eligible: 'Усі користувачі Anthropic API',
         sourceUrl: 'https://www.anthropic.com/pricing',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
       {
         title: 'Batch API знижка 50%',
@@ -444,7 +444,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         description: 'Асинхронна пакетна обробка запитів протягом 24 годин коштує вдвічі дешевше.',
         eligible: 'Усі користувачі Anthropic API',
         sourceUrl: 'https://www.anthropic.com/pricing',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
     ],
     advantages: [
@@ -462,8 +462,8 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
     minInputPricePer1M: 0.8,
     officialUrl: 'https://claude.ai',
     pricingDocUrl: 'https://www.anthropic.com/pricing',
-    lastVerifiedAt: new Date().toISOString(),
-    verificationStatus: 'confirmed',
+    lastVerifiedAt: '', // Bundled reference; no live verification has occurred.
+    verificationStatus: 'unverified',
   },
   {
     id: 'openai-chatgpt',
@@ -483,7 +483,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         bestFor: 'Універсальні завдання, генерація зображень, голос у реальному часі',
         strengths: ['Низька затримка', 'Інтегрована генерація зображень', 'Найширша екосистема SDK'],
         sourceUrl: 'https://openai.com/api/pricing/',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
       {
         name: 'OpenAI o3-mini / o1',
@@ -495,7 +495,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         bestFor: 'Математика, алгоритмічний кодинг, наукові завдання',
         strengths: ['Покроковий reasoning перед відповіддю', 'Високі результати в алгоритмах'],
         sourceUrl: 'https://openai.com/api/pricing/',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
     ],
     freeTier: {
@@ -504,7 +504,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
       description: 'Безкоштовні користувачі chatgpt.com мають доступ до веб-пошуку, аналізу документів та створення зображень (лімітовано).',
       renewPeriod: 'Ліміт на GPT-4o скидається кожні кілька годин',
       sourceUrl: 'https://openai.com/chatgpt/pricing/',
-      verificationStatus: 'confirmed',
+      verificationStatus: 'unverified',
     },
     currentPromotions: [
       {
@@ -513,7 +513,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         description: 'Асинхронні пакетні завдання виконуються зі знижкою 50% від стандартних тарифів API.',
         eligible: 'Усі користувачі OpenAI API',
         sourceUrl: 'https://openai.com/api/pricing/',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
     ],
     advantages: [
@@ -531,8 +531,8 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
     minInputPricePer1M: 0.15,
     officialUrl: 'https://openai.com',
     pricingDocUrl: 'https://openai.com/api/pricing/',
-    lastVerifiedAt: new Date().toISOString(),
-    verificationStatus: 'confirmed',
+    lastVerifiedAt: '', // Bundled reference; no live verification has occurred.
+    verificationStatus: 'unverified',
   },
   {
     id: 'mistral-ai',
@@ -552,7 +552,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         bestFor: 'Багатомовні завдання, європейські мови, корпоративні сценарії',
         strengths: ['Відмінне володіння кодом та мовами', 'Відповідність GDPR'],
         sourceUrl: 'https://mistral.ai/technology/',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
       {
         name: 'Codestral',
@@ -564,7 +564,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         bestFor: 'Автокомпліт та генерація коду у 80+ мовах',
         strengths: ['Fill-in-the-middle підтримка', '256k контекст для кодових баз'],
         sourceUrl: 'https://mistral.ai/technology/',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
     ],
     freeTier: {
@@ -573,7 +573,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
       description: 'Доступ до флагманських моделей Mistral, веб-пошуку та аналізу файлів без обов’язкової підписки.',
       renewPeriod: 'Денні та хвилинні квоти',
       sourceUrl: 'https://mistral.ai',
-      verificationStatus: 'confirmed',
+      verificationStatus: 'unverified',
     },
     currentPromotions: [
       {
@@ -582,7 +582,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         description: 'Користувачі Le Chat отримують доступ до моделей Mistral, пошуку та генерації зображень безкоштовно.',
         eligible: 'Усі акаунти Le Chat',
         sourceUrl: 'https://chat.mistral.ai',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
     ],
     advantages: [
@@ -598,8 +598,8 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
     minInputPricePer1M: 0.3,
     officialUrl: 'https://mistral.ai',
     pricingDocUrl: 'https://mistral.ai/technology/',
-    lastVerifiedAt: new Date().toISOString(),
-    verificationStatus: 'confirmed',
+    lastVerifiedAt: '', // Bundled reference; no live verification has occurred.
+    verificationStatus: 'unverified',
   },
   {
     id: 'huggingface-open',
@@ -617,7 +617,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         bestFor: 'Відкритий reasoning, власний хостинг або Inference Providers',
         strengths: ['Архітектура Mixture-of-Experts', 'Повний відкритий доступ до ваг'],
         sourceUrl: 'https://huggingface.co/models',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
       {
         name: 'Llama 3.3 70B',
@@ -627,7 +627,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         bestFor: 'Локальний або self-hosted ШІ для власного сервера',
         strengths: ['Працює через Ollama / vLLM', 'Повний контроль над даними'],
         sourceUrl: 'https://huggingface.co/models',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
     ],
     freeTier: {
@@ -636,7 +636,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
       description: 'HuggingChat дозволяє перемикатися між відкритими моделями безкоштовно.',
       renewPeriod: 'Постійний безкоштовний рівень з rate limits',
       sourceUrl: 'https://huggingface.co/pricing',
-      verificationStatus: 'confirmed',
+      verificationStatus: 'unverified',
     },
     currentPromotions: [
       {
@@ -645,7 +645,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         description: 'Розробники можуть безкоштовно розгортати Gradio/Streamlit демо на базових CPU.',
         eligible: 'Усі користувачі Hugging Face',
         sourceUrl: 'https://huggingface.co/pricing',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
     ],
     advantages: [
@@ -661,8 +661,8 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
     minInputPricePer1M: 0,
     officialUrl: 'https://huggingface.co',
     pricingDocUrl: 'https://huggingface.co/pricing',
-    lastVerifiedAt: new Date().toISOString(),
-    verificationStatus: 'confirmed',
+    lastVerifiedAt: '', // Bundled reference; no live verification has occurred.
+    verificationStatus: 'unverified',
   },
   {
     id: 'xai-grok',
@@ -682,7 +682,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         bestFor: 'Складний reasoning, наукові задачі, аналіз новин X у реальному часі',
         strengths: ['Доступ до live-даних X', 'Режим Think та DeepSearch'],
         sourceUrl: 'https://x.ai/api',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
       {
         name: 'Grok 3 mini',
@@ -694,7 +694,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         bestFor: 'Швидкі reasoning-запити за низькою ціною API',
         strengths: ['Висока швидкість', 'Низька ціна токенів'],
         sourceUrl: 'https://x.ai/api',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
     ],
     freeTier: {
@@ -703,7 +703,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
       description: 'Базовий доступ до Grok із денними лімітами для зареєстрованих користувачів.',
       renewPeriod: 'Періодичне скидання лімітів',
       sourceUrl: 'https://grok.com',
-      verificationStatus: 'confirmed',
+      verificationStatus: 'unverified',
     },
     currentPromotions: [
       {
@@ -729,8 +729,8 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
     minInputPricePer1M: 0.3,
     officialUrl: 'https://grok.com',
     pricingDocUrl: 'https://x.ai/api',
-    lastVerifiedAt: new Date().toISOString(),
-    verificationStatus: 'confirmed',
+    lastVerifiedAt: '', // Bundled reference; no live verification has occurred.
+    verificationStatus: 'unverified',
   },
   {
     id: 'perplexity-ai',
@@ -750,7 +750,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         bestFor: 'Дослідження, аналіз ринку, верифіковані відповіді з посиланнями',
         strengths: ['Автоматичне цитування джерел', 'Real-time веб-пошук', 'Deep Research режим'],
         sourceUrl: 'https://docs.perplexity.ai/guides/pricing',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
       {
         name: 'Sonar',
@@ -762,7 +762,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         bestFor: 'Швидкі пошукові відповіді з перевіреними посиланнями',
         strengths: ['Низька затримка', 'Доступна ціна API'],
         sourceUrl: 'https://docs.perplexity.ai/guides/pricing',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
     ],
     freeTier: {
@@ -771,7 +771,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
       description: 'Безкоштовний план включає стандартний пошук з цитуванням джерел.',
       renewPeriod: 'Скидання Pro-лімітів щодня',
       sourceUrl: 'https://www.perplexity.ai',
-      verificationStatus: 'confirmed',
+      verificationStatus: 'unverified',
     },
     currentPromotions: [
       {
@@ -797,8 +797,8 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
     minInputPricePer1M: 1.0,
     officialUrl: 'https://www.perplexity.ai',
     pricingDocUrl: 'https://docs.perplexity.ai/guides/pricing',
-    lastVerifiedAt: new Date().toISOString(),
-    verificationStatus: 'confirmed',
+    lastVerifiedAt: '', // Bundled reference; no live verification has occurred.
+    verificationStatus: 'unverified',
   },
   {
     id: 'deepseek-ai',
@@ -818,7 +818,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         bestFor: 'Складний reasoning, математика, алгоритми',
         strengths: ['Повний відкритий доступ до ваг', 'В рази дешевше за аналоги'],
         sourceUrl: 'https://api-docs.deepseek.com/quick_start/pricing',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
       {
         name: 'DeepSeek-V3',
@@ -830,7 +830,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         bestFor: 'Повсякденний кодинг, чат-боти, масова генерація',
         strengths: ['Низька вартість токенів', 'Знижка 50–75% на кешовані запити'],
         sourceUrl: 'https://api-docs.deepseek.com/quick_start/pricing',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
     ],
     freeTier: {
@@ -839,7 +839,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
       description: 'Повний доступ до DeepSeek-V3 та R1 у веб-інтерфейсі без підписки.',
       renewPeriod: 'Без щомісячної підписки',
       sourceUrl: 'https://www.deepseek.com',
-      verificationStatus: 'confirmed',
+      verificationStatus: 'unverified',
     },
     currentPromotions: [
       {
@@ -848,7 +848,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         description: 'Повторні системні промпти автоматично кешуються за зниженим тарифом.',
         eligible: 'Усі користувачі DeepSeek API',
         sourceUrl: 'https://api-docs.deepseek.com/quick_start/pricing',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
     ],
     advantages: [
@@ -863,8 +863,8 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
     minInputPricePer1M: 0.27,
     officialUrl: 'https://www.deepseek.com',
     pricingDocUrl: 'https://api-docs.deepseek.com/quick_start/pricing',
-    lastVerifiedAt: new Date().toISOString(),
-    verificationStatus: 'confirmed',
+    lastVerifiedAt: '', // Bundled reference; no live verification has occurred.
+    verificationStatus: 'unverified',
   },
   {
     id: 'groq-cloud',
@@ -884,7 +884,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         bestFor: 'Голосові агенти, real-time інтерфейси, швидкі пайплайни',
         strengths: ['Рекордна швидкість токен/сек', 'Щедрий безкоштовний API tier'],
         sourceUrl: 'https://groq.com/pricing/',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
     ],
     freeTier: {
@@ -893,7 +893,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
       description: 'Можна тестувати Llama, Mixtral, Whisper без прив’язки банківської карти.',
       renewPeriod: 'Хвилинні та денні квоти',
       sourceUrl: 'https://groq.com/pricing/',
-      verificationStatus: 'confirmed',
+      verificationStatus: 'unverified',
     },
     currentPromotions: [
       {
@@ -902,7 +902,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         description: 'Безкоштовний доступ до швидкісного API Llama 3.3 та Whisper v3 Turbo.',
         eligible: 'Усі зареєстровані розробники',
         sourceUrl: 'https://console.groq.com',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
     ],
     advantages: [
@@ -917,8 +917,8 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
     minInputPricePer1M: 0.05,
     officialUrl: 'https://groq.com',
     pricingDocUrl: 'https://groq.com/pricing/',
-    lastVerifiedAt: new Date().toISOString(),
-    verificationStatus: 'confirmed',
+    lastVerifiedAt: '', // Bundled reference; no live verification has occurred.
+    verificationStatus: 'unverified',
   },
   {
     id: 'cohere-ai',
@@ -938,7 +938,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         bestFor: 'Корпоративний RAG, аналіз документів, агентні виклики інструментів',
         strengths: ['256k контекст', 'Висока точність цитування в RAG'],
         sourceUrl: 'https://cohere.com/pricing',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
     ],
     freeTier: {
@@ -947,7 +947,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
       description: 'Trial-ключ дозволяє безкоштовно тестувати Command, Embed та Rerank у некомерційних проєктах.',
       renewPeriod: 'Місячний ліміт для розробки',
       sourceUrl: 'https://cohere.com/pricing',
-      verificationStatus: 'confirmed',
+      verificationStatus: 'unverified',
     },
     currentPromotions: [
       {
@@ -956,7 +956,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         description: 'Повний доступ до API Cohere для тестування та прототипування без оплати.',
         eligible: 'Усі розробники (не для production)',
         sourceUrl: 'https://cohere.com/pricing',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
     ],
     advantages: [
@@ -971,8 +971,8 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
     minInputPricePer1M: 0.1,
     officialUrl: 'https://cohere.com',
     pricingDocUrl: 'https://cohere.com/pricing',
-    lastVerifiedAt: new Date().toISOString(),
-    verificationStatus: 'confirmed',
+    lastVerifiedAt: '', // Bundled reference; no live verification has occurred.
+    verificationStatus: 'unverified',
   },
   {
     id: 'together-ai',
@@ -992,7 +992,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         bestFor: 'Масштабований open-source inference та fine-tuning',
         strengths: ['Західний хостинг відкритих моделей', 'Дешевші Serverless endpoints'],
         sourceUrl: 'https://www.together.ai/pricing',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
     ],
     freeTier: {
@@ -1001,7 +1001,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
       description: 'Нові акаунти отримують тестовий баланс для API без щомісячної підписки.',
       renewPeriod: 'Pay-as-you-go',
       sourceUrl: 'https://www.together.ai/pricing',
-      verificationStatus: 'confirmed',
+      verificationStatus: 'unverified',
     },
     currentPromotions: [
       {
@@ -1025,8 +1025,8 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
     minInputPricePer1M: 0.18,
     officialUrl: 'https://www.together.ai',
     pricingDocUrl: 'https://www.together.ai/pricing',
-    lastVerifiedAt: new Date().toISOString(),
-    verificationStatus: 'confirmed',
+    lastVerifiedAt: '', // Bundled reference; no live verification has occurred.
+    verificationStatus: 'unverified',
   },
   {
     id: 'openrouter-ai',
@@ -1046,7 +1046,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         bestFor: 'Прототипування, пет-проєкти, резервний безкоштовний роутинг',
         strengths: ['Десятки моделей за $0', 'Автоматичний fallback між провайдерами'],
         sourceUrl: 'https://openrouter.ai/models?max_price=0',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
     ],
     freeTier: {
@@ -1055,7 +1055,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
       description: 'Підтримує десятки безкоштовних моделей від Google, Meta, DeepSeek, Qwen через єдиний OpenAI-сумісний API.',
       renewPeriod: 'Щоденне оновлення ліміту :free',
       sourceUrl: 'https://openrouter.ai/models?max_price=0',
-      verificationStatus: 'confirmed',
+      verificationStatus: 'unverified',
     },
     currentPromotions: [
       {
@@ -1064,7 +1064,7 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
         description: 'Постійна добірка безкоштовних моделей без необхідності оплати.',
         eligible: 'Усі користувачі OpenRouter',
         sourceUrl: 'https://openrouter.ai/models?max_price=0',
-        verificationStatus: 'confirmed',
+        verificationStatus: 'unverified',
       },
     ],
     advantages: [
@@ -1079,8 +1079,8 @@ const RAW_INITIAL_CATALOG: AiCatalogItem[] = [
     minInputPricePer1M: 0,
     officialUrl: 'https://openrouter.ai',
     pricingDocUrl: 'https://openrouter.ai/models',
-    lastVerifiedAt: new Date().toISOString(),
-    verificationStatus: 'confirmed',
+    lastVerifiedAt: '', // Bundled reference; no live verification has occurred.
+    verificationStatus: 'unverified',
   },
 ];
 

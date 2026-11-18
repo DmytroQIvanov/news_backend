@@ -10,6 +10,7 @@ import logging
 import time
 
 from .. import db
+from ..encyclopedia_metadata import class_tags
 from ..collect.http import client
 
 log = logging.getLogger(__name__)
@@ -129,6 +130,8 @@ def summarize(entity: dict) -> dict:
         "description": (desc.get("en") or desc.get("uk") or {}).get("value"),
         "description_uk": (desc.get("uk") or {}).get("value"),
         "identifiers": identifiers,
+        # Preserve observed P31 classes for data-derived encyclopedia grouping (no type dictionary here).
+        "wikidata_classes": class_tags(_claim_values(entity, "P31")),
         "country_qids": _claim_values(entity, "P17")[:3],
         "sitelinks": len(entity.get("sitelinks", {})),
         "country": country,

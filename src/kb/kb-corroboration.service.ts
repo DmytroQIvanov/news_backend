@@ -333,7 +333,9 @@ export class KbCorroborationService implements OnModuleInit, OnModuleDestroy {
     if (process.env.KB_CORROBORATE_SCRIPTED !== 'false') {
       const entityNames = dossier.entities.map((e) => e.name);
       const hits: SearchHit[] = [];
-      for (const q of buildQueries(dossier.event.title, entityNames).slice(0, 2)) {
+      const docTitles = dossier.docs.map((d) => d.title).filter((t) => t && t.length > 15).slice(0, 3);
+      const queries = [...new Set([...docTitles.flatMap((t) => buildQueries(t, entityNames).slice(0, 1)), ...buildQueries(dossier.event.title, entityNames)])].slice(0, 3);
+      for (const q of queries) {
         try {
           hits.push(...(await this.scriptedSearch(q)));
         } catch (err) {
@@ -341,7 +343,7 @@ export class KbCorroborationService implements OnModuleInit, OnModuleDestroy {
         }
       }
       const survivors = filterHits(hits, {
-        eventTitle: dossier.event.title, entities: entityNames, startedAt: dossier.event.startedAt, knownRoots: seenRoots,
+        eventTitle: dossier.event.title, altTitles: docTitles, entities: entityNames, startedAt: dossier.event.startedAt, knownRoots: seenRoots,
         blockedRoots: DISALLOWED_DISCOVERY_ROOTS, rootOf,
       });
       for (const h of survivors) {
