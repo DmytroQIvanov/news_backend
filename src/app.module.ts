@@ -49,6 +49,7 @@ import { KbController } from './kb/kb.controller';
 import { KbEditorialService } from './kb/kb-editorial.service';
 import { KbFlagshipService } from './kb/kb-flagship.service';
 import { KbCorroborationService } from './kb/kb-corroboration.service';
+import { KbLlmTasksService } from './kb/kb-llm-tasks.service';
 import { WorldSourceDiscoveryService } from './news/world-source-discovery.service';
 import { EventVideosService } from './youtube/event-videos.service';
 import { RelatedNewsService } from './news/related-news.service';
@@ -118,6 +119,7 @@ import { EncyclopediaService } from './encyclopedia/encyclopedia.service';
     KbEditorialService,
     KbFlagshipService,
     KbCorroborationService,
+    KbLlmTasksService,
     WorldSourceDiscoveryService,
     EventVideosService,
     PeopleDiscoveryService,

@@ -9,8 +9,10 @@ test('llm budget: model families map to their daily limit key', () => {
   assert.equal(budgetKey('gemini-3.1-flash-lite'), 'gemini-3.1-flash-lite');
   assert.equal(budgetKey('models/gemini-3-flash-preview'), 'gemini-3-flash');
   assert.equal(budgetKey('gemini-4-hydrogen-high'), 'gemini-4-hydrogen');
-  assert.equal(budgetKey('gemini-3.5-flash-lite'), null);
-  assert.equal(budgetKey('gemma-4-31b-it'), null, 'Gemma has no daily cap');
+  assert.equal(budgetKey('gemini-3.5-flash-lite'), 'gemini-3.5-flash-lite');
+  assert.equal(budgetKey('gemini-3.5-flash'), null);
+  assert.equal(budgetKey('gemma-4-31b-it'), 'gemma-4-31b-it');
+  assert.equal(budgetKey('gemma-4-26b-a4b-it'), 'gemma-4-26b-a4b-it');
   assert.equal(budgetKey('gemini-2.5-flash-lite'), 'gemini-2.5-flash-lite');
 });
 
@@ -26,7 +28,7 @@ test('llm budget: accounting outage defers budgeted calls', async () => {
   for (let i = 0; i < 8; i += 1) if (await reserveLlmCall('gemini-3.8-flash', 'kb_editorial', noon)) granted += 1;
   assert.equal(granted, 0, 'no process-local fallback during accounting outage');
   assert.equal(await reserveLlmCall('gemini-3.8-flash', 'memes', noon), false);
-  assert.equal(await reserveLlmCall('gemini-3.5-flash-lite', 'memes', noon), true, 'unbudgeted models pass');
+  assert.equal(await reserveLlmCall('gemini-3.5-flash', 'memes', noon), true, 'unbudgeted models pass');
   // next day starts fresh
   assert.equal(await reserveLlmCall('gemini-3.8-flash', 'memes', noon + 24 * 3600_000), false);
   if (saved === undefined) delete process.env.DATABASE_URL;

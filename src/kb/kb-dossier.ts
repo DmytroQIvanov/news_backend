@@ -13,6 +13,7 @@ import type { DataAttachment } from './kb-data-selection';
 import { FACT_STATUS_LABELS, label, Lang, LINK_LABELS, PREDICATE_LABELS, TIER_LABELS } from './kb-labels';
 
 import { DocForMinify, focusTokens, minifyDossierDocs } from './kb-minify';
+import { sanitizeUntrusted } from './kb-syndication';
 
 export interface DossierDoc {
   ref: string;
@@ -48,6 +49,8 @@ export interface DossierFact {
   negated: boolean;
   planned: boolean;
   docRefs: string[];
+  /** Set when an AI check found that the source passage does not back this extracted fact. */
+  aiWarning?: string;
 }
 
 export interface DossierQuote {
@@ -103,7 +106,7 @@ export interface EventDossier {
   docs: DossierDoc[];
   facts: DossierFact[];
   quotes: DossierQuote[];
-  contradictions: Array<{ factRef: string; kind: string; detail: unknown }>;
+  contradictions: Array<{ factRef: string; kind: string; detail: unknown; aiNote?: string }>;
   entities: DossierEntity[];
   linked: DossierLinkedEvent[];
   storyline: { id: number; title: string; events: Array<{ eventId: number; title: string; startedAt: string | null; newsId: number | null; current: boolean }> } | null;
@@ -188,7 +191,7 @@ export async function buildDossier(db: DatabaseService, eventId: number, opts: {
   });
 
   const factRows = (await db.query(
-    `SELECT f.id, f.predicate, f.object_text, f.value_num, f.value_unit, f.status, f.source_count, f.valid_from, f.object_key,
+    `SELECT f.id, f.predicate, f.object_text, f.value_num, f.value_unit, f.status, f.source_count, f.valid_from, f.object_key, f.llm_verdict,
             s.id AS sid, COALESCE(s.name_uk, s.name) AS sname_uk, s.name AS sname,
             o.id AS oid, COALESCE(o.name_uk, o.name) AS oname_uk, o.name AS oname,
             array_agg(DISTINCT c.document_id) AS doc_ids, max(c.confidence) AS conf
@@ -221,10 +224,10 @@ export async function buildDossier(db: DatabaseService, eventId: number, opts: {
 
   const contradictions = factRef.size
     ? (await db.query(
-        `SELECT fact_id, other_fact_id, kind, detail FROM kb.contradictions
+        `SELECT fact_id, other_fact_id, kind, detail, resolution FROM kb.contradictions
          WHERE status = 'open' AND (fact_id = ANY($1) OR other_fact_id = ANY($1))`,
         [[...factRef.keys()]],
-      )).rows.map((c) => ({ factRef: factRef.get(Number(c.fact_id)) ?? factRef.get(Number(c.other_fact_id)) ?? '?', kind: c.kind, detail: c.detail }))
+      )).rows.map((c) => ({ factRef: factRef.get(Number(c.fact_id)) ?? factRef.get(Number(c.other_fact_id)) ?? '?', kind: c.kind, detail: c.detail, ...(aiConflictNote(c.resolution) ? { aiNote: aiConflictNote(c.resolution) } : {}) }))
     : [];
 
   const entities = (await db.query(
@@ -311,6 +314,16 @@ export async function buildDossier(db: DatabaseService, eventId: number, opts: {
   return { event, docs: outDocs, facts, quotes, contradictions, entities, linked, storyline, background, hash };
 }
 
+function aiWarning(v: { verdict?: string; confidence?: number; reason?: string } | null | undefined): string | undefined {
+  if (!v || (v.verdict !== 'not_supported' && v.verdict !== 'contradicted') || Number(v.confidence) < 0.8) return undefined;
+  return `${v.verdict === 'contradicted' ? 'contradicted by' : 'not stated in'} its source passage${v.reason ? ` (${sanitizeUntrusted(v.reason, 200)})` : ''}`;
+}
+
+function aiConflictNote(r: { assessment?: string; explanation?: string; advisory?: boolean } | null | undefined): string | undefined {
+  if (!r?.advisory || !r.assessment || r.assessment === 'unclear') return undefined;
+  return `${r.assessment}${r.explanation ? `: ${sanitizeUntrusted(r.explanation, 240)}` : ''}`;
+}
+
 function toFact(f: Record<string, any>, ref: string, docRef: Map<number, string>): DossierFact {
   const key = String(f.object_key || '');
   return {
@@ -327,6 +340,7 @@ function toFact(f: Record<string, any>, ref: string, docRef: Map<number, string>
     negated: key.startsWith('NOT|'),
     planned: key.startsWith('PLAN|'),
     docRefs: (f.doc_ids || []).map((id: unknown) => docRef.get(Number(id))).filter(Boolean),
+    ...(aiWarning(f.llm_verdict) ? { aiWarning: aiWarning(f.llm_verdict) } : {}),
   };
 }
 
@@ -361,12 +375,12 @@ export function renderDossier(d: EventDossier): string {
   if (d.facts.length) {
     lines.push('', 'FACTS EXTRACTED BY ALGORITHMS (status = strength of evidence):');
     for (const f of d.facts) {
-      lines.push(`[${f.ref}] ${factSentence(f, 'en')} | ${label(FACT_STATUS_LABELS, f.status, 'en')}, roots=${f.roots}${f.validFrom ? `, date=${day(f.validFrom)}` : ''}${f.docRefs.length ? `, in ${f.docRefs.join(',')}` : ''}`);
+      lines.push(`[${f.ref}] ${factSentence(f, 'en')} | ${label(FACT_STATUS_LABELS, f.status, 'en')}, roots=${f.roots}${f.validFrom ? `, date=${day(f.validFrom)}` : ''}${f.docRefs.length ? `, in ${f.docRefs.join(',')}` : ''}${f.aiWarning ? ` | AI CHECK: ${f.aiWarning}; do not state it as fact` : ''}`);
     }
   }
   if (d.contradictions.length) {
     lines.push('', 'CONTRADICTIONS (must be shown to the reader, never resolved silently):');
-    for (const c of d.contradictions) lines.push(`- ${c.factRef}: ${c.kind} ${JSON.stringify(c.detail)}`);
+    for (const c of d.contradictions) lines.push(`- ${c.factRef}: ${c.kind} ${JSON.stringify(c.detail)}${c.aiNote ? ` | AI note (advisory, verify against the sources): ${c.aiNote}` : ''}`);
   }
   if (d.quotes.length) {
     lines.push('', 'STATEMENTS (attribute, do not present as facts):');

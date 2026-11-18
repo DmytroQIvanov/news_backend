@@ -9,6 +9,7 @@ import threading
 import types
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'knowledge'))
@@ -21,11 +22,12 @@ class QuotaTest(unittest.TestCase):
     def test_shared_defaults_and_empty_override(self):
         with patch.dict(os.environ, {'LLM_DAILY_LIMITS': ''}):
             self.assertEqual(gemini._pairs(gemini.DEFAULT_LIMITS), {
-                'gemini-3.1-flash-lite': '500', 'gemini-3-flash': '20',
-                'gemini-2.5-flash-lite': '20', 'gemini-4-hydrogen': '20', 'gemini-3.1-flash-tts': '10'})
+                'gemini-3.1-flash-lite': '500', 'gemini-3.5-flash-lite': '500', 'gemini-3.8-flash': '20',
+                'gemini-3.6-flash': '20', 'gemini-3-flash': '20', 'gemini-2.5-flash-lite': '20', 'gemini-4-hydrogen': '20', 'gemini-3.1-flash-tts': '10',
+                'gemma-4-31b-it': '14000', 'gemma-4-26b-a4b-it': '14000'})
             self.assertEqual(gemini.budget_key('models/gemini-3-flash-preview'), 'gemini-3-flash')
             self.assertEqual(gemini.budget_key('gemini-4-hydrogen-high'), 'gemini-4-hydrogen')
-            self.assertIsNone(gemini.budget_key('gemma-4-31b-it'))
+            self.assertEqual(gemini.budget_key('gemma-4-31b-it'), 'gemma-4-31b-it')
 
     def test_unavailable_accounting_sends_no_http(self):
         def unavailable():
@@ -58,7 +60,9 @@ class QuotaTest(unittest.TestCase):
             with lock:
                 yield Conn()
         with patch.dict(os.environ, {'LLM_DAILY_LIMITS': 'gemini-3-flash=20', 'LLM_BUDGET_RESERVED': 'gemini-3-flash=kb_review:5'}):
-            with patch.object(gemini.db, 'tx', tx, create=True):
+            # This exercises daytime reservation, before the evening release of unused quota.
+            with patch.object(gemini, 'datetime', wraps=datetime) as clock, patch.object(gemini.db, 'tx', tx, create=True):
+                clock.now.return_value = datetime(2026, 11, 18, 12, tzinfo=timezone.utc)
                 with ThreadPoolExecutor(8) as pool:
                     self.assertEqual(sum(pool.map(lambda _: gemini.reserve('gemini-3-flash', 'caption'), range(40))), 15)
                 self.assertEqual(sum(gemini.reserve('gemini-3-flash', 'kb_review') for _ in range(20)), 5)

@@ -637,9 +637,12 @@ test('computeModelTokenPracticality scores INITIAL_CATALOG models deterministica
 });
 
 test('Gemini client prioritizes Gemini 3.8/3.6/3 Flash + Hydrogen router and strips tools for Hydrogen', () => {
-  assert.deepEqual(FALLBACK_GEMINI_MODELS.slice(0, 5), [
+  assert.deepEqual(FALLBACK_GEMINI_MODELS.slice(0, 8), [
     'gemini-3.1-flash-lite',
+    'gemini-3.5-flash-lite',
     'gemini-2.5-flash-lite',
+    'gemini-3.8-flash',
+    'gemini-3.6-flash',
     'gemini-3-flash-preview',
     'gemini-4-hydrogen',
     'gemma-4-31b-it',

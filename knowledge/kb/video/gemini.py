@@ -11,7 +11,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -26,6 +26,15 @@ DEFAULT_RESERVED = QUOTA_CONFIG["reserved"]
 
 class BudgetExhausted(Exception):
     pass
+
+
+def ledger_day(now: datetime) -> str:
+    """Google resets free-tier daily quotas at midnight Pacific time; the ledger day follows it (same as llm-budget.ts)."""
+    try:
+        from zoneinfo import ZoneInfo
+        return now.astimezone(ZoneInfo("America/Los_Angeles")).date().isoformat()
+    except Exception:
+        return (now - timedelta(hours=8)).date().isoformat()
 
 
 def _pairs(raw: str) -> dict[str, str]:
@@ -55,7 +64,7 @@ def reserve(model: str, purpose: str) -> bool:
     limit = int(_pairs((os.environ.get("LLM_DAILY_LIMITS", "").strip() or DEFAULT_LIMITS)).get(key, "0") or 0)
     owner = _pairs((os.environ.get("LLM_BUDGET_RESERVED", "").strip() or DEFAULT_RESERVED)).get(key)
     now = datetime.now(timezone.utc)
-    day = now.date().isoformat()
+    day = ledger_day(now)
     try:
         with db.tx() as conn:
             conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"llm:{day}:{key}",))
@@ -82,11 +91,11 @@ def reserve(model: str, purpose: str) -> bool:
 def record_tokens(model: str, purpose: str, usage: dict) -> None:
     key = budget_key(model) or model.lower()[:80]
     db.execute(
-        """INSERT INTO llm_budget_days (day, model, purpose, used, input_tokens, output_tokens) VALUES (current_date, %s, %s, %s, %s, %s)
+        """INSERT INTO llm_budget_days (day, model, purpose, used, input_tokens, output_tokens) VALUES (%s, %s, %s, %s, %s, %s)
            ON CONFLICT (day, model, purpose) DO UPDATE SET input_tokens = llm_budget_days.input_tokens + EXCLUDED.input_tokens,
              output_tokens = llm_budget_days.output_tokens + EXCLUDED.output_tokens,
              used = llm_budget_days.used + EXCLUDED.used, updated_at = now()""",
-        (key, purpose[:40], 0 if budget_key(model) else 1, int(usage.get("promptTokenCount") or 0),
+        (ledger_day(datetime.now(timezone.utc)), key, purpose[:40], 0 if budget_key(model) else 1, int(usage.get("promptTokenCount") or 0),
          int(usage.get("candidatesTokenCount") or 0)))
 
 

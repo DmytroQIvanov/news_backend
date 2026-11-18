@@ -70,8 +70,8 @@ class Settings:
     candidate_min_sources: int = field(default_factory=lambda: _int("KB_CANDIDATE_MIN_SOURCES", 2))
     candidate_min_mentions: int = field(default_factory=lambda: _int("KB_CANDIDATE_MIN_MENTIONS", 3))
     # LLM budgets (tasks per day placed into kb.llm_tasks; the consumer may enforce its own limits too)
-    llm_daily_lite: int = field(default_factory=lambda: _int("KB_LLM_DAILY_LITE", 500))
-    llm_daily_standard: int = field(default_factory=lambda: _int("KB_LLM_DAILY_STANDARD", 20))
+    llm_daily_lite: int = field(default_factory=lambda: _int("KB_LLM_DAILY_LITE", 1500))
+    llm_daily_standard: int = field(default_factory=lambda: _int("KB_LLM_DAILY_STANDARD", 200))
     llm_daily_deep: int = field(default_factory=lambda: _int("KB_LLM_DAILY_DEEP", 20))
     # Loops
     collector_idle_s: int = field(default_factory=lambda: _int("KB_COLLECTOR_IDLE_S", 30))

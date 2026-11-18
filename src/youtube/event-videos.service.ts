@@ -358,7 +358,7 @@ export class EventVideosService implements OnModuleInit, OnModuleDestroy {
       if (!key) break;
       const maxSec = Math.min(Number(r.duration_sec) || 1800, envInt('EVENT_VIDEOS_ANALYSE_MAX_SEC', 1800, 120, 7200));
       try {
-        const candidateModels = models('EVENT_VIDEOS_MODELS', 'gemini-3.1-flash-lite,gemini-2.5-flash-lite');
+        const candidateModels = models('EVENT_VIDEOS_MODELS', 'gemini-3.1-flash-lite,gemini-3.5-flash-lite,gemini-2.5-flash-lite');
         let calls = 0;
         for (const m of candidateModels) calls += Math.min(1000, await remainingLlmCalls(m, 'kb_video'));
         if (calls <= 0) break;

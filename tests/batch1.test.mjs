@@ -227,7 +227,7 @@ test('P03: failed accounting sends zero budgeted Gemini/OpenRouter HTTP calls; p
     assert.equal(calls, 0);
     assert.ok(router.getTargets().openrouter.every((t) => t.model === 'openrouter/free' || t.model.endsWith(':free')));
     assert.equal(await budget.remainingLlmCalls('gemini-3-flash', 'kb_review'), 0);
-    assert.equal(await budget.reserveLlmCall('gemma-4-31b-it', 'kb_review'), true);
+    assert.equal(await budget.reserveLlmCall('gemma-4-31b-it', 'kb_review'), false);
   } finally { globalThis.fetch = fetchBefore; process.env = before; }
 });
 

@@ -22,7 +22,7 @@ exports.installQuotaLedger = function () {
         } else if (sql.includes('INSERT INTO llm_budget_days')) {
           const [day, model, purpose] = args;
           const k = key(day, model, purpose);
-          rows.set(k, { day, model, purpose, used: (rows.get(k)?.used ?? 0) + 1, input_tokens: 0, output_tokens: 0 });
+          rows.set(k, { day, model, purpose, used: (rows.get(k)?.used ?? 0) + Number(args[3] ?? 1), input_tokens: 0, output_tokens: 0 });
         }
         if (/^(COMMIT|ROLLBACK)$/.test(sql)) { unlock?.(); unlock = undefined; }
         return { rows: [] };

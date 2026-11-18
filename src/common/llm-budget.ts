@@ -24,8 +24,20 @@ let pool: Pool | null = null;
 const deferrals = { accountingUnavailable: 0, exhausted: 0 };
 export function quotaDeferrals() { return { ...deferrals }; }
 
+// Google resets free-tier daily quotas at midnight Pacific time, not UTC: the ledger day must follow it,
+// otherwise the local counter stays "full" for ~8 hours after Google has already given the quota back.
+const PACIFIC_DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' });
 function dayKey(now = Date.now()): string {
-  return new Date(now).toISOString().slice(0, 10);
+  return PACIFIC_DAY.format(now);
+}
+
+/** Models for which Google itself answered "daily quota exhausted" (ground truth beats the local ledger). */
+const exhaustedByGoogle = new Map<string, string>();
+export function markModelExhaustedByGoogle(model: string, now = Date.now()): void {
+  exhaustedByGoogle.set(budgetKey(model) ?? model, dayKey(now));
+}
+export function isModelExhaustedByGoogle(model: string, now = Date.now()): boolean {
+  return exhaustedByGoogle.get(budgetKey(model) ?? model) === dayKey(now);
 }
 
 function parseLimits(raw: string | undefined): Map<string, number> {
@@ -81,15 +93,43 @@ function db(): Pool | null {
 }
 
 /**
+ * Gemma makes thousands of calls a day: the ledger is touched once per block of calls instead of once per call, so the
+ * database is not woken up for every request. A restart can waste at most one unused block per purpose.
+ */
+const LEASE_SIZE = 25;
+const leases = new Map<string, { day: string; left: number }>();
+const tokenBuffer = new Map<string, { day: string; model: string; purpose: string; input: number; output: number; calls: number }>();
+const isLeased = (key: string) => key.startsWith('gemma-');
+
+/**
  * Reserve one request of `model` for `purpose`. Returns false when the daily budget (or the purpose's share)
  * is exhausted; the caller must then skip this model.
  */
 export async function reserveLlmCall(model: string, purpose: string, now = Date.now()): Promise<boolean> {
   const key = budgetKey(model);
   if (!key) return true;
-  const limit = dailyLlmLimit(model) ?? 0;
-  const reserved = parseReserved(process.env.LLM_BUDGET_RESERVED).get(key);
+  if (isModelExhaustedByGoogle(model, now)) { deferrals.exhausted += 1; return false; }
   const day = dayKey(now);
+  if (isLeased(key)) {
+    const leaseKey = `${key}|${purpose}`;
+    const lease = leases.get(leaseKey);
+    if (lease?.day === day && lease.left > 0) { lease.left -= 1; return true; }
+    if (await reserveInLedger(key, purpose, day, LEASE_SIZE, now)) {
+      const current = leases.get(leaseKey);
+      leases.set(leaseKey, { day, left: (current?.day === day ? current.left : 0) + LEASE_SIZE - 1 });
+      return true;
+    }
+  }
+  const allowed = await reserveInLedger(key, purpose, day, 1, now);
+  if (allowed === null) { deferrals.accountingUnavailable += 1; return false; }
+  if (!allowed) deferrals.exhausted += 1;
+  return allowed;
+}
+
+/** true/false = the ledger's answer, null = the ledger could not be reached. */
+async function reserveInLedger(key: string, purpose: string, day: string, count: number, now: number): Promise<boolean | null> {
+  const limit = parseLimits(process.env.LLM_DAILY_LIMITS).get(key) ?? (key === 'openrouter:account' ? dailyLlmLimit(key) ?? 0 : 0);
+  const reserved = parseReserved(process.env.LLM_BUDGET_RESERVED).get(key);
   const p = db();
   if (p) {
     const client = await p.connect().catch(() => null);
@@ -103,22 +143,21 @@ export async function reserveLlmCall(model: string, purpose: string, now = Date.
         );
         const total = rows.reduce((sum, r) => sum + Number(r.used), 0);
         const ownersUse = reserved ? rows.filter((r) => reserved.purpose.split('|').includes(r.purpose)).reduce((s, r) => s + Number(r.used), 0) : 0;
-        let allowed = total < limit;
+        let allowed = total + count <= limit;
         if (allowed && reserved && !reserved.purpose.split('|').includes(purpose)) {
           // others may use what is not reserved, plus whatever the owner provably will not need after 20:00 UTC
           const lateDay = new Date(now).getUTCHours() >= 20;
           const othersCap = lateDay ? limit - ownersUse : limit - reserved.count;
-          allowed = total - ownersUse < Math.max(0, othersCap);
+          allowed = total - ownersUse + count <= Math.max(0, othersCap);
         }
         if (allowed) {
           await client.query(
-            `INSERT INTO llm_budget_days (day, model, purpose, used) VALUES ($1, $2, $3, 1)
-             ON CONFLICT (day, model, purpose) DO UPDATE SET used = llm_budget_days.used + 1, updated_at = now()`,
-            [day, key, purpose.slice(0, 40)],
+            `INSERT INTO llm_budget_days (day, model, purpose, used) VALUES ($1, $2, $3, $4)
+             ON CONFLICT (day, model, purpose) DO UPDATE SET used = llm_budget_days.used + EXCLUDED.used, updated_at = now()`,
+            [day, key, purpose.slice(0, 40), count],
           );
         }
         await client.query('COMMIT');
-        if (!allowed) deferrals.exhausted += 1;
         return allowed;
       } catch {
         await client.query('ROLLBACK').catch(() => undefined);
@@ -127,13 +166,48 @@ export async function reserveLlmCall(model: string, purpose: string, now = Date.
       }
     }
   }
-  deferrals.accountingUnavailable += 1;
-  return false;
+  return null;
+}
+
+/**
+ * Give a reservation back when the request provably did not use Google's quota (local queue busy, 429/5xx answer,
+ * connection failure). Without this, retries and rejected calls drained the local counter to 500 while Google had used 136.
+ */
+export async function refundLlmCall(model: string, purpose: string, now = Date.now()): Promise<void> {
+  const key = budgetKey(model);
+  if (!key) return;
+  if (isLeased(key)) {
+    const lease = leases.get(`${key}|${purpose}`);
+    if (lease?.day === dayKey(now)) lease.left += 1;
+    return;
+  }
+  await db()
+    ?.query(
+      `UPDATE llm_budget_days SET used = GREATEST(0, used - 1), updated_at = now() WHERE day = $1 AND model = $2 AND purpose = $3`,
+      [dayKey(now), key, purpose.slice(0, 40)],
+    )
+    .catch(() => undefined);
 }
 
 /** Token accounting for cost analysis (best effort, never blocks a request). */
 export async function recordLlmTokens(model: string, purpose: string, input = 0, output = 0, now = Date.now()): Promise<void> {
   const key = budgetKey(model) ?? model.slice(0, 80);
+  const day = dayKey(now);
+  if (isLeased(key)) {
+    const bufferKey = `${day}|${key}|${purpose}`;
+    const b = tokenBuffer.get(bufferKey) ?? { day, model: key, purpose, input: 0, output: 0, calls: 0 };
+    b.input += input;
+    b.output += output;
+    b.calls += 1;
+    tokenBuffer.set(bufferKey, b);
+    if (b.calls < LEASE_SIZE) return;
+    tokenBuffer.delete(bufferKey);
+    return writeLlmTokens(b.day, b.model, b.purpose, b.input, b.output);
+  }
+  return writeLlmTokens(day, key, purpose, input, output);
+}
+
+async function writeLlmTokens(day: string, key: string, purpose: string, input: number, output: number): Promise<void> {
   const p = db();
   if (!p) return;
   await p
@@ -141,7 +215,7 @@ export async function recordLlmTokens(model: string, purpose: string, input = 0,
       `INSERT INTO llm_budget_days (day, model, purpose, used, input_tokens, output_tokens) VALUES ($1, $2, $3, 0, $4, $5)
        ON CONFLICT (day, model, purpose) DO UPDATE SET input_tokens = llm_budget_days.input_tokens + $4,
               output_tokens = llm_budget_days.output_tokens + $5, updated_at = now()`,
-      [dayKey(now), key, purpose.slice(0, 40), input, output],
+      [day, key, purpose.slice(0, 40), input, output],
     )
     .catch(() => undefined);
 }
@@ -178,6 +252,14 @@ export async function llmBudgetStatus(now = Date.now()) {
   };
 }
 
+/** Requests already charged to `purpose` today across these models; null when the ledger cannot be read. */
+export async function llmPurposeUse(modelNames: string[], purpose: string, now = Date.now()): Promise<number | null> {
+  const status = await llmBudgetStatus(now);
+  if (!status.available) return null;
+  const keys = new Set(modelNames.map((m) => budgetKey(m)).filter(Boolean));
+  return status.models.filter((m) => keys.has(m.model)).reduce((sum, m) => sum + (m.byPurpose[purpose] ?? 0), 0);
+}
+
 export async function remainingLlmCalls(model: string, purpose: string, now = Date.now()): Promise<number> {
   const key = budgetKey(model);
   if (!key) return Number.POSITIVE_INFINITY;
@@ -194,4 +276,6 @@ export async function remainingLlmCalls(model: string, purpose: string, now = Da
 export function resetLlmBudgetForTests(): void {
   deferrals.accountingUnavailable = 0;
   deferrals.exhausted = 0;
+  leases.clear();
+  tokenBuffer.clear();
 }

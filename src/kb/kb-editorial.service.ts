@@ -22,8 +22,7 @@ import { ArticleReview, eventReviews, reviewApproved } from './kb-review';
  */
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { DEFAULT_HYDROGEN_MODEL } from '../common/gemini-client';
-import { remainingLlmCalls } from '../common/llm-budget';
+import { llmPurposeUse, remainingLlmCalls } from '../common/llm-budget';
 import { DatabaseService } from '../database/database.service';
 import { validateArticle } from '../ingest/gemini-editor.service';
 import { CATEGORIES } from '../ingest/ingest.dto';
@@ -31,6 +30,7 @@ import { applyMinify, buildDossier, EventDossier, renderDossier } from './kb-dos
 import { applyPatches, countWords, dossierRefs, EXPAND_SCHEMA, insertParagraphs, PATCH_SCHEMA, remapCitations, validateParagraphs, validatePatches } from './kb-article-edit';
 import { gemmaJson } from './kb-gemma';
 import { geminiJson, JsonLlm, models } from './kb-llm';
+import { bigEventSql, eventScoreSql, groupRelated, hoursUntilQuotaReset, majorChangeSql, MODEL_DEFAULTS, newFactsSql, paceAllowance, urgentScore } from './kb-routing';
 
 const CHARS_PER_TOKEN = 3.6;
 export type Tier = 'medium' | 'big' | 'flagship';
@@ -38,11 +38,6 @@ export type Tier = 'medium' | 'big' | 'flagship';
 function envInt(name: string, fallback: number, min = 0, max = Number.MAX_SAFE_INTEGER): number {
   const n = Number(process.env[name]);
   return Number.isFinite(n) && n >= min && n <= max ? Math.floor(n) : fallback;
-}
-
-function envNum(name: string, fallback: number): number {
-  const n = Number(process.env[name]);
-  return Number.isFinite(n) ? n : fallback;
 }
 
 let activeCache: { at: number; value: boolean } | null = null;
@@ -95,6 +90,9 @@ export interface Candidate {
   isUpdate: boolean;
   articleNewsId: number | null;
   importance: number;
+  score?: number;
+  category?: string | null;
+  storylineId?: number | null;
 }
 
 export interface GeneratedArticle {
@@ -256,8 +254,8 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
 
   static tierModels(tier: 'medium' | 'big'): string[] {
     return tier === 'big'
-      ? models('KB_BIG_MODELS', `${DEFAULT_HYDROGEN_MODEL},gemini-3-flash-preview,gemini-3.1-flash-lite`)
-      : models('KB_MEDIUM_MODELS', 'gemini-3.1-flash-lite,gemini-2.5-flash-lite');
+      ? models('KB_BIG_MODELS', MODEL_DEFAULTS.big)
+      : models('KB_MEDIUM_MODELS', MODEL_DEFAULTS.medium);
   }
 
   private async writtenToday(): Promise<Record<string, number>> {
@@ -282,6 +280,7 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
         summary.waiting.push(`${tier}: daily cap reached`);
         continue;
       }
+      let callsLeft = Number.POSITIVE_INFINITY;
       if (!this.dryRun && this.llm === geminiJson) {
         let calls = 0;
         for (const m of KbEditorialService.tierModels(tier)) calls += Math.min(1000, await remainingLlmCalls(m, `kb_${tier}`));
@@ -289,11 +288,14 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
           summary.waiting.push(`${tier}: model quotas used up, waiting`);
           continue;
         }
+        callsLeft = calls;
       }
       const cands = await this.candidates(tier, Math.min(left, tier === 'big' ? 9 : 15));
       summary.candidates += cands.length;
-      const batches = await this.pack(cands, tier);
-      for (const batch of batches.slice(0, maxBatches)) {
+      const allowed = tier === 'big' && Number.isFinite(callsLeft) ? await this.bigCallsAllowed(callsLeft, cands) : maxBatches;
+      if (allowed <= 0 && cands.length) summary.waiting.push('big: pacing the Flash quota until the daily reset');
+      const batches = allowed > 0 ? await this.pack(cands, tier) : [];
+      for (const batch of batches.slice(0, Math.min(maxBatches, allowed))) {
         if (this.stopped) break;
         summary.batches += 1;
         const res = await this.runBatch(batch, tier);
@@ -316,45 +318,68 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
       });
       if (rescued) summary.waiting.push(`rescued ${rescued} short articles`);
     }
+    if (this.llm === geminiJson && !this.dryRun && process.env.KB_MINOR_UPDATES !== 'false') {
+      const refreshed = await this.refreshMinor(envInt('KB_MINOR_UPDATES_PER_CYCLE', 3, 0, 20)).catch((err) => {
+        this.logger.debug(`refreshMinor failed: ${err instanceof Error ? err.message : err}`);
+        return 0;
+      });
+      if (refreshed) summary.updated += refreshed;
+    }
     this.logger.log(`KB editorial: ${JSON.stringify(summary)}`);
     return summary;
   }
 
+  /** Spends the writers' daily budget evenly until the quota reset, keeping a few calls for breaking news. */
+  private async bigCallsAllowed(callsLeft: number, cands: Candidate[]): Promise<number> {
+    const dayBudget = envInt('KB_BIG_CALLS_DAILY', 20, 1, 60);
+    const urgentReserve = envInt('KB_BIG_URGENT_CALLS', 3, 0, 20);
+    const used = await llmPurposeUse(KbEditorialService.tierModels('big'), 'kb_big');
+    if (used === null) return 0;
+    const remaining = Math.min(callsLeft, dayBudget - used);
+    if (remaining <= 0) return 0;
+    const allowed = paceAllowance({ remaining, dayBudget, hoursLeft: hoursUntilQuotaReset(), urgentReserve });
+    return allowed > 0 ? allowed : cands.some((c) => !c.isUpdate && (c.score ?? 0) >= urgentScore()) ? 1 : 0;
+  }
+
   /**
-   * big: deep events, or >= KB_BIG_MIN_SOURCES independent roots, or importance >= KB_BIG_MIN_IMPORTANCE;
-   * medium: every other ready event. Plus updates: more evidence since writing, or a medium article now worth big.
+   * big: at least KB_BIG_MIN_SOURCES independent sources and KB_BIG_MIN_FULL_TEXT full texts with a score of at least
+   * KB_BIG_MIN_SCORE (kb-routing.ts); medium: every other ready event. An article is rewritten only when the story really
+   * changed; a few new facts are added by refreshMinor. A big article is never rewritten as a medium one.
    */
   private async candidates(tier: 'medium' | 'big', limit: number): Promise<Candidate[]> {
-    const bigCond = `(e.editorial_state = 'deep' OR e.independent_source_count >= ${envInt('KB_BIG_MIN_SOURCES', 3, 2, 50)}
-                      OR e.importance >= ${envNum('KB_BIG_MIN_IMPORTANCE', 0.5)})`;
+    const score = eventScoreSql('e');
+    const bigCond = bigEventSql('e');
     const tierCond = tier === 'big' ? bigCond : `NOT ${bigCond}`;
+    const writtenTier = `COALESCE(e.written_evidence->>'tier', 'medium')`;
+    const updateTier = tier === 'big' ? `(${bigCond} OR ${writtenTier} = 'big')` : `(NOT ${bigCond} AND ${writtenTier} = 'medium')`;
     // An event still "collecting" qualifies once AI-found, AI-vetted corroborating pages lift it to the minimum.
     const corroboratedOk = `(e.editorial_state = 'collecting' AND e.independent_source_count >= 1
       AND e.independent_source_count + (SELECT count(DISTINCT COALESCE(r.verdict->>'root', r.document_id::text)) FROM kb.event_research r WHERE r.event_id = e.id AND r.accepted = true AND r.query = 'corroboration' AND NOT EXISTS (SELECT 1 FROM kb.event_documents x WHERE x.event_id = e.id AND x.document_id = r.document_id))
           >= ${envInt('KB_READY_MIN_SOURCES', 2, 2, 20)})`;
     const fresh = (await this.db.query(
-      `SELECT e.id, CASE WHEN e.editorial_state = 'collecting' THEN 'ready' ELSE e.editorial_state END AS editorial_state, e.importance FROM kb.events e
+      `SELECT e.id, CASE WHEN e.editorial_state = 'collecting' THEN 'ready' ELSE e.editorial_state END AS editorial_state, e.importance,
+              e.category, e.storyline_id, ${score} AS score
+       FROM kb.events e
        WHERE (e.editorial_state IN ('ready', 'deep') OR ${corroboratedOk}) AND e.article_news_id IS NULL AND e.status <> 'merged'
          AND e.editorial_attempts < 3 AND e.last_seen_at > now() - interval '48 hours' AND ${tierCond}
-       ORDER BY (e.editorial_state = 'deep') DESC, e.importance DESC LIMIT $1`,
+       ORDER BY score DESC LIMIT $1`,
       [limit],
-    )).rows.map((r): Candidate => ({ eventId: Number(r.id), state: r.editorial_state, tier, isUpdate: false, articleNewsId: null, importance: Number(r.importance) }));
+    )).rows.map((r): Candidate => ({ eventId: Number(r.id), state: r.editorial_state, tier, isUpdate: false, articleNewsId: null, importance: Number(r.importance),
+      score: Number(r.score), category: r.category ?? null, storylineId: r.storyline_id ? Number(r.storyline_id) : null }));
     const updates = (await this.db.query(
-      `SELECT e.id, e.article_news_id, e.importance
+      `SELECT e.id, e.article_news_id, e.importance, e.category, e.storyline_id, ${score} AS score
        FROM kb.events e
        WHERE e.editorial_state = 'written' AND e.article_news_id IS NOT NULL AND e.status <> 'merged'
          AND e.flagship_at IS NULL AND e.editorial_attempts < 6 AND e.last_seen_at > now() - interval '48 hours'
-         AND ${tierCond}
+         AND ${updateTier}
          AND (
-           ($2 = 'big' AND COALESCE(e.written_evidence->>'tier', 'medium') = 'medium')
-           OR (e.written_at < now() - interval '3 hours' AND e.last_seen_at > e.written_at
-               AND (e.independent_source_count >= COALESCE((e.written_evidence->>'roots')::int, 0) + 2
-                    OR (SELECT count(DISTINCT c.fact_id) FROM kb.claims c WHERE c.event_id = e.id AND c.fact_id IS NOT NULL)
-                       >= COALESCE((e.written_evidence->>'facts')::int, 0) + 3)))
-       ORDER BY e.importance DESC LIMIT $1`,
+           ($2 = 'big' AND ${writtenTier} = 'medium')
+           OR (e.written_at < now() - interval '3 hours' AND e.last_seen_at > e.written_at AND ${majorChangeSql('e')}))
+       ORDER BY score DESC LIMIT $1`,
       [Math.max(1, Math.ceil(limit / 3)), tier],
-    )).rows.map((r): Candidate => ({ eventId: Number(r.id), state: 'ready', tier, isUpdate: true, articleNewsId: Number(r.article_news_id), importance: Number(r.importance) }));
-    return [...fresh, ...updates];
+    )).rows.map((r): Candidate => ({ eventId: Number(r.id), state: 'ready', tier, isUpdate: true, articleNewsId: Number(r.article_news_id), importance: Number(r.importance),
+      score: Number(r.score), category: r.category ?? null, storylineId: r.storyline_id ? Number(r.storyline_id) : null }));
+    return [...groupRelated(fresh), ...updates];
   }
 
   private async pack(cands: Candidate[], tier: 'medium' | 'big'): Promise<BatchItem[][]> {
@@ -421,7 +446,7 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
     // big: cheap fact-check of every article against its dossier, then one Flash pass fixes what was flagged
     let reviews = new Map<number, ArticleReview>();
     if (articles.length) {
-      const fixed = await this.reviewAndFix(batch.map((b) => ({ eventId: b.cand.eventId, material: b.text })), articles, timeoutMs).catch((err) => {
+      const fixed = await this.reviewAndFix(batch.map((b) => ({ eventId: b.cand.eventId, material: b.text })), articles, timeoutMs, { rewriteUnpatched: tier === 'big' }).catch((err) => {
         detail.review_error = err instanceof Error ? err.message : String(err);
         return null;
       });
@@ -472,7 +497,7 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
       `SELECT id, kb_event_id, editorial_tier, content_hash, ai_metadata
        FROM news_items
        WHERE kb_event_id IS NOT NULL AND status = 'needs_review'
-         AND ai_metadata->'kb'->'review'->>'verdict' = 'missing'
+         AND ai_metadata->'kb'->'review'->>'verdict' IN ('missing', 'changed_requires_review')
          AND jsonb_array_length(COALESCE(ai_metadata->'kb'->'validation'->'problems', '[]'::jsonb)) = 0
          AND COALESCE((ai_metadata->'kb'->>'rereview_attempts')::int, 0) < 3
        ORDER BY id DESC LIMIT $1`, [limit],
@@ -535,30 +560,9 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
         if (process.env.KB_MINIFY !== 'false') applyMinify(dossier, tier === 'big' ? envInt('KB_MINIFY_BIG_CHARS', 70_000, 8_000) : envInt('KB_MINIFY_MEDIUM_CHARS', 28_000, 4_000));
         const expanded = await this.expandShort({ ...article, body } as GeneratedArticle, dossier, minWords).catch(() => body);
         if (expanded !== body) {
-          // new paragraphs cite dossier references; map them onto the numbered sources the published article already has
-          const sources: Array<{ title: string; url: string }> = Array.isArray(article.sources) ? [...article.sources] : [];
-          const numberFor = (url: string): number | null => {
-            const i = sources.findIndex((x) => x.url === url);
-            if (i >= 0) return i + 1;
-            if (sources.length >= 12) return null;
-            const d = dossier.docs.find((x) => x.url === url);
-            sources.push({ title: d ? `${d.sourceName}: ${d.title}`.slice(0, 240) : url, url });
-            return sources.length;
-          };
-          const docNums = (ref: string): number[] | null => {
-            const d = dossier.docs.find((x) => x.ref === ref);
-            if (d) {
-              const n = numberFor(d.url);
-              return n ? [n] : null;
-            }
-            const f = [...dossier.facts, ...dossier.background].find((x) => x.ref === ref);
-            if (!f?.docRefs?.length) return null;
-            const nums = f.docRefs.flatMap((r) => docNums(r) ?? []);
-            return nums.length ? nums : null;
-          };
           const added = expanded.slice(body.length > 0 && expanded.startsWith(body.trimEnd()) ? body.trimEnd().length : 0);
           const paras = added.split(/\n{2,}/).map((x) => x.trim()).filter((x) => /\[[A-Z]\d+\]/.test(x));
-          const mapped = remapCitations(paras, docNums);
+          const { mapped, sources } = this.citeForPublished(article, dossier, paras);
           if (mapped.length) body = insertParagraphs(body, mapped);
           article.sources = sources;
         }
@@ -580,6 +584,94 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
     return done;
   }
 
+  /** New paragraphs cite dossier references; this maps them onto the numbered sources the published article already has. */
+  private citeForPublished(article: { sources?: unknown }, dossier: EventDossier, paragraphs: string[]) {
+    const sources: Array<{ title: string; url: string }> = Array.isArray(article.sources) ? [...article.sources] : [];
+    const numberFor = (url: string): number | null => {
+      const i = sources.findIndex((x) => x.url === url);
+      if (i >= 0) return i + 1;
+      if (sources.length >= 12) return null;
+      const d = dossier.docs.find((x) => x.url === url);
+      sources.push({ title: d ? `${d.sourceName}: ${d.title}`.slice(0, 240) : url, url });
+      return sources.length;
+    };
+    const docNums = (ref: string): number[] | null => {
+      const d = dossier.docs.find((x) => x.ref === ref);
+      if (d) {
+        const n = numberFor(d.url);
+        return n ? [n] : null;
+      }
+      const f = [...dossier.facts, ...dossier.background].find((x) => x.ref === ref);
+      if (!f?.docRefs?.length) return null;
+      const nums = f.docRefs.flatMap((r) => docNums(r) ?? []);
+      return nums.length ? nums : null;
+    };
+    return { mapped: remapCitations(paragraphs, docNums), sources };
+  }
+
+  /**
+   * A few new facts do not justify spending a Flash request on a rewrite: Gemma adds one or two cited paragraphs to the live
+   * article. The text changes only after the reviewer approved the result; otherwise the published version stays as it is.
+   */
+  async refreshMinor(limit: number): Promise<number> {
+    if (limit <= 0) return 0;
+    const rows = (await this.db.query(
+      `SELECT e.id AS event_id, n.id, n.ai_metadata, e.written_evidence,
+              (SELECT count(DISTINCT c.fact_id) FROM kb.claims c WHERE c.event_id = e.id AND c.fact_id IS NOT NULL) AS fact_count
+       FROM kb.events e JOIN news_items n ON n.id = e.article_news_id
+       WHERE e.editorial_state = 'written' AND e.status <> 'merged' AND n.status = 'published' AND e.flagship_at IS NULL
+         AND e.written_at < now() - interval '3 hours' AND e.last_seen_at > e.written_at AND e.last_seen_at > now() - interval '48 hours'
+         AND COALESCE((e.written_evidence->>'minor_attempts')::int, 0) < 3
+         AND ${newFactsSql('e')} AND NOT ${majorChangeSql('e')}
+       ORDER BY ${eventScoreSql('e')} DESC LIMIT $1`,
+      [limit],
+    )).rows;
+    let done = 0;
+    for (const r of rows) {
+      if (this.stopped) break;
+      const eventId = Number(r.event_id);
+      const updated = await this.addNewFacts(r, eventId).catch(() => false);
+      const evidence = updated ? { facts: Number(r.fact_count), minor_attempts: 0, minor_update_at: new Date().toISOString() }
+        : { minor_attempts: Number(r.written_evidence?.minor_attempts ?? 0) + 1 };
+      await this.db.query(`UPDATE kb.events SET written_evidence = written_evidence || $2::jsonb WHERE id = $1`, [eventId, JSON.stringify(evidence)]);
+      if (updated) done += 1;
+    }
+    return done;
+  }
+
+  private async addNewFacts(r: Record<string, any>, eventId: number): Promise<boolean> {
+    const meta = r.ai_metadata ?? {};
+    const article = meta.article;
+    if (!article?.body) return false;
+    const dossier = await buildDossier(this.db, eventId, { excerptChars: 4_500, maxDocs: 14 });
+    if (!dossier) return false;
+    if (process.env.KB_MINIFY !== 'false') applyMinify(dossier, envInt('KB_MINOR_DOSSIER_CHARS', 18_000, 4_000));
+    const material = renderDossier(dossier);
+    const known = new Set<number>((meta.kb?.fact_ids ?? []).map(Number));
+    const fresh = dossier.facts.filter((f) => !known.has(f.factId)).map((f) => f.ref);
+    if (!fresh.length) return false;
+    const refs = dossierRefs(material);
+    const res = await gemmaJson<string[]>({
+      purpose: 'kb_expand', priority: 'high', schema: EXPAND_SCHEMA, maxOutputTokens: 900, temperature: 0.2, timeoutMs: 120_000,
+      system: 'You add the latest developments to a published news article. You use ONLY the dossier; every paragraph cites its sources like [D1] or [F2]; you never repeat what the article already says.',
+      prompt: `${material}\n\n=== PUBLISHED ARTICLE ===\n# ${article.title}\n${String(article.body).slice(0, 9_000)}\n\nNew facts: ${fresh.join(', ')}. Write 1-2 NEW paragraphs of 50-100 words about what these facts add. Return {"paragraphs":["..."]}.`,
+      validate: (raw) => validateParagraphs(raw, refs),
+    });
+    if (!res?.value.length) return false;
+    const { mapped, sources } = this.citeForPublished(article, dossier, res.value.slice(0, 2));
+    if (!mapped.length) return false;
+    const body = insertParagraphs(String(article.body), mapped);
+    if (body.length > 16_000) return false;
+    const next = { ...article, body, sources, event_id: eventId } as GeneratedArticle;
+    const checked = await this.reviewAndFix([{ eventId, material }], [next], envInt('KB_EDITORIAL_TIMEOUT_MS', 300_000, 30_000));
+    if (checked.reviews.get(eventId)?.verdict !== 'ok' || checked.articles[0]?.body !== body) return false;
+    const hash = createHash('sha256').update(`${article.title}\n${body}`).digest('hex');
+    const saved = { ...meta, article: { ...article, body, sources }, kb: { ...meta.kb, awaiting_translation: true, translation_attempts: 0, fact_ids: dossier.facts.map((f) => f.factId), dossier_hash: dossier.hash,
+      minor_update_at: new Date().toISOString(), review: { state: 'approved', verdict: 'ok', issues: [], article_hash: hash } } };
+    const updated = await this.db.query(`UPDATE news_items SET ai_metadata = $2::jsonb, content_hash = $3, updated_at = now() WHERE id = $1 AND status = 'published'`, [r.id, JSON.stringify(saved), hash]);
+    return (updated.rowCount ?? 0) > 0;
+  }
+
   /** Gemma (no daily cap) writes the missing paragraphs; only paragraphs that cite real dossier references are inserted. */
   async expandShort(art: GeneratedArticle, dossier: EventDossier, minWords: number): Promise<string> {
     const material = renderDossier(dossier);
@@ -587,7 +679,7 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
     const have = countWords(art.body || '');
     const need = Math.max(1, Math.min(6, Math.ceil((minWords - have) / 90)));
     const res = await gemmaJson<string[]>({
-      purpose: 'kb_expand', schema: EXPAND_SCHEMA, maxOutputTokens: 2_500, temperature: 0.3, timeoutMs: 120_000,
+      purpose: 'kb_expand', priority: 'high', schema: EXPAND_SCHEMA, maxOutputTokens: 2_500, temperature: 0.3, timeoutMs: 120_000,
       system: 'You extend news articles. You use ONLY the dossier; every paragraph cites its sources like [D1] or [F2]; you never repeat what the article already says.',
       prompt: `${material}\n\n=== CURRENT ARTICLE (${have} words, needs at least ${minWords}) ===\n# ${art.title}\n${art.body}\n\nWrite ${need} NEW paragraph(s) of 60-120 words each that add details from the dossier the article does not yet use (background with dates, positions of different sources, numbers with their sources, what is still unknown). Return {"paragraphs":["..."]}.`,
       validate: (raw) => validateParagraphs(raw, refs),
@@ -597,7 +689,8 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** One cheap review call for the whole batch; one Flash call rewrites the flagged articles. Shared with flagships. */
-  async reviewAndFix(items: Array<{ eventId: number; material: string }>, articles: GeneratedArticle[], timeoutMs: number) {
+  async reviewAndFix(items: Array<{ eventId: number; material: string }>, articles: GeneratedArticle[], timeoutMs: number,
+    opts: { reviewModels?: string[]; reviewPurpose?: string; rewriteUnpatched?: boolean } = {}) {
     const reviewPrompt = items.map((it) => {
       const art = articles.find((a) => Number(a.event_id) === it.eventId);
       return art ? `=== EVENT ${it.eventId} ===\n--- DOSSIER ---\n${it.material}\n--- ARTICLE ---\n# ${art.title}\n${art.summary}\n\n${art.body}` : '';
@@ -607,20 +700,21 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
     let review: { json: any; model: string };
     try {
       review = await this.llm({
-        models: models('KB_REVIEW_MODELS', 'gemini-3.1-flash-lite,gemini-2.5-flash-lite'), system: REVIEW_SYSTEM,
-        prompt: reviewPrompt, schema: REVIEW_SCHEMA, maxOutputTokens: 6_000, purpose: 'kb_review', timeoutMs,
+        models: opts.reviewModels ?? models('KB_REVIEW_MODELS', MODEL_DEFAULTS.review), system: REVIEW_SYSTEM,
+        prompt: reviewPrompt, schema: REVIEW_SCHEMA, maxOutputTokens: 6_000, purpose: opts.reviewPurpose ?? 'kb_review', timeoutMs,
       });
     } catch (primaryError) {
       if (this.llm !== geminiJson || process.env.KB_REVIEW_GEMMA === 'false') throw primaryError;
       const g = await gemmaJson<{ reviews: unknown[] }>({
-        purpose: 'kb_review', schema: REVIEW_SCHEMA, system: REVIEW_SYSTEM, prompt: reviewPrompt, maxOutputTokens: 6_000, timeoutMs, temperature: 0.1,
+        purpose: 'kb_review', priority: 'high', schema: REVIEW_SCHEMA, system: REVIEW_SYSTEM, prompt: reviewPrompt, maxOutputTokens: 6_000, timeoutMs, temperature: 0.1,
         validate: (raw) => (raw && typeof raw === 'object' && Array.isArray((raw as { reviews?: unknown }).reviews) ? (raw as { reviews: unknown[] }) : null),
       });
       if (!g) throw primaryError;
       review = { json: g.value, model: `${g.model}(fallback)` };
     }
     const reviews = eventReviews(review.json?.reviews, articles, items.map((it) => it.eventId));
-    const toFix = items.filter((it) => reviews.get(it.eventId)?.verdict === 'fix' && reviews.get(it.eventId)!.issues.length);
+    let toFix = items.filter((it) => reviews.get(it.eventId)?.verdict === 'fix' && reviews.get(it.eventId)!.issues.length);
+    const rewriteAllowed = opts.rewriteUnpatched === true || process.env.KB_FIX_REWRITE === 'true';
     let fixer: string | null = null;
     let out = articles;
     if (toFix.length && process.env.KB_FIX_PATCH !== 'false') {
@@ -633,7 +727,7 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
       }).join('\n\n');
       try {
         const patched = await this.llm({
-          models: models('KB_PATCH_MODELS', 'gemini-3.1-flash-lite,gemini-2.5-flash-lite'),
+          models: models('KB_PATCH_MODELS', 'gemini-3.1-flash-lite,gemini-3.5-flash-lite,gemini-2.5-flash-lite'),
           system: `You correct news articles after a fact-check by returning minimal exact text patches, never a rewritten article.
 For every issue return patches {event_id, field, find, replace}: "find" is a verbatim excerpt (6-300 characters) that occurs exactly once in that field, "replace" is the corrected text.
 Fix only what the issue lists, using only the dossier; keep citations like [D1] on every claim you keep; to delete an unsupported sentence use an empty "replace". Do not touch anything else.`,
@@ -658,34 +752,35 @@ Fix only what the issue lists, using only the dossier; keep citations like [D1] 
             const r = reviews.get(it.eventId);
             if (r && mine.length && before && after && (before.body !== after.body || before.title !== after.title || before.summary !== after.summary)) r.verdict = 'changed_requires_review';
           }
-          return { articles: out, reviews, reviewer: review.model, fixer };
+          // only what the patches could not touch is worth a Flash rewrite
+          toFix = toFix.filter((it) => reviews.get(it.eventId)?.verdict === 'fix');
         }
-        if (process.env.KB_FIX_REWRITE !== 'true') return { articles: out, reviews, reviewer: review.model, fixer };
+        if (!rewriteAllowed || !toFix.length) return { articles: out, reviews, reviewer: review.model, fixer };
       } catch {
-        if (process.env.KB_FIX_REWRITE !== 'true') return { articles: out, reviews, reviewer: review.model, fixer };
+        if (!rewriteAllowed) return { articles: out, reviews, reviewer: review.model, fixer };
       }
     }
-    if (toFix.length && (process.env.KB_FIX_PATCH === 'false' || process.env.KB_FIX_REWRITE === 'true')) {
+    if (toFix.length && (process.env.KB_FIX_PATCH === 'false' || rewriteAllowed)) {
       const fixPrompt = toFix.map((it) => {
-        const art = articles.find((a) => Number(a.event_id) === it.eventId)!;
+        const art = out.find((a) => Number(a.event_id) === it.eventId)!;
         const issues = reviews.get(it.eventId)!.issues.map((i, n) => `${n + 1}. [${i.location}] ${i.problem} -> ${i.fix}`).join('\n');
         return `=== EVENT ${it.eventId} ===\n--- DOSSIER ---\n${it.material}\n--- ARTICLE (JSON) ---\n${JSON.stringify(art)}\n--- ISSUES ---\n${issues}`;
       }).join('\n\n');
       try {
         const fixed = await this.llm({
-          models: models('KB_FIX_MODELS', 'gemini-3-flash-preview,gemini-3.1-flash-lite'), system: FIX_SYSTEM, prompt: fixPrompt,
+          models: models('KB_FIX_MODELS', MODEL_DEFAULTS.rewrite), system: FIX_SYSTEM, prompt: fixPrompt,
           schema: ARTICLE_SCHEMA, maxOutputTokens: Math.min(64_000, 9_000 * toFix.length), purpose: 'kb_fix', timeoutMs,
         });
         fixer = fixed.model;
         const byId = new Map<number, GeneratedArticle>((fixed.json?.articles ?? []).map((a: GeneratedArticle) => [Number(a.event_id), a]));
-        out = articles.map((a) => byId.get(Number(a.event_id)) ?? a);
+        out = out.map((a) => byId.get(Number(a.event_id)) ?? a);
         for (const id of byId.keys()) {
           const r = reviews.get(id);
           if (r) reviews.set(id, { ...r, verdict: 'changed_requires_review' });
         }
       } catch (err) {
         // the unfixed articles still pass the algorithmic checks; flagged ones go to manual review
-        for (const it of toFix) reviews.set(it.eventId, { ...reviews.get(it.eventId)!, verdict: 'reject' });
+        if (!opts.rewriteUnpatched) for (const it of toFix) reviews.set(it.eventId, { ...reviews.get(it.eventId)!, verdict: 'reject' });
         this.logger.warn(`fix pass failed: ${err instanceof Error ? err.message : err}`);
       }
     }

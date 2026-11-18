@@ -18,8 +18,9 @@ import { DatabaseService } from '../database/database.service';
 import { DISALLOWED_DISCOVERY_ROOTS } from '../news/source-discovery.service';
 import { buildDossier } from './kb-dossier';
 import { isKbEditorialActive } from './kb-editorial.service';
-import { postGeminiGenerateContent } from '../common/gemini-client';
-import { candidateText, geminiJson, geminiSearch, JsonLlm, models, parseJsonText, resolveRedirect, SearchLlm } from './kb-llm';
+import { gemmaLimiter } from '../common/gemma-limiter';
+import { tryGemmaJson } from './kb-gemma';
+import { geminiJson, geminiSearch, JsonLlm, models, resolveRedirect, SearchLlm } from './kb-llm';
 import { checkSyndication, detectInjection, fencePageText, sanitizeUntrusted, wireAttributions } from './kb-syndication';
 import { bingNewsSearch, bingWebSearch, buildQueries, entityHitRatio, filterHits, gdeltSearch, SearchHit } from './kb-news-search';
 
@@ -146,25 +147,15 @@ export function coerceVerdict(raw: any): Verdict | null {
 }
 
 export const gemmaThenGemini: JsonLlm = async (req) => {
-  const key = process.env.GEMINI_API_KEY?.trim();
-  if (key && process.env.KB_CORROBORATE_GEMMA !== 'false') {
-    const keys = Object.keys((req.schema as { properties: Record<string, unknown> }).properties).join(', ');
-    for (const m of models('KB_CORROBORATE_GEMMA_MODELS', 'gemma-4-31b-it,gemma-4-26b-a4b-it')) {
-      try {
-        const { data, modelUsed } = await postGeminiGenerateContent({
-          apiKey: key, candidateModels: [m], priority: 'normal', statsTask: 'kb_corroborate', budgetPurpose: 'kb_corroborate',
-          timeoutMs: req.timeoutMs,
-          body: {
-            contents: [{ role: 'user', parts: [{ text: `${req.system}\n\nReply with ONLY one JSON object with the keys: ${keys}. No markdown, no commentary.\n\n${req.prompt}` }] }],
-            generationConfig: { temperature: req.temperature ?? 0.1, maxOutputTokens: req.maxOutputTokens },
-          },
-        });
-        const verdict = coerceVerdict(parseJsonText(candidateText(data)));
-        if (verdict) return { json: verdict, model: modelUsed };
-      } catch {
-        /* overloaded (503) or malformed output: try the next model, then Gemini */
-      }
-    }
+  if (process.env.GEMINI_API_KEY?.trim() && process.env.KB_CORROBORATE_GEMMA !== 'false') {
+    const attempt = await tryGemmaJson<Verdict>({
+      system: req.system, prompt: req.prompt, schema: req.schema, validate: coerceVerdict, maxOutputTokens: req.maxOutputTokens,
+      timeoutMs: req.timeoutMs, temperature: req.temperature, purpose: 'kb_corroborate',
+      models: models('KB_CORROBORATE_GEMMA_MODELS', 'gemma-4-31b-it,gemma-4-26b-a4b-it'),
+    });
+    if (attempt.ok) return { json: attempt.value, model: attempt.model };
+    // A short Gemma outage is waited out (the page is vetted next cycle); only a long one spends Gemini quota.
+    if (attempt.reason === 'unavailable' && gemmaLimiter.recentlyHealthy()) throw new Error('Gemma is busy: vetting waits for the next cycle');
   }
   return geminiJson(req);
 };
@@ -537,7 +528,7 @@ aggregator listings). Do not return outlets already listed under ALREADY HAVE. I
       const wire = wireAttributions(text);
       try {
         const res = await this.llm({
-          models: models('KB_CORROBORATE_VET_MODELS', 'gemini-3.1-flash-lite,gemini-2.5-flash-lite'),
+          models: models('KB_CORROBORATE_VET_MODELS', 'gemini-3.1-flash-lite,gemini-3.5-flash-lite,gemini-2.5-flash-lite'),
           system: VET_SYSTEM,
           schema: VERDICT_SCHEMA,
           maxOutputTokens: 1200,

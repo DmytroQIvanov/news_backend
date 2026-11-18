@@ -1,11 +1,9 @@
 """Budgeted escalation queue to an LLM. Algorithms decide WHAT is worth an LLM call; the consumer decides WHEN.
 
 Producers call enqueue(); duplicates are ignored by dedupe_key, and a per-tier daily cap stops floods.
-The consumer (the NestJS LLM router, which owns the Gemini quota and rate limiter) takes rows in priority order:
+The consumer is src/kb/kb-llm-tasks.service.ts: it leases rows in priority order and answers them with Gemma.
 
-  SELECT ... FROM kb.llm_tasks WHERE status = 'queued' ORDER BY priority DESC, id LIMIT n FOR UPDATE SKIP LOCKED
-
-Tiers: lite = cheapest flash-lite model; standard = flash; deep = top model (Hydrogen), reserved for flagship long-reads.
+The tier is only a separate daily cap on how many tasks of that kind may be queued.
 """
 from __future__ import annotations
 

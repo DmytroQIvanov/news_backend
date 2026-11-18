@@ -1,4 +1,5 @@
-import { dailyLlmLimit, recordLlmTokens, reserveLlmCall } from './llm-budget';
+import { dailyLlmLimit, markModelExhaustedByGoogle, recordLlmTokens, refundLlmCall, reserveLlmCall } from './llm-budget';
+import { estimateInputTokens, gemmaLimiter, gemmaLimits, isGemmaModel, reservedTokens } from './gemma-limiter';
 import { recordLlmEvent } from './llm-stats';
 import { isTransientHttpStatus } from './url-utils';
 
@@ -8,8 +9,13 @@ export const DEFAULT_HYDROGEN_MODEL = process.env.GEMINI_HYDROGEN_MODEL?.trim() 
 export const FALLBACK_GEMINI_MODELS = [
   // Models with real free quota (checked against the API model list): 3.1 Flash Lite ~500/day, 2.5 Flash Lite and
   // 3 Flash ~20/day, Hydrogen ~20/day. Gemma 4 31B has no daily cap (small prompts only) and is the last resort.
+  // Each model has its own daily quota, so the chain spreads load: the cheap lite models first, then the strong
+  // Flash models (3.8, 3.6, 3), Hydrogen, and Gemma last. The shared ledger skips any that are used up.
   'gemini-3.1-flash-lite',
+  'gemini-3.5-flash-lite',
   'gemini-2.5-flash-lite',
+  'gemini-3.8-flash',
+  'gemini-3.6-flash',
   'gemini-3-flash-preview',
   'gemini-4-hydrogen',
   'gemma-4-31b-it',
@@ -171,15 +177,34 @@ function pruneAttemptTimestamps(bucket: RateBucketState, now: number): void {
 }
 
 type AttemptOutcome =
-  | { ok: true; data: unknown }
+  | { ok: true; data: unknown; tokens?: number }
   | { ok: false; status: number; snippet: string };
+
+/** Gemma is limited by tokens per minute, not by the 4 RPM queue the small Gemini quotas need. */
+async function runGemmaAttempt(model: string, tokens: number, priority: GeminiPriority, task: () => Promise<AttemptOutcome>): Promise<AttemptOutcome> {
+  const lease = await gemmaLimiter.acquire(model, tokens, priority);
+  if (!lease) return { ok: false, status: 429, snippet: 'local Gemma queue is busy' };
+  try {
+    const outcome = await task();
+    lease.release(outcome.ok ? outcome.tokens ?? tokens : 0);
+    if (!outcome.ok && outcome.status === 429) gemmaLimiter.cooldown(model, 61_000);
+    else if (!outcome.ok && outcome.status >= 500) gemmaLimiter.cooldown(model, 15_000);
+    return outcome;
+  } catch (error) {
+    lease.release(0);
+    gemmaLimiter.cooldown(model, 15_000);
+    throw error;
+  }
+}
 
 function enqueueGeminiHttpAttempt(
   isHydrogen: boolean,
   task: () => Promise<AttemptOutcome>,
   model = '',
   priority: GeminiPriority = 'normal',
+  gemmaTokens = 0,
 ): Promise<AttemptOutcome> {
+  if (isGemmaModel(model)) return runGemmaAttempt(model, gemmaTokens, priority, task);
   const bucket = isHydrogen ? hydrogenBucket : bucketForModel(model);
   const maxPending =
     priority === 'low' ? LOW_PRIORITY_MAX_PENDING : priority === 'normal' ? NORMAL_PRIORITY_MAX_PENDING : Infinity;
@@ -269,6 +294,7 @@ export function buildGeminiRequestBody(
 
 export function resetGeminiClientStateForTests(): void {
   modelBuckets.clear();
+  gemmaLimiter.reset();
   standardBucket.pending = 0;
   hydrogenBucket.pending = 0;
   standardBucket.queue = Promise.resolve();
@@ -341,7 +367,20 @@ export async function postGeminiGenerateContent(params: {
       }
     }
 
+    const gemma = isGemmaModel(model);
+    const gemmaInput = gemma ? estimateInputTokens(requestPayload) : 0;
+    const gemmaTokens = gemma
+      ? reservedTokens(gemmaInput, (requestPayload.generationConfig as { maxOutputTokens?: unknown } | undefined)?.maxOutputTokens)
+      : 0;
+
     try {
+      if (gemma && gemmaInput > gemmaLimits().maxInputTokens) {
+        // It could never fit the per-minute window: Google would answer 429 and the whole Gemma queue would stall.
+        recordLlmEvent({ provider: 'gemini', model, task: statsTask, outcome: 'skipped_size', detail: `about ${gemmaInput} input tokens` });
+        const tooLarge = new Error(`Prompt too large for ${model} (about ${gemmaInput} tokens)`);
+        (tooLarge as Error & { status?: number }).status = 400;
+        throw tooLarge;
+      }
       for (let attempt = 1; attempt <= 2; attempt += 1) {
         // Shared daily budget: reserve BEFORE the request; retries are requests too.
         if (!(await reserveLlmCall(model, params.budgetPurpose ?? statsTask))) {
@@ -370,6 +409,7 @@ export async function postGeminiGenerateContent(params: {
               provider: 'gemini', model, task: statsTask, outcome: timedOut ? 'timeout' : 'http_error',
               latencyMs: Date.now() - startedAt, detail: fetchError instanceof Error ? fetchError.message : String(fetchError),
             });
+            if (!timedOut) await refundLlmCall(model, params.budgetPurpose ?? statsTask); // never reached Google
             throw fetchError;
           }
           if (resp.ok) {
@@ -377,7 +417,7 @@ export async function postGeminiGenerateContent(params: {
             const meta = (data as { usageMetadata?: { totalTokenCount?: number; promptTokenCount?: number; candidatesTokenCount?: number } })?.usageMetadata;
             recordLlmEvent({ provider: 'gemini', model, task: statsTask, outcome: 'ok', tokens: meta?.totalTokenCount, latencyMs: Date.now() - startedAt });
             void recordLlmTokens(model, params.budgetPurpose ?? statsTask, meta?.promptTokenCount ?? 0, meta?.candidatesTokenCount ?? 0);
-            return { ok: true as const, data };
+            return { ok: true as const, data, tokens: meta?.totalTokenCount };
           }
           const errText = await resp.text().catch(() => '');
           const snippet = errText.replace(/\s+/g, ' ').slice(0, 180);
@@ -385,8 +425,12 @@ export async function postGeminiGenerateContent(params: {
             provider: 'gemini', model, task: statsTask, outcome: resp.status === 429 ? 'rate_limited' : 'http_error',
             latencyMs: Date.now() - startedAt, detail: `HTTP ${resp.status} ${snippet}`,
           });
+          // Google does not charge quota for 429/5xx answers: give the local reservation back.
+          if (resp.status === 429 || resp.status >= 500) await refundLlmCall(model, params.budgetPurpose ?? statsTask);
+          // A real daily-quota 429 is ground truth: stop using this model until the next Pacific day.
+          if (resp.status === 429 && /per ?day|daily/i.test(errText) && !/per ?minute/i.test(errText)) markModelExhaustedByGoogle(model);
           return { ok: false as const, status: resp.status, snippet };
-        }, model, params.priority ?? 'normal');
+        }, model, params.priority ?? 'normal', gemmaTokens);
 
         if (result.ok) {
           return { data: result.data, modelUsed: model };
@@ -395,13 +439,15 @@ export async function postGeminiGenerateContent(params: {
           markModelUnavailable(model);
         }
         const localBusy = result.status === 429 && result.snippet.startsWith('local ');
+        if (localBusy) await refundLlmCall(model, params.budgetPurpose ?? statsTask);
         if (localBusy) recordLlmEvent({ provider: 'gemini', model, task: statsTask, outcome: 'skipped_local', detail: result.snippet });
-        if (result.status === 429 && !localBusy && !hasNextModel && attempt === 1 && params.priority !== 'low') {
+        // Gemma does not retry in place: the caller moves to the other Gemma model while this one cools down.
+        if (result.status === 429 && !localBusy && !hasNextModel && attempt === 1 && params.priority !== 'low' && !gemma) {
           const bucket = useHydrogenBucket ? hydrogenBucket : bucketForModel(model);
           bucket.cooldownUntil = Math.max(bucket.cooldownUntil, Date.now() + 61_000);
           continue;
         }
-        if (isTransientHttpStatus(result.status) && result.status !== 429 && attempt === 1) {
+        if (isTransientHttpStatus(result.status) && result.status !== 429 && attempt === 1 && !gemma) {
           continue;
         }
         const err = new Error(
