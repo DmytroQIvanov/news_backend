@@ -170,3 +170,26 @@ test('minify: keeps lead and salient sentences, drops boilerplate and cross-sour
   assert.ok(/57 billion/.test(d1.text), 'numbers stay verbatim');
   assert.ok(r.keptChars < r.originalChars);
 });
+
+test('article edit: patches apply only when exact and unique; paragraphs must cite real references', () => {
+  const e = require('../dist/kb/kb-article-edit.js');
+  const art = { title: 'Rates rise', summary: 'The bank acted.', body: 'The bank raised rates by 0.5 points [D1]. Analysts expect more increases [D2].\n\n## Outlook\nNo further moves are planned [D1].' };
+  const r = e.applyPatches(art, [
+    { field: 'body', find: 'raised rates by 0.5 points [D1]', replace: 'raised rates by 0.25 points [D1]' },
+    { field: 'body', find: 'does not exist anywhere', replace: 'x' },
+    { field: 'body', find: 'Analysts expect more increases [D2].', replace: '' },
+    { field: 'title', find: 'Rates rise', replace: 'Rates rise [D1][D2][D3][D4][D5][D6][D7][D8]' },
+  ]);
+  assert.equal(r.applied, 2);
+  assert.equal(r.skipped, 2);
+  assert.ok(r.article.body.includes('0.25 points'));
+  assert.ok(!r.article.body.includes('Analysts expect'));
+  const dup = e.applyPatches({ ...art, body: 'same words here [D1]. same words here [D1].' }, [{ field: 'body', find: 'same words here [D1].', replace: 'changed [D1].' }]);
+  assert.equal(dup.applied, 0);
+  const refs = new Set(['D1', 'D2', 'F1']);
+  const good = 'The central bank said the decision followed three months of rising consumer prices and was backed by all voting members of the committee, according to the first source and the second report on the matter [D1][D2].';
+  assert.deepEqual(e.validateParagraphs({ paragraphs: [good, 'Too short [D1].', good.replace('[D1][D2]', '[D9]'), good.replace('[D1][D2]', '')] }, refs), [good]);
+  const grown = e.insertParagraphs(art.body, [good]);
+  assert.ok(grown.indexOf(good) < grown.indexOf('## Outlook'));
+  assert.deepEqual([...e.dossierRefs('[D1] x [F2] y [D1]')].sort(), ['D1', 'F2']);
+});

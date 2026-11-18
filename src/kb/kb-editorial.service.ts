@@ -26,6 +26,8 @@ import { DatabaseService } from '../database/database.service';
 import { validateArticle } from '../ingest/gemini-editor.service';
 import { CATEGORIES } from '../ingest/ingest.dto';
 import { applyMinify, buildDossier, EventDossier, renderDossier } from './kb-dossier';
+import { applyPatches, countWords, dossierRefs, EXPAND_SCHEMA, insertParagraphs, PATCH_SCHEMA, validateParagraphs, validatePatches } from './kb-article-edit';
+import { gemmaJson } from './kb-gemma';
 import { geminiJson, JsonLlm, models } from './kb-llm';
 
 const CHARS_PER_TOKEN = 3.6;
@@ -395,7 +397,7 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
 
     // big: cheap fact-check of every article against its dossier, then one Flash pass fixes what was flagged
     let reviews = new Map<number, { verdict: string; issues: unknown[] }>();
-    if (tier === 'big' && articles.length) {
+    if ((tier === 'big' || process.env.KB_REVIEW_MEDIUM !== 'false') && articles.length) {
       const fixed = await this.reviewAndFix(batch.map((b) => ({ eventId: b.cand.eventId, material: b.text })), articles, timeoutMs).catch((err) => {
         detail.review_error = err instanceof Error ? err.message : String(err);
         return null;
@@ -437,6 +439,22 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
     return result;
   }
 
+  /** Gemma (no daily cap) writes the missing paragraphs; only paragraphs that cite real dossier references are inserted. */
+  async expandShort(art: GeneratedArticle, dossier: EventDossier, minWords: number): Promise<string> {
+    const material = renderDossier(dossier);
+    const refs = dossierRefs(material);
+    const have = countWords(art.body || '');
+    const need = Math.max(1, Math.min(6, Math.ceil((minWords - have) / 90)));
+    const res = await gemmaJson<string[]>({
+      purpose: 'kb_expand', schema: EXPAND_SCHEMA, maxOutputTokens: 2_500, temperature: 0.3, timeoutMs: 120_000,
+      system: 'You extend news articles. You use ONLY the dossier; every paragraph cites its sources like [D1] or [F2]; you never repeat what the article already says.',
+      prompt: `${material}\n\n=== CURRENT ARTICLE (${have} words, needs at least ${minWords}) ===\n# ${art.title}\n${art.body}\n\nWrite ${need} NEW paragraph(s) of 60-120 words each that add details from the dossier the article does not yet use (background with dates, positions of different sources, numbers with their sources, what is still unknown). Return {"paragraphs":["..."]}.`,
+      validate: (raw) => validateParagraphs(raw, refs),
+    });
+    if (!res || !res.value.length) return art.body;
+    return insertParagraphs(art.body, res.value);
+  }
+
   /** One cheap review call for the whole batch; one Flash call rewrites the flagged articles. Shared with flagships. */
   async reviewAndFix(items: Array<{ eventId: number; material: string }>, articles: GeneratedArticle[], timeoutMs: number) {
     const reviewPrompt = items.map((it) => {
@@ -452,6 +470,43 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
     const toFix = items.filter((it) => reviews.get(it.eventId)?.verdict === 'fix' && reviews.get(it.eventId)!.issues.length);
     let fixer: string | null = null;
     let out = articles;
+    if (toFix.length && process.env.KB_FIX_PATCH !== 'false') {
+      // Cheap model proposes exact find/replace patches; the article is never regenerated. Anything it cannot patch stays as is
+      // and is judged by the algorithmic checks in publish().
+      const patchPrompt = toFix.map((it) => {
+        const art = articles.find((a) => Number(a.event_id) === it.eventId)!;
+        const issues = reviews.get(it.eventId)!.issues.map((i, n) => `${n + 1}. [${i.location}] ${i.problem} -> ${i.fix}`).join('\n');
+        return `=== EVENT ${it.eventId} ===\n--- DOSSIER ---\n${it.material}\n--- ARTICLE ---\nTITLE: ${art.title}\nSUMMARY: ${art.summary}\nBODY:\n${art.body}\n--- ISSUES ---\n${issues}`;
+      }).join('\n\n');
+      try {
+        const patched = await this.llm({
+          models: models('KB_PATCH_MODELS', 'gemini-3.1-flash-lite,gemini-2.5-flash-lite'),
+          system: `You correct news articles after a fact-check by returning minimal exact text patches, never a rewritten article.
+For every issue return patches {event_id, field, find, replace}: "find" is a verbatim excerpt (6-300 characters) that occurs exactly once in that field, "replace" is the corrected text.
+Fix only what the issue lists, using only the dossier; keep citations like [D1] on every claim you keep; to delete an unsupported sentence use an empty "replace". Do not touch anything else.`,
+          prompt: patchPrompt, schema: PATCH_SCHEMA, maxOutputTokens: 6_000, purpose: 'kb_fix', timeoutMs, temperature: 0.1,
+        });
+        const all = validatePatches(patched.json) ?? [];
+        let appliedTotal = 0;
+        out = articles.map((a) => {
+          const mine = all.filter((p) => p.event_id === Number(a.event_id));
+          if (!mine.length) return a;
+          const r = applyPatches(a, mine);
+          appliedTotal += r.applied;
+          return r.article;
+        });
+        if (appliedTotal > 0) {
+          fixer = `${patched.model}+patch`;
+          for (const it of toFix) {
+            const r = reviews.get(it.eventId);
+            if (r) r.verdict = 'ok';
+          }
+          return { articles: out, reviews, reviewer: review.model, fixer };
+        }
+      } catch {
+        /* fall through to the full rewrite below */
+      }
+    }
     if (toFix.length) {
       const fixPrompt = toFix.map((it) => {
         const art = articles.find((a) => Number(a.event_id) === it.eventId)!;
@@ -539,6 +594,11 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
         })
         .replace(/[ \t]+([.,;:!?])/g, '$1') // a removed [E#] must not leave "reopened ."
         .replace(/[ \t]+\n/g, '\n');
+    // Too short for its tier: add cited paragraphs from unused dossier material instead of rejecting or rewriting the article.
+    const tierMin = tier === 'flagship' ? 1100 : tier === 'big' ? 650 : 250;
+    if (this.llm === geminiJson && process.env.KB_EXPAND !== 'false' && countWords(art.body || '') < tierMin) {
+      art.body = await this.expandShort(art, dossier, tierMin).catch(() => art.body);
+    }
     const body = rewrite(art.body || '');
 
     const sources = order.slice(0, 12).map((ref) => {
