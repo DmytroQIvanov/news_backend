@@ -82,7 +82,7 @@ interface ArticleRow {
   published_at: Date | null;
 }
 
-const DEFAULT_MAX_BYTES = 1024 * 1024 * 1024;
+const DEFAULT_MAX_BYTES = 8 * 1024 * 1024 * 1024;
 const PROVIDER_COOLDOWN_MS = 10 * 60_000;
 /** After an R2/DB storage failure (e.g. NoSuchBucket), stop generating audio for this long. */
 const STORAGE_FAILURE_COOLDOWN_MS = 60 * 60_000;
@@ -123,9 +123,44 @@ export function planEviction(objects: Array<{ key: string; bytes: number; lastAc
   return out;
 }
 
+/** Text that sounds right when read aloud: no citation markers, headings, markdown or links; sentences kept whole. */
+export function cleanForSpeech(text: string): string {
+  return text
+    .replace(/\[[A-Z]?\d+(?:[,;\s]*[A-Z]?\d+)*\]/g, '')
+    .replace(/^#{1,6}\s+.*$/gm, '')
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/[*_`>|]+/g, '')
+    .replace(/\(\s*\)/g, '')
+    .replace(/\s+([.,;:!?])/g, '$1')
+    .replace(/\s*\n\s*/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+/** First whole sentences of an article body, spoken form, within a character budget. */
+export function speechFromBody(body: string | null | undefined, maxChars: number): string {
+  const clean = cleanForSpeech(body ?? '');
+  if (!clean) return '';
+  const sentences = clean.match(/[^.!?…]+[.!?…]+(?=\s|$)/g) ?? [clean];
+  let out = '';
+  for (const sentence of sentences) {
+    if ((out + sentence).length > maxChars) break;
+    out += `${sentence.trim()} `;
+  }
+  return out.trim();
+}
+
+const SPEECH_BUDGET: Record<string, number> = { global_brief: 600, balanced: 1500, deep_technical: 2400 };
+
 function pickText(article: Record<string, unknown> | null, key: string): string | null {
   const v = article?.[key];
   return typeof v === 'string' && v.trim() ? v.trim() : null;
+}
+
+function bodyScriptUk(row: ArticleRow, depth: NewsDepth): string | null {
+  const body = pickText(row.article, 'body_uk');
+  const budget = SPEECH_BUDGET[depth as string] ?? 1500;
+  return body && budget > 0 ? speechFromBody(body, budget) || null : null;
 }
 
 /** Script in the requested language: English is canonical, Ukrainian comes from the editorial translation. */
@@ -140,7 +175,7 @@ export function buildScript(row: ArticleRow, lang: string, depth: NewsDepth, sty
           summaryUk: pickText(row.article, 'summary_uk') || row.summary_uk,
           originalSummary: row.original_summary,
           whyItMatters: pickText(row.article, 'why_it_matters_uk') || row.why_it_matters,
-          briefingScript: pickText(row.article, 'briefing_script_uk') || (canonicalEn ? null : row.briefing_script),
+          briefingScript: pickText(row.article, 'briefing_script_uk') || (canonicalEn ? null : row.briefing_script) || bodyScriptUk(row, depth),
           sourceName: row.source_name,
         },
         { depth, style },
@@ -152,8 +187,9 @@ export function buildScript(row: ArticleRow, lang: string, depth: NewsDepth, sty
   const summary = (canonicalEn ? pickText(row.article, 'summary') : pickText(row.article, 'summary_en')) || row.summary_en || row.original_summary || '';
   const scripted = canonicalEn ? row.briefing_script : null;
   const why = pickText(row.article, canonicalEn ? 'importance_reason' : 'why_it_matters_en') || row.why_en;
-  const raw = scripted || [title, summary, style === 'headline_flash' ? '' : why || ''].filter(Boolean).join(' ');
-  return stripTtsPromptDirectives(raw.replace(/\[\d+\]/g, '').replace(/\s+/g, ' ').trim()).slice(0, 2400);
+  const spoken = !scripted && style !== 'headline_flash' ? speechFromBody(pickText(row.article, canonicalEn ? 'body' : 'body_en'), SPEECH_BUDGET[depth as string] ?? 1500) : '';
+  const raw = scripted || [title, summary, style === 'headline_flash' ? '' : why || '', spoken].filter(Boolean).join(' ');
+  return stripTtsPromptDirectives(raw.replace(/\[\d+\]/g, '').replace(/\s+/g, ' ').trim()).slice(0, 3000);
 }
 
 function canRenderScript(script: string, lang: string): boolean {
@@ -643,8 +679,23 @@ export class AudioBriefingService implements OnModuleInit, OnModuleDestroy {
     await this.evictIfNeeded();
   }
 
+  /** Audio is kept for AUDIO_RETENTION_DAYS (default 92, about three months), then removed from the bucket and the index. */
+  private async expireOld(): Promise<void> {
+    if (!this.db) return;
+    const days = Math.max(1, Number(readEnv('AUDIO_RETENTION_DAYS')) || 92);
+    const { rows } = await this.db.query<{ cache_key: string; object_key: string }>(
+      `SELECT cache_key, object_key FROM audio_briefings WHERE created_at < now() - ($1::int * interval '1 day') LIMIT 200`, [days],
+    ).catch(() => ({ rows: [] as Array<{ cache_key: string; object_key: string }> }));
+    for (const r of rows) {
+      await this.storage.deleteObject(r.object_key).catch(() => undefined);
+      await this.db.query(`DELETE FROM audio_briefings WHERE cache_key = $1`, [r.cache_key]).catch(() => undefined);
+    }
+    if (rows.length) this.logger.log(`Removed ${rows.length} audio briefing(s) older than ${days} days`);
+  }
+
   private async evictIfNeeded(): Promise<void> {
     if (!this.db) return;
+    await this.expireOld();
     const { rows } = await this.db.query<{ cache_key: string; object_key: string; bytes: string; last_access_at: Date }>(
       `SELECT cache_key, object_key, bytes::text, last_access_at FROM audio_briefings`,
     );
