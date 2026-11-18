@@ -151,10 +151,18 @@ const CONTROL_CHARS = new RegExp('[\u0000-\u0008\u000b\u000c\u000e-\u001f\u200b-
 /** Page text for a prompt: injection-looking lines removed, control characters stripped, fenced as data. */
 export function fencePageText(text: string, max = 4500): string {
   const clean = text
+    .normalize('NFKC')
+    .replace(/<\/?\s*page_text\s*>/gi, ' ')
     .split(/\r?\n/)
     .filter((line) => !detectInjection(line))
     .join('\n')
     .replace(CONTROL_CHARS, '')
     .slice(0, max);
   return `<page_text>\n${clean}\n</page_text>`;
+}
+
+/** Short external field (title, channel, headline) made safe to embed in a prompt: no delimiters, no instruction-like text. */
+export function sanitizeUntrusted(text: string, max = 300): string {
+  const t = text.normalize('NFKC').replace(CONTROL_CHARS, ' ').replace(/<\/?\s*[a-z_]+\s*>/gi, ' ').replace(/[`{}]/g, "'").replace(/\s+/g, ' ').trim();
+  return (detectInjection(t) ? '[removed: text addressed to an AI]' : t).slice(0, max);
 }

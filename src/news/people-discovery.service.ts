@@ -17,9 +17,10 @@ const NOT_A_PERSON = /(staff|editor(s)?\b|редакці|редактор|team|d
 /** A plausible human byline: 2-4 capitalised words, no organisation words, no digits. */
 export function looksLikePersonName(name: string): boolean {
   const n = name.trim().replace(/^by\s+/i, '').replace(/^від\s+/i, '');
-  if (n.length < 5 || n.length > 60 || NOT_A_PERSON.test(n)) return false;
+  if (n.length < 2 || n.length > 60 || NOT_A_PERSON.test(n)) return false;
   const words = n.split(/\s+/);
-  if (words.length < 2 || words.length > 4) return false;
+  if (!/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}]/u.test(n) && (n.length < 5 || words.length < 2 || words.length > 4)) return false;
+  if (/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}]/u.test(n)) return n.length >= 2 && n.length <= 12 && !/\d/.test(n); // uncased scripts have no capitals
   return words.every((w) => /^[\p{Lu}][\p{L}'’.-]+$/u.test(w) || /^(de|van|von|der|di|da|el|al|bin|ibn|le|la)$/i.test(w));
 }
 
@@ -111,12 +112,12 @@ export class PeopleDiscoveryService implements OnModuleInit, OnModuleDestroy {
       const name = String(r.name);
       await this.db.query(
         `INSERT INTO discovered_people (kind, name, name_key, name_uk, source_slug, topics, description, wikidata_id, entity_id, mentions, events, evidence, confidence, last_seen)
-         VALUES ('expert', $1, $2, $3, '', $4, $5, $6, $7, $8, $9, $10::jsonb, $11, now())
-         ON CONFLICT (kind, name_key, source_slug) DO UPDATE SET topics = EXCLUDED.topics, description = EXCLUDED.description,
+         VALUES ($12, $1, $2, $3, '', $4, $5, $6, $7, $8, $9, $10::jsonb, $11, now())
+         ON CONFLICT (kind, name_key, source_slug) DO UPDATE SET topics = EXCLUDED.topics, description = EXCLUDED.description, entity_id = EXCLUDED.entity_id,
            wikidata_id = EXCLUDED.wikidata_id, mentions = EXCLUDED.mentions, events = EXCLUDED.events, evidence = EXCLUDED.evidence,
            confidence = EXCLUDED.confidence, last_seen = now()`,
         [name, nameKey(name), r.name_uk ?? null, r.cats ?? [], r.description ?? null, r.wikidata_id ?? null, Number(r.id), Number(r.docs), Number(r.events),
-          JSON.stringify({ quoted_in_events: Number(r.events), quoted_in_documents: Number(r.docs), sample_events: r.sample_events }), Math.min(0.95, 0.35 + Number(r.events) / 20 + (r.wikidata_id ? 0.2 : 0))],
+          JSON.stringify({ quoted_in_events: Number(r.events), quoted_in_documents: Number(r.docs), sample_events: r.sample_events }), Math.min(0.95, 0.35 + Number(r.events) / 20 + (r.wikidata_id ? 0.2 : 0)), r.description || r.wikidata_id ? 'expert' : 'quoted'],
       );
       saved += 1;
     }

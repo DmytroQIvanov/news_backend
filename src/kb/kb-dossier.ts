@@ -151,6 +151,19 @@ export async function buildDossier(db: DatabaseService, eventId: number, opts: {
       )
       .catch(() => ({ rows: [] as Record<string, any>[] }))
   ).rows;
+  // an accepted page counts once: not when the pipeline already attached the same document, not twice per origin root
+  const attachedIds = new Set(docs.map((d) => Number(d.id)));
+  const attachedRoots = new Set(docs.map((d) => d.evidence_root).filter(Boolean));
+  const takenRoots = new Set<string>();
+  for (let i = corroborated.length - 1; i >= 0; i -= 1) {
+    const c = corroborated[i];
+    const root = String(((c.verdict ?? {}) as Record<string, any>).root ?? c.evidence_root ?? '');
+    if (attachedIds.has(Number(c.id)) || (c.research_kind !== 'video' && root && (attachedRoots.has(root) || takenRoots.has(root)))) {
+      corroborated.splice(i, 1);
+      continue;
+    }
+    if (root) takenRoots.add(root);
+  }
   for (const c of corroborated) {
     const verdict = (c.verdict ?? {}) as Record<string, any>;
     docs.push({

@@ -14,7 +14,7 @@ export async function expertsForEvent(db: DatabaseService, d: EventDossier, limi
       `SELECT p.entity_id, p.name, p.name_uk, p.description, p.events, p.topics, p.wikidata_id,
               (p.entity_id = ANY($1::bigint[])) AS participant
        FROM discovered_people p
-       WHERE p.kind = 'expert' AND p.status <> 'hidden' AND p.entity_id IS NOT NULL
+       WHERE p.kind IN ('expert', 'quoted') AND p.status <> 'hidden' AND p.entity_id IS NOT NULL
          AND (p.entity_id = ANY($1::bigint[]) OR ($2::text IS NOT NULL AND $2 = ANY(p.topics)))
        ORDER BY (p.entity_id = ANY($1::bigint[])) DESC, p.events DESC LIMIT $3`,
       [entityIds, category, limit],

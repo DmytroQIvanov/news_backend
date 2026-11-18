@@ -43,7 +43,7 @@ export class DiscoveryController {
          FROM discovered_people
          WHERE status <> 'hidden' AND ($1::text IS NULL OR kind = $1) AND ($2::text IS NULL OR country = upper($2))
          ORDER BY mentions DESC, confidence DESC LIMIT $3`,
-        [kind === 'author' || kind === 'expert' || kind === 'editor' ? kind : null, country || null, n],
+        [kind === 'author' || kind === 'expert' || kind === 'editor' || kind === 'quoted' ? kind : null, country || null, n],
       )
     ).rows;
     return { items: rows };

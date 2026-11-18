@@ -13,13 +13,14 @@
  */
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { remainingLlmCalls } from '../common/llm-budget';
+import { resolveAndValidatePublicUrl } from '../common/source-compliance';
 import { DatabaseService } from '../database/database.service';
 import { DISALLOWED_DISCOVERY_ROOTS } from '../news/source-discovery.service';
 import { buildDossier } from './kb-dossier';
 import { isKbEditorialActive } from './kb-editorial.service';
 import { postGeminiGenerateContent } from '../common/gemini-client';
 import { candidateText, geminiJson, geminiSearch, JsonLlm, models, parseJsonText, resolveRedirect, SearchLlm } from './kb-llm';
-import { checkSyndication, detectInjection, fencePageText, wireAttributions } from './kb-syndication';
+import { checkSyndication, detectInjection, fencePageText, sanitizeUntrusted, wireAttributions } from './kb-syndication';
 import { bingNewsSearch, bingWebSearch, buildQueries, entityHitRatio, filterHits, gdeltSearch, SearchHit } from './kb-news-search';
 
 function envInt(name: string, fallback: number, min = 0, max = Number.MAX_SAFE_INTEGER): number {
@@ -75,9 +76,9 @@ export interface Verdict {
  * Sensitive events (casualties, war, health, crime, disasters, elections) need stronger confirmation: only high-reliability
  * sources count and the match must be near certain. Categories are tunable with KB_SENSITIVE_CATEGORIES.
  */
-const SENSITIVE_TEXT = /(killed|dead|death toll|casualt|victims?|massacre|shelling|airstrike|missile|drone attack|explosion|epidemic|outbreak|vaccine|overdose|assassinat|terror|hostage|election result|вбит|загибл|жертв|обстріл|ракетн|атак[аи] дрон|вибух|епідемі|спалах|вакцин|теракт|заручник|вибори)/i;
+const SENSITIVE_TEXT = /(killed|dead|death toll|casualt|victims?|massacre|shelling|airstrike|missile|drone attack|explosion|epidemic|outbreak|vaccine|overdose|assassinat|terror|hostage|election result|вбит|загибл|жертв|обстріл|ракетн|атак[аи] дрон|вибух|епідемі|спалах|вакцин|теракт|заручник|вибори|election|ballot|vote count|fraud|mobili[sz]ation|conscription|sanction|indict|arrested|мобілізац|фальсифікац|санкці|арешт)/i;
 export function isSensitiveEvent(category: string | null | undefined, title: string | null | undefined): boolean {
-  const cats = (process.env.KB_SENSITIVE_CATEGORIES ?? 'war,conflict,security,health,crime,disaster').split(',').map((c) => c.trim().toLowerCase()).filter(Boolean);
+  const cats = (process.env.KB_SENSITIVE_CATEGORIES ?? 'health,defense,law,cybersecurity').split(',').map((c) => c.trim().toLowerCase()).filter(Boolean);
   if (category && cats.includes(category.toLowerCase())) return true;
   return SENSITIVE_TEXT.test(title ?? '');
 }
@@ -105,7 +106,7 @@ export async function archivePage(url: string): Promise<string | null> {
     });
     const loc = resp.headers.get('content-location') || resp.headers.get('location');
     if (loc && /^\/web\/\d+/.test(loc)) return `https://web.archive.org${loc}`;
-    return resp.ok ? `https://web.archive.org/web/${url}` : null;
+    return null; // no snapshot location in the response: not evidence of a capture
   } catch {
     return null;
   }
@@ -238,11 +239,7 @@ export class KbCorroborationService implements OnModuleInit, OnModuleDestroy {
     const vet = await this.vetPending(envInt('KB_CORROBORATE_VET_PER_CYCLE', 12, 1, 60));
     out.vetted = vet.vetted;
     out.accepted = vet.accepted;
-    let calls = 0;
-    for (const m of models('KB_CORROBORATE_MODELS', 'gemini-2.5-flash-lite,gemini-2.5-flash')) {
-      calls += Math.min(1000, await remainingLlmCalls(m, 'kb_corroborate'));
-    }
-    if (calls > 0) {
+    {
       for (const eventId of await this.thinEvents(envInt('KB_CORROBORATE_PER_CYCLE', 6, 1, 20))) {
         if (this.stopped) break;
         try {
@@ -297,6 +294,7 @@ export class KbCorroborationService implements OnModuleInit, OnModuleDestroy {
     const max = envInt('KB_CORROBORATE_MAX_PAGES', 12, 1, 30);
     let inserted = 0;
     const queue = async (url: string, title: string, via: string) => {
+      if (!(await resolveAndValidatePublicUrl(url)).safe) return false; // never hand a private or odd address to the collector
       const canon = url.split('#')[0].replace(/\/+$/, '');
       const row = (
         await this.db
@@ -309,11 +307,11 @@ export class KbCorroborationService implements OnModuleInit, OnModuleDestroy {
           .catch(() => ({ rows: [] as Array<{ id: string }> }))
       ).rows[0];
       if (!row) return false;
-      await this.db.query(
-        `INSERT INTO kb.event_research (event_id, document_id, query) VALUES ($1, $2, 'corroboration') ON CONFLICT DO NOTHING`,
+      const rel = await this.db.query(
+        `INSERT INTO kb.event_research (event_id, document_id, query) VALUES ($1, $2, 'corroboration') ON CONFLICT DO NOTHING RETURNING document_id`,
         [eventId, row.id],
       );
-      return true;
+      return (rel.rowCount ?? 0) > 0; // a relation that already existed (maybe rejected earlier) is not a new candidate
     };
 
     // 0) our own corpus first: documents the collector already fetched from all feeds that look like the same event
@@ -398,9 +396,19 @@ export class KbCorroborationService implements OnModuleInit, OnModuleDestroy {
            LIMIT 60`,
           [eventId, minSim, minTitle],
         )
-        .catch((err) => {
-          this.logger.debug(`own-corpus query failed: ${err instanceof Error ? err.message : err}`);
-          return { rows: [] as Array<Record<string, any>> };
+        .catch(async (err) => {
+          this.logger.debug(`own-corpus vector query failed, title-only fallback: ${err instanceof Error ? err.message : err}`);
+          return this.db.query(
+            `SELECT d.id, d.url, d.title, d.evidence_root, 0::real AS sim, similarity(d.title, e.title) AS tsim
+             FROM kb.events e JOIN kb.documents d ON d.kind IN ('news', 'press_release', 'official_statement')
+               AND d.extraction_status IN ('full', 'partial') AND d.stage IN ('clustered', 'analyzed', 'ignored')
+               AND COALESCE(d.published_at, d.fetched_at, now()) BETWEEN COALESCE(e.started_at, e.first_seen_at) - interval '36 hours' AND now() + interval '1 hour'
+             WHERE e.id = $1 AND similarity(d.title, e.title) >= $3
+               AND NOT EXISTS (SELECT 1 FROM kb.event_documents x WHERE x.event_id = e.id AND x.document_id = d.id)
+               AND NOT EXISTS (SELECT 1 FROM kb.event_research r WHERE r.event_id = e.id AND r.document_id = d.id)
+             ORDER BY tsim DESC LIMIT 60`,
+            [eventId, minSim, minTitle],
+          ).catch(() => ({ rows: [] as Array<Record<string, any>> }));
         })
     ).rows;
     const out: Array<{ documentId: number; root: string; score: number }> = [];
@@ -422,6 +430,9 @@ export class KbCorroborationService implements OnModuleInit, OnModuleDestroy {
     max: number,
   ): Promise<number> {
     let inserted = 0;
+    let groundedCalls = 0;
+    for (const m of models('KB_CORROBORATE_MODELS', 'gemini-2.5-flash-lite,gemini-2.5-flash')) groundedCalls += Math.min(1000, await remainingLlmCalls(m, 'kb_corroborate'));
+    if (groundedCalls <= 0) return 0;
     const res = await this.search({
       models: models('KB_CORROBORATE_MODELS', 'gemini-2.5-flash-lite,gemini-2.5-flash'),
       purpose: 'kb_corroborate',
@@ -453,7 +464,7 @@ aggregator listings). Do not return outlets already listed under ALREADY HAVE. I
                 left(COALESCE(d.body, ''), 4500) AS excerpt, r.added_at
          FROM kb.event_research r JOIN kb.documents d ON d.id = r.document_id
          WHERE r.query = 'corroboration' AND r.accepted IS NULL
-           AND (d.extraction_status IN ('full', 'partial', 'failed', 'blocked', 'empty') OR r.added_at < now() - interval '90 minutes')
+           AND (d.extraction_status IN ('full', 'partial', 'failed', 'blocked') OR r.added_at < now() - interval '6 hours')
          ORDER BY r.added_at LIMIT $1`,
         [limit],
       )
@@ -496,7 +507,22 @@ aggregator listings). Do not return outlets already listed under ALREADY HAVE. I
         continue;
       }
       // Independence by script: shared wording with a source we already have means a copy, not a confirmation.
-      const known = dossier.docs.filter((d) => d.excerpt && d.excerpt.length > 200).map((d) => ({ ref: d.ref, text: d.excerpt }));
+      const knownRows = (await this.db.query(
+        `SELECT d.id, d.evidence_root, d.duplicate_of, left(COALESCE(d.body, ''), 8000) AS text
+         FROM kb.event_documents ed JOIN kb.documents d ON d.id = ed.document_id WHERE ed.event_id = $1 LIMIT 16`, [eventId],
+      ).catch(() => ({ rows: [] as Array<Record<string, any>> }))).rows;
+      const candRoot = (await this.db.query(`SELECT evidence_root, duplicate_of FROM kb.documents WHERE id = $1`, [docId]).catch(() => ({ rows: [] as Array<Record<string, any>> }))).rows[0];
+      const sameRoot = candRoot?.evidence_root && knownRows.some((k) => k.evidence_root && k.evidence_root === candRoot.evidence_root);
+      const lineage = candRoot?.duplicate_of && knownRows.some((k) => Number(k.id) === Number(candRoot.duplicate_of));
+      if (sameRoot || lineage) {
+        await this.save(eventId, docId, false, { reason: sameRoot ? `same evidence root as a known source (${candRoot.evidence_root})` : 'duplicate of a known document', flag: 'same_origin', root: rootOf(r.url) });
+        vetted += 1;
+        continue;
+      }
+      const known = [
+        ...knownRows.filter((k) => k.text && k.text.length > 200).map((k) => ({ ref: `doc${k.id}`, text: String(k.text) })),
+        ...dossier.docs.filter((d) => d.excerpt && d.excerpt.length > 200).map((d) => ({ ref: d.ref, text: d.excerpt })),
+      ];
       const syn = checkSyndication(text, known);
       if (syn.copy) {
         await this.save(eventId, docId, false, {
@@ -522,8 +548,8 @@ PARTICIPANTS: ${dossier.entities.slice(0, 8).map((e) => e.name).join(', ')}
 KNOWN SOURCES: ${dossier.docs.map((d) => `${d.sourceName}: ${d.title}`).join(' | ')}
 
 CANDIDATE PAGE
-URL: ${r.url}
-TITLE: ${r.title}
+URL: ${sanitizeUntrusted(String(r.url ?? ''), 400)}
+TITLE: ${sanitizeUntrusted(String(r.title ?? ''))}
 PUBLISHED: ${r.published_at ?? 'unknown'}
 WIRE_ATTRIBUTION_DETECTED: ${wire.join(', ') || 'none'}
 ${fencePageText(text)}`,
@@ -531,16 +557,29 @@ ${fencePageText(text)}`,
         const v = res.json as Verdict;
         const sensitive = isSensitiveEvent(dossier.event.category, dossier.event.title);
         const decision = acceptVerdict(v, Number(process.env.KB_CORROBORATE_MIN_CONFIDENCE) || 0.75, sensitive);
-        const archive = decision.accepted && process.env.KB_CORROBORATE_ARCHIVE !== 'false' ? await archivePage(String(r.url)) : null;
+        const archive: string | null = null; // snapshot is requested asynchronously below; the verified URL is stored by archiveLater()
         await this.save(eventId, docId, decision.accepted, { ...v, decision: decision.why, model: res.model, root: rootOf(r.url), sensitive, archive_url: archive, wire_attribution: wire, similarity: { containment: syn.containment, jaccard: syn.jaccard } });
         vetted += 1;
-        if (decision.accepted) accepted += 1;
+        if (decision.accepted) {
+          accepted += 1;
+          if (process.env.KB_CORROBORATE_ARCHIVE !== 'false') void this.archiveLater(eventId, docId, String(r.url));
+        }
       } catch (err) {
         this.logger.warn(`vetting document ${docId}: ${err instanceof Error ? err.message : err}`);
         break; // quota or outage: try again next cycle, never accept unvetted pages
       }
     }
     return { vetted, accepted };
+  }
+
+  /** Requests the Internet Archive snapshot in the background and records it only when a real snapshot location came back. */
+  private async archiveLater(eventId: number, docId: number, url: string) {
+    const snap = await archivePage(url);
+    if (!snap) return;
+    await this.db.query(
+      `UPDATE kb.event_research SET verdict = jsonb_set(COALESCE(verdict, '{}'::jsonb), '{archive_url}', to_jsonb($3::text)) WHERE event_id = $1 AND document_id = $2`,
+      [eventId, docId, snap],
+    ).catch(() => undefined);
   }
 
   private async save(eventId: number, docId: number, accepted: boolean, verdict: Record<string, unknown>) {

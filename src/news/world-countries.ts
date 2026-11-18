@@ -32,6 +32,8 @@ CU:Cuba:es:3,DO:Dominican Republic:es:3,HT:Haiti:fr:3,JM:Jamaica:en:3,TT:Trinida
 GT:Guatemala:es:3,HN:Honduras:es:3,SV:El Salvador:es:3,NI:Nicaragua:es:3,CR:Costa Rica:es:3,PA:Panama:es:3,BZ:Belize:en:3,
 EC:Ecuador:es:3,BO:Bolivia:es:3,PY:Paraguay:es:3,UY:Uruguay:es:3,GY:Guyana:en:3,SR:Suriname:nl:3,
 PG:Papua New Guinea:en:3,FJ:Fiji:en:3,WS:Samoa:en:3,TO:Tonga:en:3,VU:Vanuatu:en:3,SB:Solomon Islands:en:3,
+BT:Bhutan:dz:3,MV:Maldives:dv:3,TL:Timor-Leste:pt:3,AG:Antigua and Barbuda:en:3,DM:Dominica:en:3,GD:Grenada:en:3,KN:Saint Kitts and Nevis:en:3,
+LC:Saint Lucia:en:3,VC:Saint Vincent and the Grenadines:en:3,KI:Kiribati:en:3,MH:Marshall Islands:en:3,FM:Micronesia:en:3,NR:Nauru:en:3,PW:Palau:en:3,TV:Tuvalu:en:3,
 `;
 
 export const WORLD_COUNTRIES: WorldCountry[] = RAW.split(',')

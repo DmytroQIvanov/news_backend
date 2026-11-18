@@ -21,6 +21,24 @@ _host_lock = threading.Lock()
 _robots: dict[str, tuple[float, urllib.robotparser.RobotFileParser | None]] = {}
 
 
+def _assert_public(request: httpx.Request) -> None:
+    """Runs for every request including each redirect hop: block private, loopback and link-local destinations (SSRF)."""
+    import ipaddress
+    import socket
+
+    host = request.url.host
+    if request.url.scheme not in ("http", "https"):
+        raise httpx.UnsupportedProtocol(f"scheme {request.url.scheme} is not allowed")
+    try:
+        infos = socket.getaddrinfo(host, request.url.port or (443 if request.url.scheme == "https" else 80), proto=socket.IPPROTO_TCP)
+    except socket.gaierror:
+        return  # unresolvable: the request itself will fail
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+            raise httpx.RequestError(f"blocked non-public address {ip} for {host}", request=request)
+
+
 def client() -> httpx.Client:
     global _client
     with _client_lock:
@@ -31,6 +49,7 @@ def client() -> httpx.Client:
             _client = httpx.Client(
                 timeout=httpx.Timeout(settings.fetch_timeout_s, connect=10.0),
                 follow_redirects=True,
+                event_hooks={"request": [_assert_public]},
                 headers={"User-Agent": ua, "Accept-Language": "uk,en;q=0.8,de;q=0.5"},
                 limits=httpx.Limits(max_connections=32, max_keepalive_connections=16),
                 http2=False,

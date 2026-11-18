@@ -314,7 +314,7 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
     const tierCond = tier === 'big' ? bigCond : `NOT ${bigCond}`;
     // An event still "collecting" qualifies once AI-found, AI-vetted corroborating pages lift it to the minimum.
     const corroboratedOk = `(e.editorial_state = 'collecting' AND e.independent_source_count >= 1
-      AND e.independent_source_count + (SELECT count(*) FROM kb.event_research r WHERE r.event_id = e.id AND r.accepted = true AND r.query = 'corroboration')
+      AND e.independent_source_count + (SELECT count(DISTINCT COALESCE(r.verdict->>'root', r.document_id::text)) FROM kb.event_research r WHERE r.event_id = e.id AND r.accepted = true AND r.query = 'corroboration' AND NOT EXISTS (SELECT 1 FROM kb.event_documents x WHERE x.event_id = e.id AND x.document_id = r.document_id))
           >= ${envInt('KB_READY_MIN_SOURCES', 2, 2, 20)})`;
     const fresh = (await this.db.query(
       `SELECT e.id, CASE WHEN e.editorial_state = 'collecting' THEN 'ready' ELSE e.editorial_state END AS editorial_state, e.importance FROM kb.events e

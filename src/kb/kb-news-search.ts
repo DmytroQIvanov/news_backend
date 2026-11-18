@@ -112,11 +112,18 @@ export async function bingWebSearch(query: string, lang = 'en'): Promise<SearchH
 
 const WEB_BLOCKED = /(^|\.)(wikipedia|wikimedia|britannica|wikihow|quora|stackexchange|stackoverflow|investopedia)\./i;
 
-let lastGdeltAt = 0;
-export async function gdeltSearch(query: string): Promise<SearchHit[]> {
-  const wait = lastGdeltAt + 6_000 - Date.now();
-  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-  lastGdeltAt = Date.now();
+let gdeltQueue: Promise<unknown> = Promise.resolve();
+export function gdeltSearch(query: string): Promise<SearchHit[]> {
+  // one request at a time, at least 6 s apart (+ jitter), shared by every caller in this process
+  const run = gdeltQueue.then(async () => {
+    await new Promise((r) => setTimeout(r, 6_000 + Math.random() * 1_500));
+    return gdeltSearchNow(query);
+  });
+  gdeltQueue = run.catch(() => undefined);
+  return run;
+}
+
+async function gdeltSearchNow(query: string): Promise<SearchHit[]> {
   const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(query)}&mode=artlist&format=json&maxrecords=15&timespan=2d&sort=hybridrel`;
   const resp = await fetch(url, { signal: AbortSignal.timeout(25_000) });
   const text = await resp.text();
@@ -157,32 +164,38 @@ const LISTING = /\/(tag|tags|category|topic|topics|search|feed|author|archive|li
 export function filterHits(hits: SearchHit[], ctx: FilterContext): Array<SearchHit & { score: number }> {
   const minOverlap = ctx.minOverlap ?? 0.34;
   const start = ctx.startedAt ? Date.parse(ctx.startedAt) : NaN;
-  const seenUrls = new Set<string>();
-  const seenRoots = new Set<string>(ctx.knownRoots);
-  const out: Array<SearchHit & { score: number }> = [];
+  const scored: Array<SearchHit & { score: number; root: string }> = [];
   for (const h of hits) {
     if (!/^https:\/\//i.test(h.url) || LISTING.test(h.url)) continue;
     const root = ctx.rootOf(h.url);
-    if (!root || ctx.blockedRoots.has(root) || seenRoots.has(root)) continue;
+    if (!root || ctx.blockedRoots.has(root) || ctx.knownRoots.has(root)) continue;
     const web = h.provider === 'bing-web';
     if (web) {
       let depth = 0;
       try { depth = new URL(h.url).pathname.split('/').filter(Boolean).length; } catch { continue; }
       if (depth < 2 || WEB_BLOCKED.test(new URL(h.url).hostname)) continue; // home/section pages are not reports
     }
-    const key = h.url.split('#')[0].replace(/\/+$/, '');
-    if (seenUrls.has(key)) continue;
     if (h.publishedAt && Number.isFinite(start)) {
       const t = Date.parse(h.publishedAt);
       if (t < start - 36 * 3_600_000 || t > Date.now() + 3_600_000) continue;
     }
     const overlap = titleOverlap(ctx.eventTitle, h.title);
     const entHit = entityHitRatio(ctx.entities.slice(0, 4), `${h.title} ${h.snippet ?? ''}`);
-    const score = overlap * 0.7 + entHit * 0.3;
     if (overlap < (web ? Math.max(minOverlap, 0.5) : minOverlap) || sharedTokens(ctx.eventTitle, h.title) < 2) continue;
-    seenUrls.add(key);
-    seenRoots.add(root); // one page per outlet
-    out.push({ ...h, score });
+    // dated hits are preferred over undated ones
+    scored.push({ ...h, root, score: overlap * 0.7 + entHit * 0.3 + (h.publishedAt ? 0.05 : 0) });
   }
-  return out.sort((a, b) => b.score - a.score);
+  scored.sort((a, b) => b.score - a.score);
+  // best hit first, then keep only one page per outlet and per URL
+  const seenUrls = new Set<string>();
+  const seenRoots = new Set<string>();
+  const out: Array<SearchHit & { score: number }> = [];
+  for (const h of scored) {
+    const key = h.url.split('#')[0].replace(/\/+$/, '');
+    if (seenUrls.has(key) || seenRoots.has(h.root)) continue;
+    seenUrls.add(key);
+    seenRoots.add(h.root);
+    out.push(h);
+  }
+  return out;
 }

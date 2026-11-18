@@ -5,6 +5,7 @@
  */
 import { postGeminiGenerateContent } from '../common/gemini-client';
 import { generateJsonWithRouter, LlmTask } from '../common/llm-router';
+import { safeResolveUrl } from '../common/safe-fetch';
 import { fixJsonFragment } from './kb-gemma';
 import { parseJsonRobust } from './kb-repair';
 
@@ -103,14 +104,7 @@ export const geminiSearch: SearchLlm = async (req) => {
 
 /** Grounding links are redirects; resolve them to the publisher's URL before our collector fetches the page. */
 export async function resolveRedirect(url: string): Promise<string | null> {
-  try {
-    const resp = await fetch(url, { method: 'GET', redirect: 'follow', signal: AbortSignal.timeout(15_000) });
-    resp.body?.cancel().catch(() => undefined);
-    const final = resp.url || url;
-    return /^https:\/\//.test(final) && !/vertexaisearch|google\.com\/url/.test(final) ? final : null;
-  } catch {
-    return null;
-  }
+  return safeResolveUrl(url); // every hop is validated as a public https address
 }
 
 export function models(envName: string, fallback: string): string[] {
