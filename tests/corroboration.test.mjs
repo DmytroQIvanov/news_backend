@@ -193,3 +193,31 @@ test('article edit: patches apply only when exact and unique; paragraphs must ci
   assert.ok(grown.indexOf(good) < grown.indexOf('## Outlook'));
   assert.deepEqual([...e.dossierRefs('[D1] x [F2] y [D1]')].sort(), ['D1', 'F2']);
 });
+
+test('event videos: result parsing, filtering, verdict and analysis validation', () => {
+  const v = require('../dist/youtube/event-videos.service.js');
+  assert.equal(v.parseDuration('1:09:00'), 4140);
+  assert.equal(v.parseDuration('12:00'), 720);
+  assert.equal(v.parseAgeHours('Streamed 9h ago'), 9);
+  assert.equal(v.parseAgeHours('3 days ago'), 72);
+  assert.equal(v.parseAgeHours('2mo ago'), 1440);
+  assert.equal(v.parseViews('94,745 views'), 94745);
+  assert.equal(v.parseViews('1.2M views'), 1200000);
+  const html = `<script>var ytInitialData = ${JSON.stringify({ contents: [{ videoRenderer: { videoId: 'abc123', title: { runs: [{ text: 'Nvidia earnings record revenue explained' }] }, ownerText: { runs: [{ text: 'CNBC', navigationEndpoint: { browseEndpoint: { browseId: 'UC123' } } }] }, lengthText: { simpleText: '12:00' }, publishedTimeText: { simpleText: '10h ago' }, viewCountText: { simpleText: '94,745 views' } } }] })};</script>`;
+  const hits = v.parseYoutubeResults(html);
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].channelId, 'UC123');
+  const ctx = { eventTitle: 'Nvidia posts record revenue', maxAgeHours: 96, blockedChannels: new Set(['spamtube']), minViews: 100, minDurationSec: 90, maxDurationSec: 7200 };
+  const mk = (o) => ({ videoId: 'x', title: 'Nvidia record revenue', channel: 'CNBC', channelId: null, durationSec: 600, publishedHint: '1h ago', ageHours: 1, views: 5000, live: false, ...o });
+  const kept = v.filterVideos([mk({ videoId: 'a' }), mk({ videoId: 'b', durationSec: 30 }), mk({ videoId: 'c', ageHours: 500 }), mk({ videoId: 'd', channel: 'SpamTube' }), mk({ videoId: 'e', live: true }), mk({ videoId: 'f', title: 'Cooking pasta' }), mk({ videoId: 'g', views: 5 })], ctx);
+  assert.deepEqual(kept.map((k) => k.videoId), ['a']);
+  const ok = v.validateVideoVerdict({ relevant: 'true', confidence: 0.9, kind: 'news_report', channel_authority: 'high', language: 'en', reason: 'x' });
+  assert.equal(v.acceptVideo(ok).accepted, true);
+  assert.equal(v.acceptVideo({ ...ok, kind: 'clickbait' }).accepted, false);
+  assert.equal(v.acceptVideo({ ...ok, channel_authority: 'low' }).accepted, false);
+  assert.equal(v.validateVideoVerdict({ ...ok, kind: 'weird' }), null);
+  const a = v.validateAnalysis({ about_event: true, language: 'en', summary_en: 'A'.repeat(80), summary_uk: 'Б'.repeat(80), key_points: [{ t: 5, point: 'The company reported record revenue.' }, { t: 99999, point: 'Guidance for next quarter was raised.' }], quotes: [{ t: 10, speaker: 'CEO', text: 'We are seeing very strong demand.' }], claims: [] }, 600);
+  assert.equal(a.key_points[1].t, 600);
+  assert.equal(v.validateAnalysis({ about_event: true, language: 'en', summary_en: 'short', summary_uk: 'x', key_points: [], quotes: [], claims: [] }, 600), null);
+  assert.ok(v.renderVideoDocument('T', 'CNBC', a).includes('[0:10] CEO: "We are seeing'));
+});

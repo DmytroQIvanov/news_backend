@@ -49,6 +49,7 @@ import { KbEditorialService } from './kb/kb-editorial.service';
 import { KbFlagshipService } from './kb/kb-flagship.service';
 import { KbCorroborationService } from './kb/kb-corroboration.service';
 import { WorldSourceDiscoveryService } from './news/world-source-discovery.service';
+import { EventVideosService } from './youtube/event-videos.service';
 import { PeopleDiscoveryService } from './news/people-discovery.service';
 import { DiscoveryController } from './news/discovery.controller';
 import { KbTranslationService } from './kb/kb-translation.service';
@@ -111,6 +112,7 @@ import { KbDataService } from './kb/kb-data.service';
     KbFlagshipService,
     KbCorroborationService,
     WorldSourceDiscoveryService,
+    EventVideosService,
     PeopleDiscoveryService,
     KbTranslationService,
   ],

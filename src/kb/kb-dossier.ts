@@ -142,9 +142,9 @@ export async function buildDossier(db: DatabaseService, eventId: number, opts: {
     await db
       .query(
         `SELECT d.id, d.title, d.url, d.published_at, d.lang, d.extraction_status, d.evidence_root,
-                left(COALESCE(d.body, ''), $2) AS excerpt, r.verdict
+                left(COALESCE(d.body, ''), $2) AS excerpt, r.verdict, r.query AS research_kind
          FROM kb.event_research r JOIN kb.documents d ON d.id = r.document_id
-         WHERE r.event_id = $1 AND r.accepted = true AND r.query = 'corroboration'
+         WHERE r.event_id = $1 AND r.accepted = true AND r.query IN ('corroboration', 'video')
            AND d.extraction_status IN ('full', 'partial')
          ORDER BY r.added_at LIMIT 12`,
         [eventId, excerptChars],
@@ -157,7 +157,7 @@ export async function buildDossier(db: DatabaseService, eventId: number, opts: {
       id: c.id, title: c.title, url: c.url, published_at: c.published_at, lang: c.lang, extraction_status: c.extraction_status,
       evidence_root: c.evidence_root ?? verdict.root ?? null, excerpt: c.excerpt, source_name: verdict.root || new URL(c.url).hostname.replace(/^www\./, ''),
       source_slug: null, tier: verdict.source_type === 'official' || verdict.source_type === 'primary_document' ? 'primary' : null,
-      role: 'corroboration', legacy_news_id: null, reliability: verdict.reliability === 'high' ? 0.85 : 0.65,
+      role: c.research_kind === 'video' ? 'video' : 'corroboration', legacy_news_id: null, reliability: verdict.reliability === 'high' ? 0.85 : 0.65,
     });
   }
   const docRef = new Map<number, string>();
@@ -279,7 +279,7 @@ export async function buildDossier(db: DatabaseService, eventId: number, opts: {
   const event = {
     id: Number(ev.id), title: ev.title, summary: ev.summary, category: ev.category, eventType: ev.event_type,
     startedAt: iso(ev.started_at), lastSeenAt: iso(ev.last_seen_at), docCount: Number(ev.doc_count),
-    independentSources: Number(ev.independent_source_count) + corroborated.length, primarySources: Number(ev.primary_source_count),
+    independentSources: Number(ev.independent_source_count) + corroborated.filter((c) => c.research_kind !== 'video').length, primarySources: Number(ev.primary_source_count),
     fullTextDocs: Number(ev.full_text_doc_count), importance: Number(ev.importance), editorialState: ev.editorial_state,
     articleNewsId: ev.article_news_id ? Number(ev.article_news_id) : null, storylineId: ev.storyline_id ? Number(ev.storyline_id) : null,
   };

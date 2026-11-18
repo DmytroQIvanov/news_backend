@@ -1,4 +1,5 @@
-import { BadRequestException, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Header, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { DatabaseService } from '../database/database.service';
 import { IngestKeyGuard } from '../common/ingest-key.guard';
 import { CATEGORIES } from '../ingest/ingest.dto';
 import { YoutubeRadarService } from './youtube-radar.service';
@@ -9,7 +10,29 @@ export class YoutubeController {
   constructor(
     private readonly youtubeRadar: YoutubeRadarService,
     private readonly channelDiscovery: YoutubeChannelDiscoveryService,
+    private readonly db: DatabaseService,
   ) {}
+
+  /** Videos that cover the same event as a news article: judged relevant by AI and analysed with timestamps. */
+  @Get('news/:newsId/videos')
+  @Header('Cache-Control', 'public, max-age=120')
+  async newsVideos(@Param('newsId', ParseIntPipe) newsId: number) {
+    const rows = (await this.db.query(
+      `SELECT v.video_id, v.url, v.title, v.channel, v.duration_sec, v.published_hint, v.views, v.relevance,
+              v.verdict->>'kind' AS kind, v.verdict->>'channel_authority' AS authority, v.analysis
+       FROM event_videos v JOIN news_items n ON n.kb_event_id = v.event_id
+       WHERE n.id = $1 AND v.status = 'analyzed' ORDER BY v.relevance DESC NULLS LAST LIMIT 6`, [newsId],
+    )).rows;
+    return {
+      items: rows.map((r) => ({
+        videoId: r.video_id, url: r.url, title: r.title, channel: r.channel, durationSec: r.duration_sec, published: r.published_hint, views: r.views,
+        relevance: r.relevance, kind: r.kind, channelAuthority: r.authority, thumbnail: `https://i.ytimg.com/vi/${r.video_id}/hqdefault.jpg`,
+        summaryUk: r.analysis?.summary_uk ?? null, summaryEn: r.analysis?.summary_en ?? null, language: r.analysis?.language ?? null,
+        keyPoints: (r.analysis?.key_points ?? []).map((p: { t: number; point: string }) => ({ ...p, url: `${r.url}&t=${p.t}s` })),
+        quotes: (r.analysis?.quotes ?? []).map((q: { t: number; speaker: string; text: string }) => ({ ...q, url: `${r.url}&t=${q.t}s` })),
+      })),
+    };
+  }
 
   @Get('insights')
   async listInsights(
