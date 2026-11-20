@@ -89,3 +89,51 @@ def test_edr_subject():
 def test_rtf_and_case_numbers():
     assert "Вирок" in ukraine.rtf_to_text(r"{\rtf1\ansi {\b \'c2\'e8\'f0\'ee\'ea}\par текст}")
     assert ukraine.CASE_RE.findall("у справі № 757/12345/26 та справа 991/100/25") == ["757/12345/26", "991/100/25"]
+
+
+def test_decisions_client_budget_and_thresholds(monkeypatch):
+    import contextlib
+    from types import SimpleNamespace
+    from kb.llm import decisions
+
+    decisions.reset_for_tests()
+    monkeypatch.setenv("GEMINI_API_KEY", "mock")
+    locks = []
+    rows = {}
+
+    class Conn:
+        def execute(self, sql, args):
+            if "pg_advisory_xact_lock" in sql:
+                locks.append(args[0])
+            if sql.startswith("SELECT purpose"):
+                day, model = args
+                self.res = [{"purpose": p, "used": u} for (d, m, p), u in rows.items() if d == day and m == model]
+            if sql.startswith("INSERT INTO llm_budget_days"):
+                day, model, purpose, count = args
+                rows[(day, model, purpose)] = rows.get((day, model, purpose), 0) + int(count)
+            return self
+
+        def fetchall(self):
+            return self.res
+
+    @contextlib.contextmanager
+    def tx():
+        yield Conn()
+
+    monkeypatch.setattr(decisions.db, "tx", tx, raising=False)
+    for _ in range(30):
+        assert decisions.reserve("kb_categorize") is True
+    assert len(locks) == 2
+    assert sum(rows.values()) == 50
+
+    def fake_post(url, json, headers, timeout):
+        qkey = next(iter(json["questions"]))
+        if qkey == "category":
+            return SimpleNamespace(status_code=200, json=lambda: {"answers": {"category": {"choice": "finance", "confidence": 0.88}}, "usageMetadata": {"promptTokenCount": 120}})
+        return SimpleNamespace(status_code=200, json=lambda: {"answers": {"cluster": {"choice": "new_event", "confidence": 0.91}}, "usageMetadata": {"promptTokenCount": 140}})
+
+    monkeypatch.setattr(decisions.httpx, "post", fake_post)
+    assert decisions.classify_category("Bank rate cut", "Central bank lowered rate", {"finance": "Фінанси", "other": "Інше"}) == ("finance", 0.88)
+    assert decisions.classify_category("Bank rate cut", "Central bank lowered rate", {"finance": "Фінанси"}, min_confidence=0.95) is None
+    assert decisions.arbitrate_cluster("New event", "Details", [{"id": 10, "title": "Old", "category": "finance", "hours": 4}]) == (None, 0.91)
+    decisions.reset_for_tests()

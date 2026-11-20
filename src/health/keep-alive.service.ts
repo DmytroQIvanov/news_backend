@@ -35,14 +35,19 @@ export class KeepAliveService implements OnModuleInit, OnModuleDestroy {
     const rawInterval = Number(process.env.KEEP_ALIVE_INTERVAL_MS);
     this.intervalMs =
       Number.isFinite(rawInterval) && rawInterval > 0 ? Math.max(10_000, Math.round(rawInterval)) : 180_000;
-    this.enabled = process.env.NODE_ENV !== 'test' && process.env.KEEP_ALIVE_ENABLED !== 'false';
+    const explicit = process.env.KEEP_ALIVE_ENABLED;
+    const hasTarget = Boolean((process.env.RENDER_EXTERNAL_URL || process.env.KEEP_ALIVE_URL)?.trim());
+    this.enabled =
+      process.env.NODE_ENV !== 'test' &&
+      explicit !== 'false' &&
+      (explicit === 'true' || hasTarget);
   }
 
   private getTargetHealthUrl(): string {
     const base =
-      (process.env.RENDER_EXTERNAL_URL || process.env.KEEP_ALIVE_URL || 'https://news-backend-v0jj.onrender.com')
+      (process.env.RENDER_EXTERNAL_URL || process.env.KEEP_ALIVE_URL || 'http://127.0.0.1:3000')
         .trim()
-        .replace(/\/+$/, '') || 'https://news-backend-v0jj.onrender.com';
+        .replace(/\/+$/, '') || 'http://127.0.0.1:3000';
     return `${base}/api/v1/health?t=${Date.now()}`;
   }
 

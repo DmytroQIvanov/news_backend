@@ -22,11 +22,13 @@ import { ArticleReview, eventReviews, reviewApproved } from './kb-review';
  */
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { createHash } from 'node:crypto';
+import { DecisionQuestion, postGeminiDecisions } from '../common/decision-client';
 import { llmPurposeUse, remainingLlmCalls } from '../common/llm-budget';
 import { DatabaseService } from '../database/database.service';
 import { validateArticle } from '../ingest/gemini-editor.service';
 import { CATEGORIES } from '../ingest/ingest.dto';
 import { applyMinify, buildDossier, EventDossier, renderDossier } from './kb-dossier';
+import { minCitedSources, SYNTHESIS_PROMPT, synthConfig, synthesisEnabled, topicMaterial, topicReady } from './kb-synthesis';
 import { applyPatches, countWords, dossierRefs, EXPAND_SCHEMA, insertParagraphs, PATCH_SCHEMA, remapCitations, validateParagraphs, validatePatches } from './kb-article-edit';
 import { gemmaJson } from './kb-gemma';
 import { geminiJson, JsonLlm, models } from './kb-llm';
@@ -139,7 +141,7 @@ export const ARTICLE_SCHEMA = { type: 'object', properties: { articles: { type: 
 /** Minimum article length per tier. Short but accurate beats empty; tune with KB_MIN_WORDS_FLAGSHIP / _BIG / _MEDIUM. */
 export function minWordsFor(tier: string): number {
   const pick = (name: string, fallback: number) => (Number(process.env[name]) > 0 ? Number(process.env[name]) : fallback);
-  return tier === 'flagship' ? pick('KB_MIN_WORDS_FLAGSHIP', 800) : tier === 'big' ? pick('KB_MIN_WORDS_BIG', 450) : pick('KB_MIN_WORDS_MEDIUM', 180);
+  return tier === 'flagship' ? pick('KB_MIN_WORDS_FLAGSHIP', 800) : tier === 'big' ? pick('KB_MIN_WORDS_BIG', 450) : pick('KB_MIN_WORDS_MEDIUM', synthesisEnabled() ? synthConfig().minWords : 180);
 }
 
 export const RULES = `Rules:
@@ -166,6 +168,10 @@ the news, the evidence and how strong it is, the background with dated earlier e
 what is still unknown and what to watch. 900-1400 words, 3-5 "## " subheadings, 4-8 facts.
 ${RULES}`,
 };
+
+/** Medium articles get the synthesis rules appended when KB_SYNTHESIS=true. */
+const systemFor = (tier: 'medium' | 'big'): string => (tier === 'medium' && synthesisEnabled() ? `${SYSTEM.medium}
+${SYNTHESIS_PROMPT}` : SYSTEM[tier]);
 
 const REVIEW_SCHEMA = {
   type: 'object',
@@ -198,6 +204,144 @@ reject (the article misrepresents the event). Be concrete: location, problem, ho
 const FIX_SYSTEM = `You revise news articles after a fact-check. Fix exactly the listed issues using only the dossier,
 keep everything else (structure, citations, length). Return the full revised articles.
 ${RULES}`;
+
+const PARAGRAPH_CRITERIA: Record<string, string> = {
+  supported: 'Every claim, number, name, date and citation in the paragraph is supported by the dossier',
+  wrong_citation: 'A claim appears in the dossier, but cites the wrong [D#]/[R#]/[F#] reference',
+  causal_overclaim: 'Presents an algorithmic link as causation or states unverified speaker claims as fact',
+  unsupported: 'Contains claims, numbers, names or dates not supported or contradicted by the dossier',
+};
+
+/**
+ * Fast closed-set fact-check gate for an article against its dossier (`gemini-decision-1`).
+ * Unanimous `ok` requires high confidence across headline, context and every paragraph; otherwise returns
+ * concrete paragraph-level issues or `null` to let the generative reviewer inspect further.
+ */
+export async function decisionReviewArticle(
+  eventId: number,
+  material: string,
+  art: GeneratedArticle,
+  timeoutMs: number,
+  purpose = 'kb_review',
+): Promise<{ review: ArticleReview; model: string } | null> {
+  if (!process.env.GEMINI_API_KEY?.trim() || process.env.KB_REVIEW_DECISION === 'false') return null;
+  const paragraphs = String(art.body || '')
+    .replace(/^#{1,6}\s+[^\n]*$/gm, '\n\n')
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .slice(0, 30);
+  if (!paragraphs.length) return null;
+
+  const numberedBody = paragraphs.map((p, i) => `[P${i + 1}] ${p}`).join('\n\n');
+  const questions: Record<string, DecisionQuestion> = {
+    headline_supported: {
+      type: 'noul',
+      instructions: 'Is the article headline and summary completely accurate, non-misleading, and directly supported by the DOSSIER?',
+    },
+    context_complete: {
+      type: 'noul',
+      instructions: 'Does the article show key contradictions from DOSSIER (if any) and important context without distorting the event?',
+    },
+    overall_verdict: {
+      type: 'choice',
+      instructions: 'Overall editorial fact-check verdict comparing the entire article with DOSSIER.',
+      criteria: {
+        ok: 'Publish as is: all claims, citations, causality, attribution and headline accurately match DOSSIER',
+        fix: 'Fixable issues: specific paragraphs, citations or wording need correction',
+        reject: 'Misrepresents the event or contains widespread unsupported claims',
+      },
+    },
+  };
+  for (let i = 0; i < paragraphs.length; i += 1) {
+    questions[`p_${i + 1}`] = {
+      type: 'choice',
+      instructions: `Compare paragraph [P${i + 1}] strictly against DOSSIER.`,
+      criteria: PARAGRAPH_CRITERIA,
+    };
+  }
+
+  const res = await postGeminiDecisions({
+    input: `${REVIEW_SYSTEM}\n\n=== EVENT ${eventId} ===\n--- DOSSIER ---\n${material}\n--- ARTICLE ---\n# ${art.title}\n${art.summary}\n\n${numberedBody}`,
+    questions,
+    purpose,
+    priority: 'high',
+    timeoutMs: Math.min(timeoutMs, 60_000),
+  });
+
+  const a = res.answers;
+  const minParaConf = Number(process.env.KB_REVIEW_DECISION_MIN_CONF) || 0.80;
+  const overallOk =
+    a.overall_verdict.choice === 'ok' &&
+    a.overall_verdict.confidence >= 0.85 &&
+    (a.headline_supported.noul ?? 0) >= 0.85 &&
+    a.headline_supported.confidence >= minParaConf &&
+    (a.context_complete.noul ?? 0) >= 0.80 &&
+    a.context_complete.confidence >= minParaConf;
+
+  const issues: Array<{ location: string; problem: string; fix: string }> = [];
+  let unsupportedCount = 0;
+  let lowConf = false;
+
+  if ((a.headline_supported.noul ?? 1) < 0.70 && a.headline_supported.confidence >= 0.75) {
+    issues.push({
+      location: 'title',
+      problem: `Headline/summary may exceed dossier support: "${art.title.slice(0, 180)}"`,
+      fix: 'Align headline and summary strictly with confirmed facts in the dossier.',
+    });
+  }
+  if ((a.context_complete.noul ?? 1) < 0.65 && a.context_complete.confidence >= 0.75) {
+    issues.push({
+      location: 'body',
+      problem: 'Article misses important dossier context or reported contradictions.',
+      fix: 'Add missing dated context or show both versions of any contradiction from the dossier.',
+    });
+  }
+
+  for (let i = 0; i < paragraphs.length; i += 1) {
+    const pAns = a[`p_${i + 1}`];
+    if (pAns.choice === 'supported') {
+      if (pAns.confidence < minParaConf) lowConf = true;
+      continue;
+    }
+    if (pAns.choice === 'unsupported') unsupportedCount += 1;
+    const snippet = paragraphs[i].slice(0, 220);
+    issues.push({
+      location: `paragraph P${i + 1}`,
+      problem: `${pAns.choice}: "${snippet}"`,
+      fix: pAns.choice === 'wrong_citation'
+        ? 'Replace the citation with the exact dossier reference supporting this claim.'
+        : pAns.choice === 'causal_overclaim'
+        ? 'Soften causality unless stated by a cited source and attribute speaker claims.'
+        : 'Remove or rewrite claims not supported by the dossier.',
+    });
+  }
+
+  if (overallOk && !issues.length && !lowConf) {
+    const review = eventReviews([{ event_id: eventId, verdict: 'ok', issues: [] }], [art], [eventId]).get(eventId)!;
+    return { review, model: res.modelUsed };
+  }
+
+  if (!issues.length && a.overall_verdict.choice === 'ok') {
+    // Borderline confidence without concrete flagged paragraphs: let the generative reviewer inspect it.
+    return null;
+  }
+
+  const verdict =
+    (a.overall_verdict.choice === 'reject' && a.overall_verdict.confidence >= 0.80) ||
+    unsupportedCount > paragraphs.length / 2
+      ? 'reject'
+      : 'fix';
+  if (!issues.length) {
+    issues.push({
+      location: 'body',
+      problem: `Overall review flagged verdict "${a.overall_verdict.choice}" (conf=${a.overall_verdict.confidence.toFixed(2)}).`,
+      fix: 'Verify all claims, citations and causality against the dossier.',
+    });
+  }
+  const review = eventReviews([{ event_id: eventId, verdict, issues }], [art], [eventId]).get(eventId)!;
+  return { review, model: res.modelUsed };
+}
 
 interface BatchItem {
   cand: Candidate;
@@ -305,7 +449,7 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
       }
     }
     if (this.llm === geminiJson && process.env.KB_REREVIEW !== 'false') {
-      const approved = await this.rereviewHeld(envInt('KB_REREVIEW_PER_CYCLE', 3, 0, 10)).catch((err) => {
+      const approved = await this.rereviewHeld(envInt('KB_REREVIEW_PER_CYCLE', 6, 0, 10)).catch((err) => {
         this.logger.debug(`rereviewHeld failed: ${err instanceof Error ? err.message : err}`);
         return 0;
       });
@@ -379,7 +523,15 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
       [Math.max(1, Math.ceil(limit / 3)), tier],
     )).rows.map((r): Candidate => ({ eventId: Number(r.id), state: 'ready', tier, isUpdate: true, articleNewsId: Number(r.article_news_id), importance: Number(r.importance),
       score: Number(r.score), category: r.category ?? null, storylineId: r.storyline_id ? Number(r.storyline_id) : null }));
-    return [...groupRelated(fresh), ...updates];
+    // Synthesis mode: a medium article is written for a topic with enough independent material, not for the first report of an event.
+    let ready = fresh;
+    if (synthesisEnabled() && tier === 'medium') {
+      ready = [];
+      for (const cand of fresh) {
+        if (topicReady(await topicMaterial(this.db, cand.eventId).catch(() => ({ siblingIds: [], docs: 0, origins: 0 })))) ready.push(cand);
+      }
+    }
+    return [...groupRelated(ready), ...updates];
   }
 
   private async pack(cands: Candidate[], tier: 'medium' | 'big'): Promise<BatchItem[][]> {
@@ -387,15 +539,21 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
     const perBatch = tier === 'big' ? envInt('KB_BIG_BATCH', 3, 1, 6) : envInt('KB_MEDIUM_BATCH', 5, 1, 10);
     const minify = process.env.KB_MINIFY !== 'false';
     // With minification the model can see twice as many sources in the same budget: pull more, then compress without paraphrasing.
-    const opts = minify
+    const synth = synthesisEnabled() && tier === 'medium';
+    const sc = synthConfig();
+    const opts: { excerptChars: number; maxDocs: number; siblingEventIds?: number[]; siblingMaxDocs?: number } = synth
+      ? { excerptChars: sc.excerptChars, maxDocs: Math.max(4, sc.maxDocs - sc.siblingDocs), siblingMaxDocs: sc.siblingDocs }
+      : minify
       ? (tier === 'big' ? { excerptChars: 9_000, maxDocs: 24 } : { excerptChars: 4_500, maxDocs: 14 })
       : (tier === 'big' ? { excerptChars: 7_000, maxDocs: 12 } : { excerptChars: 3_000, maxDocs: 8 });
-    const minifyChars = tier === 'big' ? envInt('KB_MINIFY_BIG_CHARS', 70_000, 8_000) : envInt('KB_MINIFY_MEDIUM_CHARS', 28_000, 4_000);
+    const minifyChars = tier === 'big' ? envInt('KB_MINIFY_BIG_CHARS', 70_000, 8_000) : synth ? sc.minifyChars : envInt('KB_MINIFY_MEDIUM_CHARS', 28_000, 4_000);
     const batches: BatchItem[][] = [];
     let current: BatchItem[] = [];
     let chars = 0;
     for (const cand of cands) {
-      const dossier = await buildDossier(this.db, cand.eventId, opts);
+      const dossier = await buildDossier(this.db, cand.eventId, synth
+        ? { ...opts, siblingEventIds: (await topicMaterial(this.db, cand.eventId).catch(() => ({ siblingIds: [] as number[] }))).siblingIds }
+        : opts);
       if (!dossier || !dossier.docs.length) continue;
       if (minify) applyMinify(dossier, minifyChars);
       const text = `### DOSSIER${cand.isUpdate ? ' (UPDATE of an existing article: rewrite it with the new evidence)' : ''}\n${renderDossier(dossier)}`;
@@ -419,14 +577,14 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
       [batch.map((b) => b.cand.eventId), prompt.length, this.dryRun, JSON.stringify({ tier })],
     ).catch(() => ({ rows: [] as Array<{ id: string }> }))).rows[0]?.id;
     if (this.dryRun) {
-      await this.finishRun(run, null, result, null, { tier, estimated_input_tokens: Math.round((SYSTEM[tier].length + prompt.length) / CHARS_PER_TOKEN) });
+      await this.finishRun(run, null, result, null, { tier, estimated_input_tokens: Math.round((systemFor(tier).length + prompt.length) / CHARS_PER_TOKEN) });
       return result;
     }
     const timeoutMs = envInt('KB_EDITORIAL_TIMEOUT_MS', 300_000, 30_000);
     let written: { json: any; model: string };
     try {
       written = await this.llm({
-        models: KbEditorialService.tierModels(tier), system: SYSTEM[tier], prompt, schema: ARTICLE_SCHEMA,
+        models: KbEditorialService.tierModels(tier), system: systemFor(tier), prompt, schema: ARTICLE_SCHEMA,
         maxOutputTokens: Math.min(64_000, (tier === 'big' ? 7_000 : 3_000) * batch.length + 2_000),
         purpose: `kb_${tier}`, timeoutMs, temperature: 0.35,
       });
@@ -497,7 +655,9 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
       `SELECT id, kb_event_id, editorial_tier, content_hash, ai_metadata
        FROM news_items
        WHERE kb_event_id IS NOT NULL AND status = 'needs_review'
-         AND ai_metadata->'kb'->'review'->>'verdict' IN ('missing', 'changed_requires_review')
+         AND (ai_metadata->'kb'->'review'->>'verdict' IN ('missing', 'changed_requires_review')
+              -- the reviewer said "ok" but the stored text no longer matches the reviewed hash (so it was never approved): review the final text again
+              OR (ai_metadata->'kb'->'review'->>'verdict' = 'ok' AND ai_metadata->'kb'->'review'->>'state' = 'needs_review'))
          AND jsonb_array_length(COALESCE(ai_metadata->'kb'->'validation'->'problems', '[]'::jsonb)) = 0
          AND COALESCE((ai_metadata->'kb'->>'rereview_attempts')::int, 0) < 3
        ORDER BY id DESC LIMIT $1`, [limit],
@@ -691,28 +851,80 @@ export class KbEditorialService implements OnModuleInit, OnModuleDestroy {
   /** One cheap review call for the whole batch; one Flash call rewrites the flagged articles. Shared with flagships. */
   async reviewAndFix(items: Array<{ eventId: number; material: string }>, articles: GeneratedArticle[], timeoutMs: number,
     opts: { reviewModels?: string[]; reviewPurpose?: string; rewriteUnpatched?: boolean } = {}) {
-    const reviewPrompt = items.map((it) => {
-      const art = articles.find((a) => Number(a.event_id) === it.eventId);
-      return art ? `=== EVENT ${it.eventId} ===\n--- DOSSIER ---\n${it.material}\n--- ARTICLE ---\n# ${art.title}\n${art.summary}\n\n${art.body}` : '';
-    }).filter(Boolean).join('\n\n');
-    // The reviewer must always be able to answer, otherwise every article is held. If the Gemini models are out of quota or
-    // overloaded, Gemma (uncapped, a different model family from the writer) judges the same material.
-    let review: { json: any; model: string };
-    try {
-      review = await this.llm({
-        models: opts.reviewModels ?? models('KB_REVIEW_MODELS', MODEL_DEFAULTS.review), system: REVIEW_SYSTEM,
-        prompt: reviewPrompt, schema: REVIEW_SCHEMA, maxOutputTokens: 6_000, purpose: opts.reviewPurpose ?? 'kb_review', timeoutMs,
-      });
-    } catch (primaryError) {
-      if (this.llm !== geminiJson || process.env.KB_REVIEW_GEMMA === 'false') throw primaryError;
-      const g = await gemmaJson<{ reviews: unknown[] }>({
-        purpose: 'kb_review', priority: 'high', schema: REVIEW_SCHEMA, system: REVIEW_SYSTEM, prompt: reviewPrompt, maxOutputTokens: 6_000, timeoutMs, temperature: 0.1,
-        validate: (raw) => (raw && typeof raw === 'object' && Array.isArray((raw as { reviews?: unknown }).reviews) ? (raw as { reviews: unknown[] }) : null),
-      });
-      if (!g) throw primaryError;
-      review = { json: g.value, model: `${g.model}(fallback)` };
+    const preReviews = new Map<number, ArticleReview>();
+    const decisionModels = new Set<string>();
+    const pendingItems: Array<{ eventId: number; material: string }> = [];
+    const fallbackFlagged = new Map<number, ArticleReview>();
+    const reviewPurpose = opts.reviewPurpose ?? 'kb_review';
+
+    if (this.llm === geminiJson && process.env.KB_REVIEW_DECISION !== 'false' && process.env.GEMINI_API_KEY?.trim()) {
+      for (const it of items) {
+        const art = articles.find((a) => Number(a.event_id) === it.eventId);
+        if (!art) {
+          pendingItems.push(it);
+          continue;
+        }
+        const dec = await decisionReviewArticle(it.eventId, it.material, art, timeoutMs, reviewPurpose).catch(() => null);
+        if (dec && dec.review.verdict === 'ok') {
+          preReviews.set(it.eventId, dec.review);
+          decisionModels.add(dec.model);
+        } else {
+          if (dec) {
+            fallbackFlagged.set(it.eventId, dec.review);
+            decisionModels.add(dec.model);
+          }
+          pendingItems.push(it);
+        }
+      }
+    } else {
+      pendingItems.push(...items);
     }
-    const reviews = eventReviews(review.json?.reviews, articles, items.map((it) => it.eventId));
+
+    const reviews = new Map<number, ArticleReview>(preReviews);
+    let reviewerModel = decisionModels.size ? [...decisionModels].join('+') : '';
+
+    if (pendingItems.length) {
+      const reviewPrompt = pendingItems.map((it) => {
+        const art = articles.find((a) => Number(a.event_id) === it.eventId);
+        return art ? `=== EVENT ${it.eventId} ===\n--- DOSSIER ---\n${it.material}\n--- ARTICLE ---\n# ${art.title}\n${art.summary}\n\n${art.body}` : '';
+      }).filter(Boolean).join('\n\n');
+      // The reviewer must always be able to answer, otherwise every article is held. If the Gemini models are out of quota or
+      // overloaded, Gemma (uncapped, a different model family from the writer) judges the same material.
+      let review: { json: any; model: string } | null = null;
+      try {
+        review = await this.llm({
+          models: opts.reviewModels ?? models('KB_REVIEW_MODELS', MODEL_DEFAULTS.review), system: REVIEW_SYSTEM,
+          prompt: reviewPrompt, schema: REVIEW_SCHEMA, maxOutputTokens: 6_000, purpose: reviewPurpose, timeoutMs,
+        });
+      } catch (primaryError) {
+        if (this.llm !== geminiJson || process.env.KB_REVIEW_GEMMA === 'false') {
+          if (fallbackFlagged.size === pendingItems.length) {
+            for (const [id, r] of fallbackFlagged) reviews.set(id, r);
+          } else {
+            throw primaryError;
+          }
+        } else {
+          const g = await gemmaJson<{ reviews: unknown[] }>({
+            purpose: 'kb_review', priority: 'high', schema: REVIEW_SCHEMA, system: REVIEW_SYSTEM, prompt: reviewPrompt, maxOutputTokens: 6_000, timeoutMs, temperature: 0.1,
+            validate: (raw) => (raw && typeof raw === 'object' && Array.isArray((raw as { reviews?: unknown }).reviews) ? (raw as { reviews: unknown[] }) : null),
+          });
+          if (g) {
+            review = { json: g.value, model: `${g.model}(fallback)` };
+          } else if (fallbackFlagged.size === pendingItems.length) {
+            for (const [id, r] of fallbackFlagged) reviews.set(id, r);
+          } else {
+            throw primaryError;
+          }
+        }
+      }
+      if (review) {
+        reviewerModel = reviewerModel ? `${reviewerModel}+${review.model}` : review.model;
+        const genReviews = eventReviews(review.json?.reviews, articles, pendingItems.map((it) => it.eventId));
+        for (const [id, r] of genReviews) {
+          reviews.set(id, r.verdict === 'missing_or_invalid' && fallbackFlagged.has(id) ? fallbackFlagged.get(id)! : r);
+        }
+      }
+    }
     let toFix = items.filter((it) => reviews.get(it.eventId)?.verdict === 'fix' && reviews.get(it.eventId)!.issues.length);
     const rewriteAllowed = opts.rewriteUnpatched === true || process.env.KB_FIX_REWRITE === 'true';
     let fixer: string | null = null;
@@ -755,9 +967,9 @@ Fix only what the issue lists, using only the dossier; keep citations like [D1] 
           // only what the patches could not touch is worth a Flash rewrite
           toFix = toFix.filter((it) => reviews.get(it.eventId)?.verdict === 'fix');
         }
-        if (!rewriteAllowed || !toFix.length) return { articles: out, reviews, reviewer: review.model, fixer };
+        if (!rewriteAllowed || !toFix.length) return { articles: out, reviews, reviewer: reviewerModel, fixer };
       } catch {
-        if (!rewriteAllowed) return { articles: out, reviews, reviewer: review.model, fixer };
+        if (!rewriteAllowed) return { articles: out, reviews, reviewer: reviewerModel, fixer };
       }
     }
     if (toFix.length && (process.env.KB_FIX_PATCH === 'false' || rewriteAllowed)) {
@@ -784,7 +996,7 @@ Fix only what the issue lists, using only the dossier; keep citations like [D1] 
         this.logger.warn(`fix pass failed: ${err instanceof Error ? err.message : err}`);
       }
     }
-    return { articles: out, reviews, reviewer: review.model, fixer };
+    return { articles: out, reviews, reviewer: reviewerModel, fixer };
   }
 
   private async bumpAttempt(eventId: number, error: string) {
@@ -894,6 +1106,10 @@ Fix only what the issue lists, using only the dossier; keep citations like [D1] 
     );
     const lead = dossier.docs.find((d) => d.ref === order[0]) ?? dossier.docs[0];
     if (Math.max(dossier.event.independentSources, sourceCounts(dossier.docs).independentOrigins) < 2) problems.push('insufficient independent sources');
+    // Synthesis mode: the story must really rest on several sources (when the dossier offered them), not on one report.
+    if (synthesisEnabled() && tier === 'medium' && dossier.docs.length >= minCitedSources() && sources.length < minCitedSources()) {
+      problems.push(`cites only ${sources.length} distinct sources (synthesis needs ${minCitedSources()})`);
+    }
     if (body.length > 16_000) problems.push('truncation requires review');
     const approved = reviewApproved(opts.review, art);
     const checksPassed = approved && !problems.length && !opts.forceReview && process.env.EDITORIAL_REQUIRE_REVIEW !== 'true';

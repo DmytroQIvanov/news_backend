@@ -12,6 +12,7 @@ import { NewsMemesService } from './news-memes.service';
 import { NEWS_AUDIO_STYLES, NEWS_DEPTHS, NewsTtsService } from './news-tts.service';
 import { SourceDiscoveryService } from './source-discovery.service';
 import { analyzeCoverage, localizeProfile, resolveProfile } from './source-profiles';
+import { localizeArticleRow, localizePreview } from './article-i18n';
 
 const FEED_IMPORTANCE_SQL = `(CASE WHEN n.importance = 'high' AND ${independentOriginsSql()} >= 3 THEN 'high' ELSE 'low' END)`;
 
@@ -171,6 +172,8 @@ export class NewsController {
                 n.ai_metadata->>'thumbnail_url' AS thumbnail_url,
                 n.media->'hero' AS hero_image,
                 n.media->'visuals'->0 AS visual_preview,
+                n.ai_metadata->'article'->'i18n'->'uk'->'visuals'->0 AS visual_preview_uk,
+                n.ai_metadata->'article'->'i18n'->'en'->'visuals'->0 AS visual_preview_en,
                 jsonb_array_length(COALESCE(n.media->'visuals', '[]'::jsonb)) AS visuals_count,
                 NULLIF(n.ai_metadata->'article'->>'content_warning', 'none') AS content_warning,
                 n.ai_metadata->'article'->'headline_check' AS headline_check
@@ -212,7 +215,9 @@ export class NewsController {
         ),
       );
 
-    const localize = <T extends Record<string, unknown>>(item: T): T => {
+    const localize = <T extends Record<string, unknown>>(rawItem: T): T => {
+      const { visual_preview_uk, visual_preview_en, ...base } = rawItem as Record<string, unknown>;
+      const item = base as T;
       if (!lang) return item;
       const pick = (...keys: string[]) => {
         for (const k of keys) {
@@ -224,6 +229,7 @@ export class NewsController {
       return {
         ...item,
         lang,
+        visual_preview: localizePreview(item.visual_preview as never, (lang === 'uk' ? visual_preview_uk : visual_preview_en) as never, lang),
         display_title: lang === 'en' ? pick('title_en', 'original_title', 'title_uk') : pick('title_uk', 'original_title'),
         display_summary: lang === 'en' ? pick('summary_en', 'original_summary', 'summary_uk') : pick('summary_uk', 'original_summary'),
         display_why: lang === 'en' ? pick('why_it_matters_en', 'why_it_matters') : pick('why_it_matters'),
@@ -308,6 +314,26 @@ export class NewsController {
       ...(depthRaw ? { depth: depthRaw } : {}),
     };
   }
+  /** Lightweight cursor over published articles, including older members of news clusters. */
+  @Get('archive')
+  @Header('Cache-Control', 'public, max-age=300')
+  async archive(@Query('after') after = '0') {
+    if (!/^\d{1,18}$/.test(after)) throw new BadRequestException('Invalid article cursor');
+    const { rows } = await this.db.query(
+      `SELECT n.id::text AS id, n.original_title, n.title_uk, n.summary_uk, n.published_at, n.corrected_at,
+              ${ENGLISH_FIELDS_SQL}, tr.body AS body_en,
+              jsonb_build_object('body', n.ai_metadata->'article'->>'body',
+                                 'body_uk', n.ai_metadata->'article'->>'body_uk') AS article
+       FROM news_items n JOIN sources s ON s.id = n.source_id
+       ${ENGLISH_TRANSLATION_JOIN}
+       WHERE n.id > $1::bigint AND ${NEWS_ELIGIBILITY_SQL} AND NOT COALESCE(n.is_retracted, false)
+       ORDER BY n.id LIMIT 51`,
+      [after],
+    );
+    const items = rows.slice(0, 50);
+    return { items, nextCursor: rows.length > 50 ? String(items[49].id) : null };
+  }
+
   @Get('review')
   @UseGuards(IngestKeyGuard)
   async review(@Query('limit') limitRaw?: string) {
@@ -491,7 +517,8 @@ export class NewsController {
   }
 
   @Get(':id')
-  async detail(@Param('id') id: string, @Query('source') source?: string) {
+  async detail(@Param('id') id: string, @Query('source') source?: string, @Query('lang') langRaw?: string) {
+    const lang: 'uk' | 'en' | null = langRaw === 'en' ? 'en' : langRaw === 'uk' ? 'uk' : null;
     let resolved: Record<string, unknown> | null = null;
     if (/^rss-[a-f0-9]{24}$/.test(id)) {
       const result = await this.db
@@ -555,6 +582,8 @@ export class NewsController {
       if (rows[0]) resolved = rows[0];
     }
     if (!resolved) throw new NotFoundException('Article not found');
+    // ?lang= shows each language only in its own language: translated overlays where they exist, nothing otherwise.
+    if (lang) resolved = localizeArticleRow(resolved, lang);
 
     const storedClusterSources = Array.isArray(resolved.cluster_sources)
       ? (resolved.cluster_sources as ClusterSource[])

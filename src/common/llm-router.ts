@@ -1,4 +1,5 @@
 import { dailyLlmLimit, reserveLlmCall } from './llm-budget';
+import { decisionLimits, DEFAULT_DECISION_MODEL } from './decision-client';
 import { DEFAULT_GEMINI_MODEL, postGeminiGenerateContent } from './gemini-client';
 import { recordLlmEvent, LlmOutcome } from './llm-stats';
 import { readEnv } from './r2-storage';
@@ -87,6 +88,11 @@ export function getTargets(): Record<LlmProvider, LlmTarget[]> {
   return {
     gemini: [
       { provider: 'gemini', model: geminiModel, rpm: 4, rpd: /^gemma-/i.test(geminiModel) ? Infinity : Math.min(geminiDaily, envInt('GEMINI_DAILY_LIMIT', geminiDaily)), tpm: 250_000, maxRequestTokens: 900_000 },
+      // Every model has its own request spacing and daily quota: when the first one is at its per-minute pace the call moves to
+      // the next lite model instead of waiting, so cheap bulk work (translation, classification) runs 2-3x faster in parallel.
+      ...['gemini-3.5-flash-lite', 'gemini-2.5-flash-lite']
+        .filter((model) => model !== geminiModel && !/^gemma-/i.test(geminiModel))
+        .map((model): LlmTarget => ({ provider: 'gemini', model, rpm: 4, rpd: dailyLlmLimit(model) ?? 500, tpm: 250_000, maxRequestTokens: 900_000 })),
     ],
     // Groq free tier (per model): gpt-oss-120b/20b and qwen3.8-27b 30 rpm, 1K rpd, 8K tpm, 200K tpd;
     // allam-2-7b 30 rpm, 7K rpd, 6K tpm, 500K tpd; gpt-oss-safeguard-20b 3 rpm, 1K rpd, 2K tpm. Guard and audio models are not chat targets.
@@ -190,7 +196,10 @@ export function resetLlmRouterForTests() {
 
 /** Flat list of every configured target with its local free-tier limits (used by the stats report). */
 export function llmLimits() {
-  return Object.values(getTargets()).flat().map((t) => ({ provider: t.provider, model: t.model, rpd: t.rpd, rpm: t.rpm }));
+  return [
+    ...Object.values(getTargets()).flat().map((t) => ({ provider: t.provider, model: t.model, rpd: t.rpd, rpm: t.rpm })),
+    { provider: 'gemini' as const, model: DEFAULT_DECISION_MODEL, rpd: dailyLlmLimit(DEFAULT_DECISION_MODEL) ?? 10_000, rpm: decisionLimits().rpm },
+  ];
 }
 
 export function llmRouterStatus() {

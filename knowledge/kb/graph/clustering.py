@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import time
 from collections import Counter
 from datetime import datetime, timezone
@@ -194,6 +195,7 @@ def assign(doc: dict, analysis: dict) -> int:
     category = analysis["category"].category
     cands = _candidates(doc, vec, _weighted(raw_ents, SPECIFICITY.get(list(raw_ents))), when)
     best_id, best_score, best_signals = None, -1.0, {}
+    scored_candidates: list[dict] = []
     if cands:
         rows = db.fetch_all(
             """SELECT e.id, e.title, e.category, e.event_type, e.entity_weights, e.last_seen_at, e.started_at,
@@ -230,6 +232,7 @@ def assign(doc: dict, analysis: dict) -> int:
             if same_source_only:
                 # one outlet rarely files two separate reports of one event within hours; demand more evidence
                 s -= 0.12
+            scored_candidates.append({"id": ev["id"], "title": ev["title"], "category": ev["category"], "hours": round(hours, 1), "score": s})
             if s > best_score:
                 best_id, best_score = ev["id"], s
                 best_signals = {"sem": c.get("sem"), "ent": round(ent, 3), "title": title_sim, "hours": round(hours, 1), "score": round(s, 3)}
@@ -237,6 +240,26 @@ def assign(doc: dict, analysis: dict) -> int:
     role = _role(doc, source)
     # Without a semantic signal the decision rests on entities and titles only: demand more.
     threshold = settings.event_join_threshold + (0.0 if best_signals.get("sem") is not None or best_signals.get("dup") else 0.08)
+    if (
+        best_id is not None
+        and not best_signals.get("dup")
+        and (threshold - 0.08) <= best_score < (threshold + 0.04)
+        and os.environ.get("KB_DECISION_CLUSTER", "false").lower() in ("1", "true", "yes", "auto")
+        and os.environ.get("GEMINI_API_KEY", "").strip()
+    ):
+        from ..llm import decisions
+
+        top_cands = sorted(scored_candidates, key=lambda x: x["score"], reverse=True)[:3]
+        verdict = decisions.arbitrate_cluster(
+            doc["title"], (doc.get("body") or doc.get("feed_summary") or "")[:1200], top_cands
+        )
+        if verdict is not None and verdict[1] >= 0.80:
+            chosen_id, dec_conf = verdict
+            if chosen_id is None:
+                return _create(doc, analysis, vec, doc_type, category, when, role)
+            if chosen_id == best_id:
+                best_signals["decision_conf"] = round(dec_conf, 3)
+                return _join(best_id, doc, analysis, vec, max(best_score, threshold), best_signals, role)
     if best_id is not None and best_score >= threshold:
         return _join(best_id, doc, analysis, vec, best_score, best_signals, role)
     return _create(doc, analysis, vec, doc_type, category, when, role)

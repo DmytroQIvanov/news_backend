@@ -117,7 +117,7 @@ export interface EventDossier {
 const iso = (v: unknown) => (v instanceof Date ? v.toISOString() : typeof v === 'string' ? v : null);
 const day = (v: string | null) => (v ? v.slice(0, 10) : '—');
 
-export async function buildDossier(db: DatabaseService, eventId: number, opts: { excerptChars?: number; maxDocs?: number; includeData?: boolean } = {}): Promise<EventDossier | null> {
+export async function buildDossier(db: DatabaseService, eventId: number, opts: { excerptChars?: number; maxDocs?: number; includeData?: boolean; siblingEventIds?: number[]; siblingMaxDocs?: number } = {}): Promise<EventDossier | null> {
   const excerptChars = opts.excerptChars ?? 1500;
   const maxDocs = opts.maxDocs ?? 10;
   const ev = (await db.query(
@@ -176,6 +176,29 @@ export async function buildDossier(db: DatabaseService, eventId: number, opts: {
       source_slug: null, tier: verdict.source_type === 'official' || verdict.source_type === 'primary_document' ? 'primary' : null,
       role: c.research_kind === 'video' ? 'video' : 'corroboration', legacy_news_id: null, reliability: verdict.reliability === 'high' ? 0.85 : 0.65,
     });
+  }
+  // Synthesis mode: documents of related events of the same topic (storyline / follow-ups) enrich the dossier, one per origin.
+  if (opts.siblingEventIds?.length && (opts.siblingMaxDocs ?? 0) > 0) {
+    const have = new Set(docs.map((d) => Number(d.id)));
+    const haveRoots = new Set(docs.map((d) => d.evidence_root).filter(Boolean));
+    const extra = (await db.query(
+      `SELECT DISTINCT ON (COALESCE(d.evidence_root, d.id::text)) d.id, d.title, d.url, d.published_at, d.lang, d.extraction_status, d.evidence_root,
+              left(COALESCE(NULLIF(d.body, ''), d.feed_summary, ''), $2) AS excerpt, s.name AS source_name, s.slug AS source_slug, p.tier,
+              'storyline'::text AS role, d.legacy_news_id, COALESCE(p.reliability, 0.6) AS reliability
+       FROM kb.event_documents ed JOIN kb.documents d ON d.id = ed.document_id
+       LEFT JOIN public.sources s ON s.id = d.source_id LEFT JOIN kb.source_profiles p ON p.source_id = d.source_id
+       WHERE ed.event_id = ANY($1::bigint[]) AND ed.role <> 'reprint' AND d.kind <> 'research' AND d.extraction_status IN ('full', 'partial')
+       ORDER BY COALESCE(d.evidence_root, d.id::text), (p.tier = 'primary') DESC, COALESCE(p.reliability, 0.6) DESC, d.published_at DESC`,
+      [opts.siblingEventIds, excerptChars],
+    ).catch(() => ({ rows: [] as Record<string, any>[] }))).rows;
+    extra.sort((a, b) => Number(b.reliability) - Number(a.reliability) || String(b.published_at).localeCompare(String(a.published_at)));
+    for (const d of extra) {
+      if (docs.length >= maxDocs + (opts.siblingMaxDocs ?? 0)) break;
+      if (have.has(Number(d.id)) || (d.evidence_root && haveRoots.has(d.evidence_root))) continue;
+      have.add(Number(d.id));
+      if (d.evidence_root) haveRoots.add(d.evidence_root);
+      docs.push(d);
+    }
   }
   const docRef = new Map<number, string>();
   const outDocs: DossierDoc[] = docs.map((d, i) => {

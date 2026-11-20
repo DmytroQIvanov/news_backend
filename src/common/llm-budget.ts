@@ -99,7 +99,7 @@ function db(): Pool | null {
 const LEASE_SIZE = 25;
 const leases = new Map<string, { day: string; left: number }>();
 const tokenBuffer = new Map<string, { day: string; model: string; purpose: string; input: number; output: number; calls: number }>();
-const isLeased = (key: string) => key.startsWith('gemma-');
+const isLeased = (key: string) => key.startsWith('gemma-') || key === 'gemini-decision-1';
 
 /**
  * Reserve one request of `model` for `purpose`. Returns false when the daily budget (or the purpose's share)

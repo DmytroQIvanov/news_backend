@@ -24,6 +24,7 @@ const HEAD_SCHEMA = {
   required: ['title', 'summary', 'why'],
 };
 const CHUNK_SCHEMA = { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] };
+const PARAGRAPHS_SCHEMA = { type: 'object', properties: { paragraphs: { type: 'array', items: { type: 'string' } } }, required: ['paragraphs'] };
 
 const system = (lang: string) => `You are a professional news translator into ${LANG_NAMES[lang] ?? lang}.
 Translate faithfully and naturally for news readers: same facts, numbers, names, dates and nuance; nothing added or
@@ -39,6 +40,18 @@ export const cheapTranslator: Translator = async (lang, head, body) => {
   if (!h?.json?.title) return null;
   const parts: string[] = [];
   for (const chunk of splitParagraphChunks(body, 5000)) {
+    // Paragraph-preserving mode: one translated string per source paragraph ("## " headings included), so the article keeps its
+    // structure. A free-text answer used to lose the line breaks and glue headings into the text.
+    const source = chunk.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+    const arr = await cheapJson<{ paragraphs: string[] }>('translate', system(lang),
+      `Translate each paragraph of this JSON array into ${LANG_NAMES[lang] ?? lang}. Return {"paragraphs": [...]} with exactly ${source.length} items in the same order; keep a leading "## " on headings.
+${JSON.stringify(source)}`,
+      PARAGRAPHS_SCHEMA, Math.ceil(chunk.length / 2) + 1500);
+    const got = arr?.json?.paragraphs;
+    if (Array.isArray(got) && got.length === source.length && got.every((p) => typeof p === 'string' && p.trim())) {
+      parts.push(got.map((p) => p.trim()).join('\n\n'));
+      continue;
+    }
     const c = await cheapJson<{ text: string }>('translate', system(lang),
       `Translate this part of a news article into ${LANG_NAMES[lang] ?? lang}. Return {"text": "..."}.\n\n${chunk}`, CHUNK_SCHEMA,
       Math.ceil(chunk.length / 2) + 1500);
@@ -78,7 +91,7 @@ export class KbTranslationService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async runOnce(limit = 6) {
+  async runOnce(limit = 9) {
     if (this.running) return { translated: 0, published: 0, failed: 0 };
     this.running = true;
     const out = { translated: 0, published: 0, failed: 0 };
@@ -96,8 +109,10 @@ export class KbTranslationService implements OnModuleInit, OnModuleDestroy {
          LIMIT $1`,
         [limit],
       )).rows;
-      for (const r of rows) {
-        if (this.stopped) break;
+      // Translate up to KB_TRANSLATION_CONCURRENCY articles at once: the router spreads them over different models,
+      // so the per-model request spacing no longer serialises the whole queue.
+      const handle = async (r: (typeof rows)[number]) => {
+        if (this.stopped) return;
         const a = r.article ?? {};
         const head = { title: String(a.title ?? ''), summary: String(a.summary ?? ''), why: String(a.importance_reason ?? '') };
         const body = String(a.body ?? '');
@@ -108,7 +123,7 @@ export class KbTranslationService implements OnModuleInit, OnModuleDestroy {
             `UPDATE news_items SET ai_metadata = jsonb_set(ai_metadata, '{kb,translation_attempts}', to_jsonb($2::int)) WHERE id = $1`,
             [r.id, Number(r.attempts) + 1],
           );
-          continue;
+          return;
         }
         const goLive = r.status === 'needs_review' && r.checks_passed;
         const translated = await this.db.query<{ status: string }>(
@@ -123,12 +138,12 @@ export class KbTranslationService implements OnModuleInit, OnModuleDestroy {
            WHERE id = $1 AND status <> 'rejected' AND ai_metadata->'article' = $8::jsonb RETURNING status`,
           [r.id, uk.title.slice(0, 350), uk.summary.slice(0, 2500), uk.why.slice(0, 1500), uk.body.slice(0, 20_000), uk.model, goLive, JSON.stringify(a)],
         );
-        if (!translated.rows[0]) continue; // Concurrent replacement/rejection: discard this result.
+        if (!translated.rows[0]) return; // Concurrent replacement/rejection: discard this result.
         out.translated += 1;
         if (goLive && translated.rows[0].status === 'published') out.published += 1;
         for (const lang of getExtraLangs()) {
           const tr = await this.translator(lang, head, body).catch(() => null);
-          if (!tr) continue;
+          if (!tr) return;
           await this.db.query(
             `INSERT INTO news_translations (news_id, lang, title, summary, why_it_matters, body, model) VALUES ($1, $2, $3, $4, $5, $6, $7)
              ON CONFLICT (news_id, lang) DO UPDATE SET title = EXCLUDED.title, summary = EXCLUDED.summary,
@@ -136,7 +151,12 @@ export class KbTranslationService implements OnModuleInit, OnModuleDestroy {
             [r.id, lang, tr.title.slice(0, 350), tr.summary.slice(0, 2500), tr.why.slice(0, 1500), tr.body, tr.model],
           ).catch(() => undefined);
         }
-      }
+      };
+      const lanes = Math.max(1, Math.min(4, Number(process.env.KB_TRANSLATION_CONCURRENCY) || 3));
+      let next = 0;
+      await Promise.all(Array.from({ length: Math.min(lanes, rows.length) }, async () => {
+        while (next < rows.length && !this.stopped) await handle(rows[next++]!);
+      }));
       completed = true;
     } finally {
       if (run) await this.db.query(`UPDATE kb.pipeline_runs SET finished_at = now(), stats = $2::jsonb, error = $3 WHERE id = $1`,

@@ -13,6 +13,11 @@ export class EncyclopediaController {
     @Query('limit') limit?: string, @Query('cursor') cursor?: string, @Query('lang') lang = 'en') {
     return this.encyclopedia.list({ category,q,kind,limit,cursor },lang);
   }
+  @Get('news/:id')
+  forNews(@Param('id') id: string, @Query('lang') lang = 'en') {
+    return this.encyclopedia.forNews(id, lang);
+  }
+
   @Get(':slug')
   @Header('Cache-Control', 'public, max-age=180, stale-while-revalidate=300')
   async entry(@Param('slug') slug: string, @Query('lang') lang = 'en') {

@@ -1,3 +1,4 @@
+import { loadGdeltGkg, toDocRows } from './gdelt-gkg';
 import { createHash } from 'node:crypto';
 import { getHonestUserAgent } from '../common/source-compliance';
 import { canonicalizeUrl } from '../common/url-utils';
@@ -434,7 +435,7 @@ export function parseGdeltArticles(feed: FeedDefinition, data: unknown, now = Da
     if (!article) continue;
     perDomain.set(domain, (perDomain.get(domain) ?? 0) + 1);
     out.push(article);
-    if (out.length >= 20) break;
+    if (out.length >= 40) break;
   }
   return out;
 }
@@ -702,6 +703,14 @@ export async function runApiAdapter(feed: FeedDefinition, ctx: AdapterContext = 
       items = await loadWikipediaEvents(feed, ctx);
       break;
     case 'gdelt_ukraine': {
+      // Primary: the raw 15-minute GKG files (static, no rate limit). The DOC API throttles with 429 almost always, so it is only a fallback.
+      try {
+        const gkg = await loadGdeltGkg({ fetchFn: ctx.fetchFn, userAgent: getHonestUserAgent(), now });
+        items = parseGdeltArticles(feed, { articles: toDocRows(gkg) }, now);
+        if (items.length) break;
+      } catch (err) {
+        console.warn(`GDELT raw files failed (${err instanceof Error ? err.message : err}); trying the DOC API`);
+      }
       const query = encodeURIComponent('(Ukraine OR Україна) sourcelang:ukrainian');
       items = parseGdeltArticles(feed, await fetchJson(`${feed.url}?query=${query}&mode=artlist&format=json&maxrecords=60&sort=datedesc&timespan=12h`, ctx), now);
       break;

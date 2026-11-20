@@ -24,7 +24,7 @@ class QuotaTest(unittest.TestCase):
             self.assertEqual(gemini._pairs(gemini.DEFAULT_LIMITS), {
                 'gemini-3.1-flash-lite': '500', 'gemini-3.5-flash-lite': '500', 'gemini-3.8-flash': '20',
                 'gemini-3.6-flash': '20', 'gemini-3-flash': '20', 'gemini-2.5-flash-lite': '20', 'gemini-4-hydrogen': '20', 'gemini-3.1-flash-tts': '10',
-                'gemma-4-31b-it': '14000', 'gemma-4-26b-a4b-it': '14000'})
+                'gemma-4-31b-it': '14000', 'gemma-4-26b-a4b-it': '14000', 'gemini-decision-1': '10000'})
             self.assertEqual(gemini.budget_key('models/gemini-3-flash-preview'), 'gemini-3-flash')
             self.assertEqual(gemini.budget_key('gemini-4-hydrogen-high'), 'gemini-4-hydrogen')
             self.assertEqual(gemini.budget_key('gemma-4-31b-it'), 'gemma-4-31b-it')
@@ -68,7 +68,9 @@ class QuotaTest(unittest.TestCase):
                 self.assertEqual(sum(gemini.reserve('gemini-3-flash', 'kb_review') for _ in range(20)), 5)
                 # Re-importing the client cannot clear the durable quota rows.
                 importlib.reload(gemini)
-                self.assertFalse(gemini.reserve('gemini-3-flash', 'kb_review'))
+                with patch.object(gemini, 'datetime', wraps=datetime) as clock2, patch.object(gemini.db, 'tx', tx, create=True):
+                    clock2.now.return_value = datetime(2026, 11, 18, 12, tzinfo=timezone.utc)  # same ledger day as above
+                    self.assertFalse(gemini.reserve('gemini-3-flash', 'kb_review'))
                 self.assertTrue(all(k.startswith('llm:') and k.endswith(':gemini-3-flash') for k in locks))
 
 

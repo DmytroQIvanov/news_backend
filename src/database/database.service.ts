@@ -12,7 +12,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     this.pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       max: Math.max(1, Math.min(10, Number(process.env.DB_POOL_MAX || 3))),
-      connectionTimeoutMillis: 12_000,
+      connectionTimeoutMillis: 25_000, // the DB is on another VM that is CPU-starved at times
       idleTimeoutMillis: 15_000,
     });
     this.pool.on('error', err => console.error('Database idle client error:', err.message));

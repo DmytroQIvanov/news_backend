@@ -56,6 +56,9 @@ import { RelatedNewsService } from './news/related-news.service';
 import { PeopleDiscoveryService } from './news/people-discovery.service';
 import { DiscoveryController } from './news/discovery.controller';
 import { KbTranslationService } from './kb/kb-translation.service';
+import { ArticleI18nService } from './news/article-i18n.service';
+import { AmbientCheckService } from './news/ambient-check.service';
+import { KbDeepDiveService } from './kb/kb-deepdive.service';
 import { KbReadService } from './kb/kb-read.service';
 import { KbDataService } from './kb/kb-data.service';
 import { EncyclopediaController } from './encyclopedia/encyclopedia.controller';
@@ -125,6 +128,9 @@ import { EncyclopediaService } from './encyclopedia/encyclopedia.service';
     PeopleDiscoveryService,
     RelatedNewsService,
     KbTranslationService,
+    ArticleI18nService,
+    AmbientCheckService,
+    KbDeepDiveService,
   ],
 })
 export class AppModule {}

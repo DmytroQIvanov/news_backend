@@ -18,6 +18,7 @@ import { DatabaseService } from '../database/database.service';
 import { DISALLOWED_DISCOVERY_ROOTS } from '../news/source-discovery.service';
 import { buildDossier } from './kb-dossier';
 import { isKbEditorialActive } from './kb-editorial.service';
+import { postGeminiDecisions, type DecisionQuestion } from '../common/decision-client';
 import { gemmaLimiter } from '../common/gemma-limiter';
 import { tryGemmaJson } from './kb-gemma';
 import { geminiJson, geminiSearch, JsonLlm, models, resolveRedirect, SearchLlm } from './kb-llm';
@@ -146,7 +147,109 @@ export function coerceVerdict(raw: any): Verdict | null {
   };
 }
 
+const SOURCE_TYPE_CRITERIA: Record<string, string> = {
+  news_agency: 'Wire or news agency (Reuters, AP, AFP, Bloomberg, Interfax, Ukrinform)',
+  national_outlet: 'Established national newspaper, broadcaster or digital newsroom',
+  regional_outlet: 'Regional or local news publication',
+  official: 'Government, ministry, regulator, military or official institutional statement',
+  primary_document: 'Court filing, law, official filing, registry record or research paper',
+  specialist_press: 'Trade, technical, financial or sector-specialist publication',
+  international_org: 'UN, EU, NATO, IMF, World Bank or international body report',
+  aggregator: 'News aggregator, scraper, link directory or automated summary site',
+  blog: 'Personal blog, Substack newsletter or unverified commentary site',
+  opinion: 'Opinion column, editorial commentary or op-ed without primary reporting',
+  press_release_mill: 'PR distribution wire or corporate press release syndicator',
+  forum_social: 'Social network, forum, Reddit, X, Telegram channel or discussion thread',
+  unknown: 'Unclear or unclassifiable source',
+};
+
+const CORROBORATE_DECISION_QUESTIONS: Record<string, DecisionQuestion> = {
+  same_event: {
+    type: 'noul',
+    instructions: 'Does the CANDIDATE PAGE report on the exact same specific news event described under EVENT and SUMMARY (false if it is a different event, broad background, unrelated topic, or roundup)?',
+  },
+  on_topic: {
+    type: 'noul',
+    instructions: 'Is the candidate page focused on this specific event rather than merely mentioning it in passing?',
+  },
+  source_type: {
+    type: 'choice',
+    instructions: 'What category best describes the publisher/type of the candidate page?',
+    criteria: SOURCE_TYPE_CRITERIA,
+  },
+  reliability: {
+    type: 'choice',
+    instructions: 'How reliable is this source for factual news reporting?',
+    criteria: {
+      high: 'Reputable agency, major outlet, official body or primary document with clear editorial standards',
+      medium: 'Known regional/specialist publication or smaller outlet with standard reporting',
+      low: 'Aggregator, blog, social post, manipulative/prompt-injection page or unverified site',
+    },
+  },
+  independent: {
+    type: 'noul',
+    instructions: 'Does this page provide independent reporting rather than rewriting or syndicating one of the KNOWN SOURCES?',
+  },
+  adds_information: {
+    type: 'noul',
+    instructions: 'Does the candidate page add useful confirmation, details, context or perspective beyond a bare headline?',
+  },
+  conflicts_with_event: {
+    type: 'noul',
+    instructions: 'Does the candidate page report facts/numbers/denials about the same event that directly contradict the event summary?',
+  },
+};
+
+export async function tryDecisionVerdict(req: { system: string; prompt: string; timeoutMs?: number }): Promise<{ json: Verdict; model: string } | null> {
+  if (!process.env.GEMINI_API_KEY?.trim() || process.env.KB_CORROBORATE_DECISION === 'false') return null;
+  const minConf = Number(process.env.KB_CORROBORATE_DECISION_MIN_CONF) || 0.65;
+  const res = await postGeminiDecisions({
+    input: `${req.system}\n\n${req.prompt}`,
+    questions: CORROBORATE_DECISION_QUESTIONS,
+    purpose: 'kb_corroborate',
+    priority: 'normal',
+    timeoutMs: Math.min(req.timeoutMs ?? 30_000, 45_000),
+  });
+  const a = res.answers;
+  if (
+    a.same_event.confidence < minConf ||
+    a.on_topic.confidence < minConf ||
+    a.source_type.confidence < minConf ||
+    a.reliability.confidence < minConf ||
+    a.independent.confidence < minConf
+  ) {
+    return null;
+  }
+  const sameProb = a.same_event.noul ?? 0;
+  const same = sameProb >= 0.5;
+  const conflict = same && (a.conflicts_with_event.noul ?? 0) >= 0.65;
+  // When a contradiction is detected on the same event, let the generative model articulate `conflict_detail`.
+  if (conflict) return null;
+
+  const matchConfidence = same
+    ? Math.min(sameProb, a.same_event.confidence, a.on_topic.confidence, a.reliability.confidence)
+    : Math.min(1 - sameProb, a.same_event.confidence);
+
+  const verdict = coerceVerdict({
+    same_event: same,
+    match_confidence: matchConfidence,
+    on_topic: (a.on_topic.noul ?? 0) >= 0.5,
+    source_type: a.source_type.choice,
+    reliability: a.reliability.choice,
+    independent: (a.independent.noul ?? 0) >= 0.5,
+    adds_information: (a.adds_information.noul ?? 0) >= 0.5,
+    conflicts_with_event: false,
+    characterization: `${a.source_type.choice} (${a.reliability.choice})`,
+    reason: `gemini-decision-1 (same=${sameProb.toFixed(2)}, conf=${a.same_event.confidence.toFixed(2)})`,
+  });
+  return verdict ? { json: verdict, model: res.modelUsed } : null;
+}
+
 export const gemmaThenGemini: JsonLlm = async (req) => {
+  if (process.env.GEMINI_API_KEY?.trim() && process.env.KB_CORROBORATE_DECISION !== 'false') {
+    const decided = await tryDecisionVerdict(req).catch(() => null);
+    if (decided) return decided;
+  }
   if (process.env.GEMINI_API_KEY?.trim() && process.env.KB_CORROBORATE_GEMMA !== 'false') {
     const attempt = await tryGemmaJson<Verdict>({
       system: req.system, prompt: req.prompt, schema: req.schema, validate: coerceVerdict, maxOutputTokens: req.maxOutputTokens,

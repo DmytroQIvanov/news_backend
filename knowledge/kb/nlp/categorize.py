@@ -11,6 +11,7 @@ If none is confident, the source category is used with low confidence and the do
 from __future__ import annotations
 
 import logging
+import os
 import re
 import threading
 from dataclasses import dataclass
@@ -217,6 +218,13 @@ def categorize(
         order = np.argsort(-sims)
         if sims[order[0]] >= EMBED_MIN_SIM and sims[order[0]] - sims[order[1]] >= EMBED_MIN_GAP:
             return CategoryResult(str(labels[order[0]]), round(float(sims[order[0]]), 3), "embedding", rounded)
+
+    if os.environ.get("KB_DECISION_CATEGORIZE", "false").lower() in ("1", "true", "yes", "auto") and os.environ.get("GEMINI_API_KEY", "").strip():
+        from ..llm import decisions
+
+        dec = decisions.classify_category(title, body, tax.labels)
+        if dec is not None and dec[1] >= 0.75:
+            return CategoryResult(dec[0], round(dec[1], 3), "decision", rounded, uncertain=False)
 
     if ranked and ranked[0][0] >= 2.0:
         return CategoryResult(ranked[0][1], 0.4, "rules", rounded, uncertain=True)
